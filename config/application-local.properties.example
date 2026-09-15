@@ -1,0 +1,11 @@
+# Copy this file to config/application-local.properties, then replace every value.
+# This file is safe to commit; application-local.properties is intentionally ignored.
+
+# MySQL database for local development
+ILLUSTRATION_ARCHIVE_DB_URL=jdbc:mysql://localhost:3306/illustration_archive?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+ILLUSTRATION_ARCHIVE_DB_USERNAME=replace_with_your_mysql_username
+ILLUSTRATION_ARCHIVE_DB_PASSWORD=replace_with_your_mysql_password
+
+# An absolute directory is allowed here, but never in Java source code.
+# Example on Windows: D:/IllustrationArchiveData
+ILLUSTRATION_ARCHIVE_STORAGE_ROOT=replace_with_your_local_storage_root

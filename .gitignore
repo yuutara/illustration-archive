@@ -4,6 +4,24 @@ target/
 !**/src/main/**/target/
 !**/src/test/**/target/
 
+### Local application configuration and secrets ###
+/config/application-local.properties
+/.env
+/.env.*
+!/.env.example
+
+### Local media storage and runtime output ###
+/storage/
+/data/
+/logs/
+/.maven/
+*.log
+
+### Operating system files ###
+.DS_Store
+Thumbs.db
+Desktop.ini
+
 ### STS ###
 .apt_generated
 .classpath
