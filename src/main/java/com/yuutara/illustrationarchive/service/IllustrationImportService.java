@@ -1,4 +1,6 @@
 package com.yuutara.illustrationarchive.service;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.yuutara.illustrationarchive.storage.FileStorageService;
 import com.yuutara.illustrationarchive.storage.StoredFile;
@@ -10,6 +12,8 @@ public class IllustrationImportService {
 
 	private final FileStorageService fileStorageService;
 	private final IllustrationPersistenceService illustrationPersistenceService;
+	private static final Logger log =
+			LoggerFactory.getLogger(IllustrationImportService.class);
 
 	public IllustrationImportService(
 			FileStorageService fileStorageService,
@@ -29,6 +33,12 @@ public class IllustrationImportService {
 				fileStorageService.delete(storedFile.storageKey());
 			} catch (RuntimeException cleanupException) {
 				persistenceException.addSuppressed(cleanupException);
+
+				log.error(
+						"Failed to delete stored file after persistence failure. storageKey={}",
+						storedFile.storageKey(),
+						cleanupException
+				);
 			}
 			throw persistenceException;
 		}
