@@ -1,7 +1,9 @@
 package com.yuutara.illustrationarchive.repository;
 
 import com.yuutara.illustrationarchive.dto.AuthorSummary;
+import com.yuutara.illustrationarchive.dto.AssetSummary;
 import com.yuutara.illustrationarchive.dto.IllustrationGalleryItem;
+import com.yuutara.illustrationarchive.dto.TagSummary;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
@@ -9,6 +11,7 @@ import org.springframework.stereotype.Repository;
 
 import java.sql.Statement;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public class IllustrationRepository {
@@ -44,6 +47,44 @@ public class IllustrationRepository {
 			LEFT JOIN author a ON i.author_id = a.id
 			ORDER BY i.created_at DESC, i.id DESC
 			LIMIT ? OFFSET ?
+			""";
+
+	private static final String FIND_DETAIL_BASE_BY_ID_SQL = """
+			SELECT
+				i.id AS illustration_id,
+				i.title AS illustration_title,
+				i.source_url AS illustration_source_url,
+				i.note AS illustration_note,
+				i.created_at AS illustration_created_at,
+				i.updated_at AS illustration_updated_at,
+				a.id AS author_id,
+				a.display_name AS author_display_name,
+				a.x_username AS author_x_username
+			FROM illustration i
+			LEFT JOIN author a ON i.author_id = a.id
+			WHERE i.id = ?
+			""";
+
+	private static final String FIND_ASSET_SUMMARIES_BY_ILLUSTRATION_ID_SQL = """
+			SELECT
+				id,
+				original_filename,
+				mime_type,
+				file_size,
+				sort_order
+			FROM asset
+			WHERE illustration_id = ?
+			ORDER BY sort_order ASC, id ASC
+			""";
+
+	private static final String FIND_TAG_SUMMARIES_BY_ILLUSTRATION_ID_SQL = """
+			SELECT
+				t.id AS tag_id,
+				t.name AS tag_name
+			FROM illustration_tag it
+			JOIN tag t ON it.tag_id = t.id
+			WHERE it.illustration_id = ?
+			ORDER BY t.name ASC, t.id ASC
 			""";
 
 	private final JdbcTemplate jdbcTemplate;
@@ -91,5 +132,45 @@ public class IllustrationRepository {
 					resultSet.getTimestamp("illustration_created_at").toLocalDateTime()
 			);
 		}, size, offset);
+	}
+
+	public Optional<IllustrationDetailBase> findDetailBaseById(long id) {
+		return jdbcTemplate.query(FIND_DETAIL_BASE_BY_ID_SQL, (resultSet, rowNum) -> {
+			Long authorId = resultSet.getObject("author_id", Long.class);
+			AuthorSummary author = authorId == null
+					? null
+					: new AuthorSummary(
+							authorId,
+							resultSet.getString("author_display_name"),
+							resultSet.getString("author_x_username")
+					);
+
+			return new IllustrationDetailBase(
+					resultSet.getLong("illustration_id"),
+					resultSet.getString("illustration_title"),
+					author,
+					resultSet.getString("illustration_source_url"),
+					resultSet.getString("illustration_note"),
+					resultSet.getTimestamp("illustration_created_at").toLocalDateTime(),
+					resultSet.getTimestamp("illustration_updated_at").toLocalDateTime()
+			);
+		}, id).stream().findFirst();
+	}
+
+	public List<AssetSummary> findAssetSummariesByIllustrationId(long illustrationId) {
+		return jdbcTemplate.query(FIND_ASSET_SUMMARIES_BY_ILLUSTRATION_ID_SQL, (resultSet, rowNum) -> new AssetSummary(
+				resultSet.getLong("id"),
+				resultSet.getString("original_filename"),
+				resultSet.getString("mime_type"),
+				resultSet.getLong("file_size"),
+				resultSet.getInt("sort_order")
+		), illustrationId);
+	}
+
+	public List<TagSummary> findTagSummariesByIllustrationId(long illustrationId) {
+		return jdbcTemplate.query(FIND_TAG_SUMMARIES_BY_ILLUSTRATION_ID_SQL, (resultSet, rowNum) -> new TagSummary(
+				resultSet.getLong("tag_id"),
+				resultSet.getString("tag_name")
+		), illustrationId);
 	}
 }
