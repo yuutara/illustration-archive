@@ -1,6 +1,8 @@
 package com.yuutara.illustrationarchive.storage;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -69,6 +71,14 @@ public class FileStorageService {
 		} catch (IOException exception) {
 			throw new FileStorageException("Failed to delete stored file.", exception);
 		}
+	}
+
+	public Resource load(String storageKey) {
+		Path filePath = resolveStoragePath(storageKey);
+		if (!Files.isRegularFile(filePath)) {
+			throw new FileStorageException("Stored file does not exist or is not a regular file.");
+		}
+		return new FileSystemResource(filePath);
 	}
 
 	private void validateFile(MultipartFile file) {

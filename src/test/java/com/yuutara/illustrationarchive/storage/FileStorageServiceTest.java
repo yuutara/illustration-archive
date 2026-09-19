@@ -3,6 +3,7 @@ package com.yuutara.illustrationarchive.storage;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.core.io.Resource;
 import org.springframework.mock.web.MockMultipartFile;
 
 import java.io.IOException;
@@ -90,6 +91,42 @@ class FileStorageServiceTest {
 	void rejectsStorageKeyThatEscapesStorageRoot() {
 		assertThrows(FileStorageValidationException.class,
 				() -> fileStorageService.delete("../outside-storage-root.jpg"));
+	}
+
+	@Test
+	void loadsStoredFileAsResource() throws IOException {
+		Path storedPath = temporaryStorageRoot.resolve("2026-09/image.jpg");
+		Files.createDirectories(storedPath.getParent());
+		Files.write(storedPath, JPEG_BYTES);
+
+		Resource resource = fileStorageService.load("2026-09/image.jpg");
+
+		assertTrue(resource.exists());
+		assertEquals(storedPath.toAbsolutePath(), resource.getFile().toPath().toAbsolutePath());
+	}
+
+	@Test
+	void rejectsNullOrBlankStorageKeyWhenLoading() {
+		assertThrows(FileStorageValidationException.class, () -> fileStorageService.load(null));
+		assertThrows(FileStorageValidationException.class, () -> fileStorageService.load("  "));
+	}
+
+	@Test
+	void rejectsAbsoluteStorageKeyWhenLoading() {
+		String absolutePath = temporaryStorageRoot.resolve("outside.jpg").toAbsolutePath().toString();
+
+		assertThrows(FileStorageValidationException.class, () -> fileStorageService.load(absolutePath));
+	}
+
+	@Test
+	void rejectsStorageKeyThatEscapesStorageRootWhenLoading() {
+		assertThrows(FileStorageValidationException.class,
+				() -> fileStorageService.load("../outside-storage-root.jpg"));
+	}
+
+	@Test
+	void failsWhenLoadingMissingFile() {
+		assertThrows(FileStorageException.class, () -> fileStorageService.load("2026-09/missing.jpg"));
 	}
 
 	private MockMultipartFile file(String filename, byte[] content) {
