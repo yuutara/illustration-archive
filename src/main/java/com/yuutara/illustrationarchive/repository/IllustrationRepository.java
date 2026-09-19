@@ -3,6 +3,7 @@ package com.yuutara.illustrationarchive.repository;
 import com.yuutara.illustrationarchive.dto.AuthorSummary;
 import com.yuutara.illustrationarchive.dto.AssetSummary;
 import com.yuutara.illustrationarchive.dto.IllustrationGalleryItem;
+import com.yuutara.illustrationarchive.dto.IllustrationPatchRequest;
 import com.yuutara.illustrationarchive.dto.TagSummary;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
@@ -10,6 +11,7 @@ import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
 
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -172,5 +174,30 @@ public class IllustrationRepository {
 				resultSet.getLong("tag_id"),
 				resultSet.getString("tag_name")
 		), illustrationId);
+	}
+
+	public void updateBasicMetadata(long id, IllustrationPatchRequest request) {
+		List<String> assignments = new ArrayList<>();
+		List<Object> parameters = new ArrayList<>();
+
+		if (request.titlePresent()) {
+			assignments.add("title = ?");
+			parameters.add(request.title());
+		}
+		if (request.sourceUrlPresent()) {
+			assignments.add("source_url = ?");
+			parameters.add(request.sourceUrl());
+		}
+		if (request.notePresent()) {
+			assignments.add("note = ?");
+			parameters.add(request.note());
+		}
+		if (assignments.isEmpty()) {
+			return;
+		}
+
+		parameters.add(id);
+		String sql = "UPDATE illustration SET " + String.join(", ", assignments) + " WHERE id = ?";
+		jdbcTemplate.update(sql, parameters.toArray());
 	}
 }
