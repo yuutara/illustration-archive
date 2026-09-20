@@ -7,7 +7,8 @@
         pendingPage: 0,
         totalPages: 0,
         totalElements: 0,
-        loading: false
+        loading: false,
+        importing: false
     };
 
     const gallery = document.getElementById("gallery");
@@ -20,6 +21,160 @@
     const pageInfo = document.getElementById("page-info");
     const totalCount = document.getElementById("total-count");
     const loadStatus = document.getElementById("load-status");
+    const importFilesInput = document.getElementById("import-files");
+    const selectedFilesCount = document.getElementById("selected-files-count");
+    const selectedFilesList = document.getElementById("selected-files-list");
+    const importButton = document.getElementById("import-button");
+    const importStatus = document.getElementById("import-status");
+    const importResult = document.getElementById("import-result");
+    const importTotal = document.getElementById("import-total");
+    const importSuccessCount = document.getElementById("import-success-count");
+    const importFailureCount = document.getElementById("import-failure-count");
+    const importItems = document.getElementById("import-items");
+
+    function nonNegativeCount(value, fallback) {
+        const count = Number(value);
+        return Number.isInteger(count) && count >= 0 ? count : fallback;
+    }
+
+    function setImportStatus(message, kind) {
+        importStatus.textContent = message;
+        importStatus.classList.toggle("is-error", kind === "error");
+        importStatus.classList.toggle("is-success", kind === "success");
+    }
+
+    function clearImportResult() {
+        importResult.hidden = true;
+        importItems.replaceChildren();
+        importTotal.textContent = "0";
+        importSuccessCount.textContent = "0";
+        importFailureCount.textContent = "0";
+    }
+
+    function renderSelectedFiles() {
+        const files = Array.from(importFilesInput.files || []);
+        selectedFilesList.replaceChildren();
+        importButton.disabled = files.length === 0 || state.importing;
+
+        if (files.length === 0) {
+            selectedFilesCount.textContent = "尚未选择文件";
+            selectedFilesList.hidden = true;
+            return;
+        }
+
+        selectedFilesCount.textContent = `已选择 ${files.length} 个文件`;
+        files.forEach(function (file) {
+            const listItem = document.createElement("li");
+            listItem.textContent = file.name;
+            selectedFilesList.appendChild(listItem);
+        });
+        selectedFilesList.hidden = false;
+    }
+
+    function clearProcessedFileSelection() {
+        importFilesInput.value = "";
+        renderSelectedFiles();
+    }
+
+    function renderImportResult(data) {
+        const items = Array.isArray(data && data.items) ? data.items : [];
+        importTotal.textContent = String(nonNegativeCount(data && data.total, items.length));
+        importSuccessCount.textContent = String(nonNegativeCount(data && data.successCount, 0));
+        importFailureCount.textContent = String(nonNegativeCount(data && data.failureCount, 0));
+        importItems.replaceChildren();
+
+        items.forEach(function (item) {
+            const listItem = document.createElement("li");
+            listItem.className = "import-item";
+
+            const filename = document.createElement("span");
+            filename.className = "import-item-filename";
+            filename.textContent = item && typeof item.filename === "string" && item.filename.trim()
+                ? item.filename
+                : "未命名文件";
+
+            const outcome = document.createElement("span");
+            if (item && item.success === true) {
+                outcome.className = "import-item-success";
+                outcome.textContent = "导入成功";
+            } else {
+                outcome.className = "import-item-failure";
+                const details = [];
+                if (item && typeof item.errorCode === "string" && item.errorCode.trim()) {
+                    details.push(item.errorCode);
+                }
+                if (item && typeof item.message === "string" && item.message.trim()) {
+                    details.push(item.message);
+                }
+                outcome.textContent = details.length > 0
+                    ? `导入失败：${details.join("，")}`
+                    : "导入失败";
+            }
+
+            listItem.append(filename, outcome);
+            importItems.appendChild(listItem);
+        });
+        importResult.hidden = false;
+    }
+
+    async function importIllustrations() {
+        if (state.importing) {
+            return;
+        }
+
+        const files = Array.from(importFilesInput.files || []);
+        if (files.length === 0) {
+            setImportStatus("请先选择要导入的文件。", "error");
+            return;
+        }
+
+        state.importing = true;
+        importFilesInput.disabled = true;
+        importButton.disabled = true;
+        clearImportResult();
+        setImportStatus("正在导入…", "");
+
+        const formData = new FormData();
+        files.forEach(function (file) {
+            formData.append("files", file);
+        });
+
+        let batchHandled = false;
+        try {
+            const response = await fetch("/api/illustrations/import", {
+                method: "POST",
+                headers: { Accept: "application/json" },
+                body: formData
+            });
+            if (!response.ok) {
+                throw new Error(`Import request failed with status ${response.status}`);
+            }
+
+            const data = await response.json();
+            renderImportResult(data);
+            clearProcessedFileSelection();
+            batchHandled = true;
+
+            const successCount = nonNegativeCount(data && data.successCount, 0);
+            const failureCount = nonNegativeCount(data && data.failureCount, 0);
+            const summary = `批量导入完成：成功 ${successCount} 个，失败 ${failureCount} 个`;
+            setImportStatus(`${summary}。`, failureCount > 0 ? "" : "success");
+
+            if (successCount > 0) {
+                setImportStatus(`${summary}，正在刷新图库…`, failureCount > 0 ? "" : "success");
+                await loadPage(state.page);
+                setImportStatus(`${summary}。图库已刷新。`, failureCount > 0 ? "" : "success");
+            }
+        } catch (error) {
+            setImportStatus("导入请求失败，请重试。", "error");
+        } finally {
+            state.importing = false;
+            importFilesInput.disabled = false;
+            if (!batchHandled) {
+                renderSelectedFiles();
+            }
+        }
+    }
 
     function titleFor(item) {
         return item && typeof item.title === "string" && item.title.trim()
@@ -178,6 +333,14 @@
     retryButton.addEventListener("click", function () {
         loadPage(state.pendingPage);
     });
+
+    importFilesInput.addEventListener("change", function () {
+        clearImportResult();
+        setImportStatus("", "");
+        renderSelectedFiles();
+    });
+
+    importButton.addEventListener("click", importIllustrations);
 
     loadPage(0);
 })();

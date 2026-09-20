@@ -18,6 +18,35 @@
         <p id="load-status" class="load-status" aria-live="polite">正在加载…</p>
     </header>
 
+    <section class="import-section" aria-labelledby="import-heading">
+        <div class="section-heading">
+            <div>
+                <h2 id="import-heading">导入插画</h2>
+                <p class="section-description">一次选择多个文件，加入你的个人归档。</p>
+            </div>
+        </div>
+
+        <div class="import-controls">
+            <label class="file-input-label" for="import-files">选择文件</label>
+            <input id="import-files" class="file-input" type="file" multiple
+                   accept=".jpg,.jpeg,.png,.gif,image/jpeg,image/png,image/gif">
+            <button id="import-button" class="primary-button import-button" type="button" disabled>开始导入</button>
+        </div>
+
+        <p id="selected-files-count" class="selection-summary" aria-live="polite">尚未选择文件</p>
+        <ul id="selected-files-list" class="selected-files-list" hidden></ul>
+        <p id="import-status" class="import-status" role="status" aria-live="polite"></p>
+
+        <div id="import-result" class="import-result" hidden>
+            <div class="import-result-summary" aria-label="导入统计">
+                <span>总数 <strong id="import-total">0</strong></span>
+                <span>成功 <strong id="import-success-count">0</strong></span>
+                <span>失败 <strong id="import-failure-count">0</strong></span>
+            </div>
+            <ul id="import-items" class="import-items"></ul>
+        </div>
+    </section>
+
     <section aria-labelledby="gallery-heading">
         <div class="section-heading">
             <h2 id="gallery-heading">全部插画</h2>
