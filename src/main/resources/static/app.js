@@ -73,8 +73,11 @@
 
     function createCard(item) {
         const title = titleFor(item);
-        const card = document.createElement("article");
+        const card = document.createElement("a");
         card.className = "illustration-card";
+        if (item && item.id !== null && item.id !== undefined) {
+            card.href = `/detail.html?id=${encodeURIComponent(String(item.id))}`;
+        }
 
         const imageContainer = document.createElement("div");
         imageContainer.className = "card-image";
