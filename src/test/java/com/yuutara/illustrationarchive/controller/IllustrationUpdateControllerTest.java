@@ -84,6 +84,58 @@ class IllustrationUpdateControllerTest {
 		assertFalse(request.notePresent());
 	}
 
+	@Test
+	void mapsAuthorIdValueToPresentLongField() throws Exception {
+		IllustrationUpdateService illustrationUpdateService = mock(IllustrationUpdateService.class);
+		MockMvc mockMvc = MockMvcBuilders
+				.standaloneSetup(new IllustrationUpdateController(illustrationUpdateService))
+				.build();
+
+		mockMvc.perform(patch("/api/illustrations/3")
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("{\"authorId\":1}"))
+				.andExpect(status().isNoContent());
+
+		IllustrationPatchRequest request = capturedRequest(illustrationUpdateService);
+		assertTrue(request.authorIdPresent());
+		assertEquals(1L, request.authorId());
+	}
+
+	@Test
+	void mapsExplicitNullAuthorIdToPresentNullField() throws Exception {
+		IllustrationUpdateService illustrationUpdateService = mock(IllustrationUpdateService.class);
+		MockMvc mockMvc = MockMvcBuilders
+				.standaloneSetup(new IllustrationUpdateController(illustrationUpdateService))
+				.build();
+
+		mockMvc.perform(patch("/api/illustrations/3")
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("{\"authorId\":null}"))
+				.andExpect(status().isNoContent());
+
+		IllustrationPatchRequest request = capturedRequest(illustrationUpdateService);
+		assertTrue(request.authorIdPresent());
+		assertNull(request.authorId());
+	}
+
+	@Test
+	void leavesAuthorIdAbsentWhenItIsMissingFromJson() throws Exception {
+		IllustrationUpdateService illustrationUpdateService = mock(IllustrationUpdateService.class);
+		MockMvc mockMvc = MockMvcBuilders
+				.standaloneSetup(new IllustrationUpdateController(illustrationUpdateService))
+				.build();
+
+		mockMvc.perform(patch("/api/illustrations/3")
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("{\"title\":\"A\"}"))
+				.andExpect(status().isNoContent());
+
+		IllustrationPatchRequest request = capturedRequest(illustrationUpdateService);
+		assertFalse(request.authorIdPresent());
+		assertTrue(request.titlePresent());
+		assertEquals("A", request.title());
+	}
+
 	private IllustrationPatchRequest capturedRequest(IllustrationUpdateService illustrationUpdateService) {
 		ArgumentCaptor<IllustrationPatchRequest> requestCaptor =
 				ArgumentCaptor.forClass(IllustrationPatchRequest.class);
