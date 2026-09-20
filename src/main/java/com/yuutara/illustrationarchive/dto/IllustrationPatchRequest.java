@@ -8,6 +8,8 @@ public class IllustrationPatchRequest {
 	private boolean sourceUrlPresent;
 	private String note;
 	private boolean notePresent;
+	private Long authorId;
+	private boolean authorIdPresent;
 
 	public void setTitle(String title) {
 		this.title = title;
@@ -22,6 +24,11 @@ public class IllustrationPatchRequest {
 	public void setNote(String note) {
 		this.note = note;
 		this.notePresent = true;
+	}
+
+	public void setAuthorId(Long authorId) {
+		this.authorId = authorId;
+		this.authorIdPresent = true;
 	}
 
 	public String title() {
@@ -46,5 +53,13 @@ public class IllustrationPatchRequest {
 
 	public boolean notePresent() {
 		return notePresent;
+	}
+
+	public Long authorId() {
+		return authorId;
+	}
+
+	public boolean authorIdPresent() {
+		return authorIdPresent;
 	}
 }

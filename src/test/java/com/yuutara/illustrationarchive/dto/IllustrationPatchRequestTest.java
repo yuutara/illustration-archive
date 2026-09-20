@@ -16,6 +16,7 @@ class IllustrationPatchRequestTest {
 		assertFalse(request.titlePresent());
 		assertFalse(request.sourceUrlPresent());
 		assertFalse(request.notePresent());
+		assertFalse(request.authorIdPresent());
 	}
 
 	@Test
@@ -41,5 +42,18 @@ class IllustrationPatchRequestTest {
 		assertNull(request.sourceUrl());
 		assertTrue(request.notePresent());
 		assertEquals("Updated note", request.note());
+	}
+
+	@Test
+	void marksAuthorIdAsPresentForValueAndNull() {
+		IllustrationPatchRequest withValue = new IllustrationPatchRequest();
+		withValue.setAuthorId(1L);
+		IllustrationPatchRequest withNull = new IllustrationPatchRequest();
+		withNull.setAuthorId(null);
+
+		assertTrue(withValue.authorIdPresent());
+		assertEquals(1L, withValue.authorId());
+		assertTrue(withNull.authorIdPresent());
+		assertNull(withNull.authorId());
 	}
 }

@@ -184,6 +184,10 @@ public class IllustrationRepository {
 			assignments.add("title = ?");
 			parameters.add(request.title());
 		}
+		if (request.authorIdPresent()) {
+			assignments.add("author_id = ?");
+			parameters.add(request.authorId());
+		}
 		if (request.sourceUrlPresent()) {
 			assignments.add("source_url = ?");
 			parameters.add(request.sourceUrl());

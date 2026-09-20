@@ -50,6 +50,52 @@ class IllustrationMetadataUpdateRepositoryTest {
 	}
 
 	@Test
+	void updatesOnlyAuthorIdWhenOnlyAuthorIdIsPresent() {
+		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate);
+		IllustrationPatchRequest request = new IllustrationPatchRequest();
+		request.setAuthorId(7L);
+		when(jdbcTemplate.update(anyString(), any(Object[].class))).thenReturn(1);
+
+		repository.updateBasicMetadata(10L, request);
+
+		assertUpdate(jdbcTemplate, "UPDATE illustration SET author_id = ? WHERE id = ?", 7L, 10L);
+	}
+
+	@Test
+	void bindsNullWhenAuthorIdIsExplicitlyCleared() {
+		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate);
+		IllustrationPatchRequest request = new IllustrationPatchRequest();
+		request.setAuthorId(null);
+		when(jdbcTemplate.update(anyString(), any(Object[].class))).thenReturn(1);
+
+		repository.updateBasicMetadata(10L, request);
+
+		assertUpdate(jdbcTemplate, "UPDATE illustration SET author_id = ? WHERE id = ?", null, 10L);
+	}
+
+	@Test
+	void updatesTitleAndAuthorIdInStableColumnOrder() {
+		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate);
+		IllustrationPatchRequest request = new IllustrationPatchRequest();
+		request.setTitle("New title");
+		request.setAuthorId(7L);
+		when(jdbcTemplate.update(anyString(), any(Object[].class))).thenReturn(1);
+
+		repository.updateBasicMetadata(10L, request);
+
+		assertUpdate(
+				jdbcTemplate,
+				"UPDATE illustration SET title = ?, author_id = ? WHERE id = ?",
+				"New title",
+				7L,
+				10L
+		);
+	}
+
+	@Test
 	void bindsNullWhenSourceUrlIsExplicitlyCleared() {
 		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
 		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate);
