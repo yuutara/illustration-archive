@@ -2,6 +2,8 @@ package com.yuutara.illustrationarchive.dto;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -17,6 +19,7 @@ class IllustrationPatchRequestTest {
 		assertFalse(request.sourceUrlPresent());
 		assertFalse(request.notePresent());
 		assertFalse(request.authorIdPresent());
+		assertFalse(request.tagIdsPresent());
 	}
 
 	@Test
@@ -55,5 +58,22 @@ class IllustrationPatchRequestTest {
 		assertEquals(1L, withValue.authorId());
 		assertTrue(withNull.authorIdPresent());
 		assertNull(withNull.authorId());
+	}
+
+	@Test
+	void marksTagIdsAsPresentForValuesEmptyListAndNull() {
+		IllustrationPatchRequest withValues = new IllustrationPatchRequest();
+		withValues.setTagIds(List.of(1L, 2L));
+		IllustrationPatchRequest withEmptyList = new IllustrationPatchRequest();
+		withEmptyList.setTagIds(List.of());
+		IllustrationPatchRequest withNull = new IllustrationPatchRequest();
+		withNull.setTagIds(null);
+
+		assertTrue(withValues.tagIdsPresent());
+		assertEquals(List.of(1L, 2L), withValues.tagIds());
+		assertTrue(withEmptyList.tagIdsPresent());
+		assertEquals(List.of(), withEmptyList.tagIds());
+		assertTrue(withNull.tagIdsPresent());
+		assertNull(withNull.tagIds());
 	}
 }

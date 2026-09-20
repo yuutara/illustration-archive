@@ -1,5 +1,7 @@
 package com.yuutara.illustrationarchive.dto;
 
+import java.util.List;
+
 public class IllustrationPatchRequest {
 
 	private String title;
@@ -10,6 +12,8 @@ public class IllustrationPatchRequest {
 	private boolean notePresent;
 	private Long authorId;
 	private boolean authorIdPresent;
+	private List<Long> tagIds;
+	private boolean tagIdsPresent;
 
 	public void setTitle(String title) {
 		this.title = title;
@@ -29,6 +33,11 @@ public class IllustrationPatchRequest {
 	public void setAuthorId(Long authorId) {
 		this.authorId = authorId;
 		this.authorIdPresent = true;
+	}
+
+	public void setTagIds(List<Long> tagIds) {
+		this.tagIds = tagIds;
+		this.tagIdsPresent = true;
 	}
 
 	public String title() {
@@ -61,5 +70,13 @@ public class IllustrationPatchRequest {
 
 	public boolean authorIdPresent() {
 		return authorIdPresent;
+	}
+
+	public List<Long> tagIds() {
+		return tagIds;
+	}
+
+	public boolean tagIdsPresent() {
+		return tagIdsPresent;
 	}
 }
