@@ -7,6 +7,7 @@ import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
 
 import java.sql.Statement;
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -31,6 +32,13 @@ public class AssetRepository {
 				file_size
 			FROM asset
 			WHERE id = ?
+			""";
+
+	private static final String FIND_STORAGE_KEYS_BY_ILLUSTRATION_ID_SQL = """
+			SELECT storage_key
+			FROM asset
+			WHERE illustration_id = ?
+			ORDER BY sort_order ASC, id ASC
 			""";
 
 	private final JdbcTemplate jdbcTemplate;
@@ -72,5 +80,13 @@ public class AssetRepository {
 				resultSet.getString("mime_type"),
 				resultSet.getLong("file_size")
 		), id).stream().findFirst();
+	}
+
+	public List<String> findStorageKeysByIllustrationId(long illustrationId) {
+		return jdbcTemplate.query(
+				FIND_STORAGE_KEYS_BY_ILLUSTRATION_ID_SQL,
+				(resultSet, rowNum) -> resultSet.getString("storage_key"),
+				illustrationId
+		);
 	}
 }

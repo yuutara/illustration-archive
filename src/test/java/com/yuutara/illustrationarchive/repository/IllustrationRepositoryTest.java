@@ -244,4 +244,14 @@ class IllustrationRepositoryTest {
 		assertEquals(5L, tag.id());
 		assertEquals("landscape", tag.name());
 	}
+
+	@Test
+	void deletesIllustrationById() {
+		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate);
+
+		repository.deleteById(10L);
+
+		verify(jdbcTemplate).update("DELETE FROM illustration WHERE id = ?", 10L);
+	}
 }

@@ -62,4 +62,28 @@ class AssetRepositoryTest {
 		assertTrue(result.isEmpty());
 		verify(jdbcTemplate).query(anyString(), any(RowMapper.class), eq(99L));
 	}
+
+	@Test
+	void findsStorageKeysByIllustrationIdInStableOrder() throws Exception {
+		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+		AssetRepository repository = new AssetRepository(jdbcTemplate);
+		ResultSet resultSet = mock(ResultSet.class);
+		when(resultSet.getString("storage_key")).thenReturn("2026-09/example.jpg");
+
+		@SuppressWarnings({"unchecked", "rawtypes"})
+		ArgumentCaptor<RowMapper<String>> rowMapperCaptor =
+				(ArgumentCaptor) ArgumentCaptor.forClass(RowMapper.class);
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(10L))).thenReturn(List.of());
+
+		repository.findStorageKeysByIllustrationId(10L);
+
+		ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+		verify(jdbcTemplate).query(sqlCaptor.capture(), rowMapperCaptor.capture(), eq(10L));
+		String sql = sqlCaptor.getValue();
+		assertTrue(sql.contains("SELECT storage_key"));
+		assertTrue(sql.contains("FROM asset"));
+		assertTrue(sql.contains("WHERE illustration_id = ?"));
+		assertTrue(sql.contains("ORDER BY sort_order ASC, id ASC"));
+		assertEquals("2026-09/example.jpg", rowMapperCaptor.getValue().mapRow(resultSet, 0));
+	}
 }

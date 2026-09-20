@@ -24,6 +24,7 @@ public class IllustrationRepository {
 			""";
 
 	private static final String COUNT_SQL = "SELECT COUNT(*) FROM illustration";
+	private static final String DELETE_BY_ID_SQL = "DELETE FROM illustration WHERE id = ?";
 
 	private static final String FIND_GALLERY_PAGE_SQL = """
 			SELECT
@@ -203,5 +204,9 @@ public class IllustrationRepository {
 		parameters.add(id);
 		String sql = "UPDATE illustration SET " + String.join(", ", assignments) + " WHERE id = ?";
 		jdbcTemplate.update(sql, parameters.toArray());
+	}
+
+	public void deleteById(long id) {
+		jdbcTemplate.update(DELETE_BY_ID_SQL, id);
 	}
 }
