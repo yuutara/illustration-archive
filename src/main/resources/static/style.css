@@ -594,14 +594,17 @@ h2 {
 }
 
 .detail-author-create-row,
-.detail-author-create-actions {
+.detail-author-create-actions,
+.detail-tag-create-row,
+.detail-tag-create-actions {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
     gap: 10px;
 }
 
-.detail-author-create-panel {
+.detail-author-create-panel,
+.detail-tag-create-panel {
     display: grid;
     gap: 12px;
     padding: 14px;

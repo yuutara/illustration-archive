@@ -122,6 +122,29 @@
                             <button id="detail-tag-search-button" class="secondary-button" type="button">搜索标签</button>
                         </div>
 
+                        <div class="detail-tag-create-row">
+                            <button id="detail-tag-create-button" class="secondary-button" type="button">
+                                新建标签
+                            </button>
+                        </div>
+
+                        <div id="detail-tag-create-panel" class="detail-tag-create-panel" hidden>
+                            <label class="detail-field" for="detail-tag-create-name">
+                                <span class="detail-label">标签名称</span>
+                                <input id="detail-tag-create-name" type="text" autocomplete="off">
+                            </label>
+
+                            <div class="detail-tag-create-actions">
+                                <button id="detail-tag-create-submit" class="primary-button" type="button">
+                                    创建标签
+                                </button>
+                                <button id="detail-tag-create-cancel" class="secondary-button" type="button">
+                                    取消
+                                </button>
+                            </div>
+                            <p id="detail-tag-create-status" class="detail-edit-status" aria-live="polite"></p>
+                        </div>
+
                         <p id="detail-tag-search-status" class="detail-edit-status" aria-live="polite"></p>
                         <ul id="detail-tag-search-results" class="tag-search-results"></ul>
                     </section>

@@ -15,7 +15,8 @@
         authorSearching: false,
         tagsDirty: false,
         selectedTags: [],
-        tagSearching: false
+        tagSearching: false,
+        creatingTag: false
     };
 
     const detailStatus = document.getElementById("detail-status");
@@ -50,6 +51,12 @@
     const tagSelectionElement = document.getElementById("detail-tag-selection");
     const tagSearchStatus = document.getElementById("detail-tag-search-status");
     const tagSearchResults = document.getElementById("detail-tag-search-results");
+    const tagCreateButton = document.getElementById("detail-tag-create-button");
+    const tagCreatePanel = document.getElementById("detail-tag-create-panel");
+    const tagCreateNameInput = document.getElementById("detail-tag-create-name");
+    const tagCreateSubmitButton = document.getElementById("detail-tag-create-submit");
+    const tagCreateCancelButton = document.getElementById("detail-tag-create-cancel");
+    const tagCreateStatus = document.getElementById("detail-tag-create-status");
     const saveButton = document.getElementById("detail-save-button");
     const cancelButton = document.getElementById("detail-cancel-button");
     const titleElement = document.getElementById("detail-title");
@@ -87,6 +94,24 @@
     function trimmedOrNull(value) {
         const trimmed = value.trim();
         return trimmed ? trimmed : null;
+    }
+
+    function creationInProgress() {
+        return state.creatingAuthor || state.creatingTag;
+    }
+
+    function setCreationControlsDisabled(disabled) {
+        authorCreateButton.disabled = disabled;
+        authorCreateSubmitButton.disabled = disabled;
+        authorCreateCancelButton.disabled = disabled;
+        authorCreateDisplayNameInput.disabled = disabled;
+        authorCreateXUsernameInput.disabled = disabled;
+        tagCreateButton.disabled = disabled;
+        tagCreateSubmitButton.disabled = disabled;
+        tagCreateCancelButton.disabled = disabled;
+        tagCreateNameInput.disabled = disabled;
+        saveButton.disabled = disabled;
+        cancelButton.disabled = disabled;
     }
 
     function populateEditForm(detail) {
@@ -162,13 +187,7 @@
 
     function setCreatingAuthor(creating) {
         state.creatingAuthor = creating;
-        authorCreateButton.disabled = creating || state.saving;
-        authorCreateSubmitButton.disabled = creating || state.saving;
-        authorCreateCancelButton.disabled = creating || state.saving;
-        authorCreateDisplayNameInput.disabled = creating || state.saving;
-        authorCreateXUsernameInput.disabled = creating || state.saving;
-        saveButton.disabled = state.saving || creating;
-        cancelButton.disabled = state.saving || creating;
+        setCreationControlsDisabled(state.saving || state.deleting || creationInProgress());
     }
 
     function closeAuthorCreateForm() {
@@ -181,6 +200,7 @@
 
     function openAuthorCreateForm() {
         if (!state.editing || state.saving || state.deleting || state.creatingAuthor
+            || state.creatingTag
             || !authorCreatePanel.hidden) {
             return;
         }
@@ -193,7 +213,8 @@
     }
 
     async function createAuthor() {
-        if (!state.editing || state.creatingAuthor || state.saving || state.deleting) {
+        if (!state.editing || state.creatingAuthor || state.creatingTag
+            || state.saving || state.deleting) {
             return;
         }
 
@@ -355,6 +376,7 @@
     }
 
     function resetTagEditor() {
+        closeTagCreateForm();
         state.tagsDirty = false;
         state.selectedTags = Array.isArray(state.detail && state.detail.tags)
             ? state.detail.tags.filter(validTag).map(normalizeTag)
@@ -399,6 +421,86 @@
         tagSearchStatus.textContent = "已移除标签，保存后生效。";
     }
 
+    function setCreatingTag(creating) {
+        state.creatingTag = creating;
+        const disabled = state.saving || state.deleting || creationInProgress();
+        setCreationControlsDisabled(disabled);
+        tagSearchInput.disabled = disabled;
+        tagSearchButton.disabled = disabled || state.tagSearching;
+        tagSelectionElement.querySelectorAll("button").forEach(function (button) {
+            button.disabled = disabled;
+        });
+        tagSearchResults.querySelectorAll("button").forEach(function (button) {
+            button.disabled = disabled;
+        });
+    }
+
+    function closeTagCreateForm() {
+        setCreatingTag(false);
+        tagCreatePanel.hidden = true;
+        tagCreateNameInput.value = "";
+        tagCreateStatus.textContent = "";
+    }
+
+    function openTagCreateForm() {
+        if (!state.editing || state.saving || state.deleting || state.tagSearching || state.creatingTag
+            || state.creatingAuthor
+            || !tagCreatePanel.hidden) {
+            return;
+        }
+
+        tagCreateNameInput.value = "";
+        tagCreateStatus.textContent = "";
+        tagCreatePanel.hidden = false;
+        tagCreateNameInput.focus();
+    }
+
+    async function createTag() {
+        if (!state.editing || state.creatingTag || state.creatingAuthor
+            || state.saving || state.deleting) {
+            return;
+        }
+
+        const name = tagCreateNameInput.value.trim();
+        if (!name) {
+            tagCreateStatus.textContent = "标签名称不能为空。";
+            tagCreateNameInput.focus();
+            return;
+        }
+
+        setCreatingTag(true);
+        tagCreateStatus.textContent = "正在创建…";
+
+        try {
+            const response = await fetch("/api/tags", {
+                method: "POST",
+                headers: {
+                    Accept: "application/json",
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ name: name })
+            });
+            if (!response.ok) {
+                throw new Error(`Tag creation failed with status ${response.status}`);
+            }
+
+            const createdTag = await response.json();
+            if (!validTag(createdTag)) {
+                throw new Error("Created tag response is invalid.");
+            }
+
+            closeTagCreateForm();
+            selectTag(createdTag);
+            tagSearchStatus.textContent = "已创建并选择标签，保存后生效。";
+        } catch (error) {
+            tagCreateStatus.textContent = "创建标签失败，请检查输入后重试。";
+        } finally {
+            if (state.creatingTag) {
+                setCreatingTag(false);
+            }
+        }
+    }
+
     function renderTagSearchResults(tags) {
         tagSearchResults.replaceChildren();
         const validTags = Array.isArray(tags)
@@ -431,7 +533,7 @@
     }
 
     async function searchTags() {
-        if (state.saving || state.tagSearching) {
+        if (state.saving || state.tagSearching || state.creatingTag) {
             return;
         }
 
@@ -465,14 +567,13 @@
             tagSearchStatus.textContent = "搜索标签失败，请重试。";
         } finally {
             state.tagSearching = false;
-            tagSearchButton.disabled = state.saving;
+            tagSearchButton.disabled = state.saving || state.creatingTag;
         }
     }
 
     function setSaving(saving) {
         state.saving = saving;
-        saveButton.disabled = saving;
-        cancelButton.disabled = saving;
+        setCreationControlsDisabled(saving || state.deleting || creationInProgress());
         titleInput.disabled = saving;
         sourceInput.disabled = saving;
         noteInput.disabled = saving;
@@ -482,18 +583,13 @@
         authorSearchResults.querySelectorAll("button").forEach(function (button) {
             button.disabled = saving;
         });
-        authorCreateButton.disabled = saving || state.creatingAuthor;
-        authorCreateSubmitButton.disabled = saving || state.creatingAuthor;
-        authorCreateCancelButton.disabled = saving || state.creatingAuthor;
-        authorCreateDisplayNameInput.disabled = saving || state.creatingAuthor;
-        authorCreateXUsernameInput.disabled = saving || state.creatingAuthor;
-        tagSearchInput.disabled = saving;
-        tagSearchButton.disabled = saving || state.tagSearching;
+        tagSearchInput.disabled = saving || state.creatingTag;
+        tagSearchButton.disabled = saving || state.creatingTag || state.tagSearching;
         tagSelectionElement.querySelectorAll("button").forEach(function (button) {
-            button.disabled = saving;
+            button.disabled = saving || state.creatingTag;
         });
         tagSearchResults.querySelectorAll("button").forEach(function (button) {
-            button.disabled = saving;
+            button.disabled = saving || state.creatingTag;
         });
     }
 
@@ -544,7 +640,7 @@
     }
 
     function startEditing() {
-        if (!state.detail || state.saving || state.deleting || state.creatingAuthor) {
+        if (!state.detail || state.saving || state.deleting || state.creatingAuthor || state.creatingTag) {
             return;
         }
 
@@ -557,7 +653,7 @@
     }
 
     function cancelEditing() {
-        if (state.saving || state.deleting || state.creatingAuthor) {
+        if (state.saving || state.deleting || state.creatingAuthor || state.creatingTag) {
             return;
         }
 
@@ -749,7 +845,8 @@
 
     async function saveDetail(event) {
         event.preventDefault();
-        if (state.saving || state.deleting || state.creatingAuthor || state.illustrationId === null) {
+        if (state.saving || state.deleting || state.creatingAuthor || state.creatingTag
+            || state.illustrationId === null) {
             return;
         }
 
@@ -818,6 +915,9 @@
             searchTags();
         }
     });
+    tagCreateButton.addEventListener("click", openTagCreateForm);
+    tagCreateSubmitButton.addEventListener("click", createTag);
+    tagCreateCancelButton.addEventListener("click", closeTagCreateForm);
     state.illustrationId = readIllustrationId();
     if (state.illustrationId === null) {
         detailStatus.textContent = "无法加载";
