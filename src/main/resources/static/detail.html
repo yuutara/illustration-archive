@@ -74,6 +74,23 @@
                         <ul id="detail-author-search-results" class="author-search-results"></ul>
                     </section>
 
+                    <section class="detail-tag-editor" aria-labelledby="detail-tag-edit-label">
+                        <span id="detail-tag-edit-label" class="detail-label">标签</span>
+                        <div id="detail-tag-selection" class="detail-tag-selection" aria-live="polite"></div>
+
+                        <div class="detail-tag-search-row">
+                            <label class="detail-field detail-tag-search-field" for="detail-tag-search-input">
+                                <span class="detail-label">搜索标签</span>
+                                <input id="detail-tag-search-input" type="search"
+                                       placeholder="输入标签名称" autocomplete="off">
+                            </label>
+                            <button id="detail-tag-search-button" class="secondary-button" type="button">搜索标签</button>
+                        </div>
+
+                        <p id="detail-tag-search-status" class="detail-edit-status" aria-live="polite"></p>
+                        <ul id="detail-tag-search-results" class="tag-search-results"></ul>
+                    </section>
+
                     <div class="detail-edit-actions">
                         <button id="detail-save-button" class="primary-button" type="submit">保存</button>
                         <button id="detail-cancel-button" class="secondary-button" type="button">取消</button>

@@ -10,7 +10,10 @@
         authorDirty: false,
         selectedAuthorId: null,
         selectedAuthor: null,
-        authorSearching: false
+        authorSearching: false,
+        tagsDirty: false,
+        selectedTags: [],
+        tagSearching: false
     };
 
     const detailStatus = document.getElementById("detail-status");
@@ -32,6 +35,11 @@
     const authorSelectionElement = document.getElementById("detail-author-selection");
     const authorSearchStatus = document.getElementById("detail-author-search-status");
     const authorSearchResults = document.getElementById("detail-author-search-results");
+    const tagSearchInput = document.getElementById("detail-tag-search-input");
+    const tagSearchButton = document.getElementById("detail-tag-search-button");
+    const tagSelectionElement = document.getElementById("detail-tag-selection");
+    const tagSearchStatus = document.getElementById("detail-tag-search-status");
+    const tagSearchResults = document.getElementById("detail-tag-search-results");
     const saveButton = document.getElementById("detail-save-button");
     const cancelButton = document.getElementById("detail-cancel-button");
     const titleElement = document.getElementById("detail-title");
@@ -205,6 +213,160 @@
         }
     }
 
+    function validTag(tag) {
+        const tagId = Number(tag && tag.id);
+        return Number.isSafeInteger(tagId)
+            && tagId > 0
+            && typeof (tag && tag.name) === "string"
+            && tag.name.trim();
+    }
+
+    function normalizeTag(tag) {
+        return {
+            id: Number(tag.id),
+            name: tag.name.trim()
+        };
+    }
+
+    function renderSelectedTags() {
+        tagSelectionElement.replaceChildren();
+        if (state.selectedTags.length === 0) {
+            const emptyTags = document.createElement("p");
+            emptyTags.className = "empty-value";
+            emptyTags.textContent = "暂无标签";
+            tagSelectionElement.appendChild(emptyTags);
+            return;
+        }
+
+        state.selectedTags.forEach(function (tag) {
+            const tagButton = document.createElement("button");
+            tagButton.className = "tag-chip tag-edit-chip";
+            tagButton.type = "button";
+            tagButton.disabled = state.saving;
+            tagButton.textContent = `${tag.name} ×`;
+            tagButton.setAttribute("aria-label", `移除标签 ${tag.name}`);
+            tagButton.addEventListener("click", function () {
+                removeTag(tag.id);
+            });
+            tagSelectionElement.appendChild(tagButton);
+        });
+    }
+
+    function resetTagEditor() {
+        state.tagsDirty = false;
+        state.selectedTags = Array.isArray(state.detail && state.detail.tags)
+            ? state.detail.tags.filter(validTag).map(normalizeTag)
+            : [];
+        tagSearchInput.value = "";
+        tagSearchResults.replaceChildren();
+        tagSearchStatus.textContent = "";
+        renderSelectedTags();
+    }
+
+    function selectTag(tag) {
+        if (!validTag(tag)) {
+            return;
+        }
+
+        const normalizedTag = normalizeTag(tag);
+        const alreadySelected = state.selectedTags.some(function (selectedTag) {
+            return selectedTag.id === normalizedTag.id;
+        });
+        if (alreadySelected) {
+            tagSearchStatus.textContent = "该标签已选择。";
+            return;
+        }
+
+        state.selectedTags.push(normalizedTag);
+        state.tagsDirty = true;
+        renderSelectedTags();
+        tagSearchStatus.textContent = "已选择标签，保存后生效。";
+    }
+
+    function removeTag(tagId) {
+        const remainingTags = state.selectedTags.filter(function (tag) {
+            return tag.id !== tagId;
+        });
+        if (remainingTags.length === state.selectedTags.length) {
+            return;
+        }
+
+        state.selectedTags = remainingTags;
+        state.tagsDirty = true;
+        renderSelectedTags();
+        tagSearchStatus.textContent = "已移除标签，保存后生效。";
+    }
+
+    function renderTagSearchResults(tags) {
+        tagSearchResults.replaceChildren();
+        const validTags = Array.isArray(tags)
+            ? tags.filter(validTag).map(normalizeTag)
+            : [];
+
+        if (validTags.length === 0) {
+            const emptyResults = document.createElement("li");
+            emptyResults.className = "empty-value";
+            emptyResults.textContent = "没有找到匹配标签";
+            tagSearchResults.appendChild(emptyResults);
+            return 0;
+        }
+
+        validTags.forEach(function (tag) {
+            const resultItem = document.createElement("li");
+            const resultButton = document.createElement("button");
+            resultButton.className = "tag-search-result";
+            resultButton.type = "button";
+            resultButton.disabled = state.saving;
+            resultButton.textContent = tag.name;
+            resultButton.addEventListener("click", function () {
+                selectTag(tag);
+            });
+            resultItem.appendChild(resultButton);
+            tagSearchResults.appendChild(resultItem);
+        });
+
+        return validTags.length;
+    }
+
+    async function searchTags() {
+        if (state.saving || state.tagSearching) {
+            return;
+        }
+
+        const keyword = tagSearchInput.value.trim();
+        if (!keyword) {
+            tagSearchResults.replaceChildren();
+            tagSearchStatus.textContent = "请输入关键词后搜索。";
+            return;
+        }
+
+        state.tagSearching = true;
+        tagSearchButton.disabled = true;
+        tagSearchStatus.textContent = "正在搜索…";
+        tagSearchResults.replaceChildren();
+
+        try {
+            const query = new URLSearchParams({ keyword: keyword });
+            const response = await fetch(`/api/tags?${query.toString()}`, {
+                headers: { Accept: "application/json" }
+            });
+            if (!response.ok) {
+                throw new Error(`Tag search failed with status ${response.status}`);
+            }
+
+            const tags = await response.json();
+            const resultCount = renderTagSearchResults(tags);
+            tagSearchStatus.textContent = resultCount > 0
+                ? `找到 ${resultCount} 个标签。`
+                : "没有找到匹配标签。";
+        } catch (error) {
+            tagSearchStatus.textContent = "搜索标签失败，请重试。";
+        } finally {
+            state.tagSearching = false;
+            tagSearchButton.disabled = state.saving;
+        }
+    }
+
     function setSaving(saving) {
         state.saving = saving;
         saveButton.disabled = saving;
@@ -216,6 +378,14 @@
         authorSearchButton.disabled = saving || state.authorSearching;
         authorClearButton.disabled = saving;
         authorSearchResults.querySelectorAll("button").forEach(function (button) {
+            button.disabled = saving;
+        });
+        tagSearchInput.disabled = saving;
+        tagSearchButton.disabled = saving || state.tagSearching;
+        tagSelectionElement.querySelectorAll("button").forEach(function (button) {
+            button.disabled = saving;
+        });
+        tagSearchResults.querySelectorAll("button").forEach(function (button) {
             button.disabled = saving;
         });
     }
@@ -235,6 +405,7 @@
 
         populateEditForm(state.detail);
         resetAuthorEditor();
+        resetTagEditor();
         setEditing(true);
         detailStatus.textContent = "正在编辑";
         titleInput.focus();
@@ -246,6 +417,7 @@
         }
 
         resetAuthorEditor();
+        resetTagEditor();
         setEditing(false);
         detailStatus.textContent = "详情已加载";
     }
@@ -397,6 +569,7 @@
         noteElement.textContent = textOrFallback(detail && detail.note, "暂无备注");
         renderSource(detail);
         resetAuthorEditor();
+        resetTagEditor();
         setEditing(false);
         showDetail();
     }
@@ -445,6 +618,11 @@
         if (state.authorDirty) {
             payload.authorId = state.selectedAuthorId;
         }
+        if (state.tagsDirty) {
+            payload.tagIds = state.selectedTags.map(function (tag) {
+                return tag.id;
+            });
+        }
 
         setSaving(true);
         detailStatus.textContent = "正在保存…";
@@ -486,7 +664,13 @@
         }
     });
     authorClearButton.addEventListener("click", clearAuthorSelection);
-
+    tagSearchButton.addEventListener("click", searchTags);
+    tagSearchInput.addEventListener("keydown", function (event) {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            searchTags();
+        }
+    });
     state.illustrationId = readIllustrationId();
     if (state.illustrationId === null) {
         detailStatus.textContent = "无法加载";
