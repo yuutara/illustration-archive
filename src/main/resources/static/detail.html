@@ -28,8 +28,37 @@
             </div>
 
             <div class="detail-summary">
-                <p class="eyebrow">Illustration</p>
-                <h1 id="detail-title">未命名</h1>
+                <div class="detail-summary-heading">
+                    <div>
+                        <p class="eyebrow">Illustration</p>
+                        <h1 id="detail-title">未命名</h1>
+                    </div>
+                    <button id="detail-edit-button" class="secondary-button" type="button" hidden>编辑</button>
+                </div>
+
+                <form id="detail-edit-form" class="detail-edit-form" hidden>
+                    <div class="detail-edit-fields">
+                        <label class="detail-field" for="detail-title-input">
+                            <span class="detail-label">标题</span>
+                            <input id="detail-title-input" type="text" autocomplete="off">
+                        </label>
+
+                        <label class="detail-field" for="detail-source-input">
+                            <span class="detail-label">来源链接</span>
+                            <input id="detail-source-input" type="text" autocomplete="url">
+                        </label>
+
+                        <label class="detail-field" for="detail-note-input">
+                            <span class="detail-label">备注</span>
+                            <textarea id="detail-note-input" rows="5"></textarea>
+                        </label>
+                    </div>
+
+                    <div class="detail-edit-actions">
+                        <button id="detail-save-button" class="primary-button" type="submit">保存</button>
+                        <button id="detail-cancel-button" class="secondary-button" type="button">取消</button>
+                    </div>
+                </form>
 
                 <section class="detail-author-block" aria-labelledby="author-label">
                     <span id="author-label" class="detail-label">作者</span>
@@ -44,7 +73,7 @@
             </div>
         </div>
 
-        <div class="detail-meta-grid">
+        <div id="detail-meta-grid" class="detail-meta-grid">
             <section class="detail-meta-section" aria-labelledby="note-label">
                 <span id="note-label" class="detail-label">备注</span>
                 <p id="detail-note" class="detail-note"></p>

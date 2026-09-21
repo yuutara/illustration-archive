@@ -478,6 +478,72 @@ h2 {
     font-size: clamp(2rem, 4vw, 3.2rem);
 }
 
+.detail-summary-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 28px;
+}
+
+.detail-summary-heading h1 {
+    margin-bottom: 0;
+}
+
+.detail-edit-form {
+    display: grid;
+    gap: 18px;
+    margin-bottom: 28px;
+    padding: 18px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--surface);
+}
+
+.detail-edit-fields {
+    display: grid;
+    gap: 14px;
+}
+
+.detail-field {
+    display: grid;
+    gap: 7px;
+}
+
+.detail-field .detail-label {
+    margin-bottom: 0;
+}
+
+.detail-field input,
+.detail-field textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    background: var(--surface);
+    font: inherit;
+}
+
+.detail-field textarea {
+    min-height: 118px;
+    resize: vertical;
+}
+
+.detail-field input:focus,
+.detail-field textarea:focus {
+    outline: 2px solid rgba(112, 85, 166, 0.25);
+    outline-offset: 1px;
+    border-color: var(--accent);
+}
+
+.detail-edit-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
 .detail-label {
     display: block;
     margin-bottom: 8px;

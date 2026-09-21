@@ -3,7 +3,10 @@
 
     const state = {
         illustrationId: null,
-        loading: false
+        loading: false,
+        detail: null,
+        editing: false,
+        saving: false
     };
 
     const detailStatus = document.getElementById("detail-status");
@@ -14,12 +17,20 @@
     const detailContent = document.getElementById("detail-content");
     const imageElement = document.getElementById("detail-image-element");
     const imageFallback = document.getElementById("detail-image-fallback");
+    const editButton = document.getElementById("detail-edit-button");
+    const editForm = document.getElementById("detail-edit-form");
+    const titleInput = document.getElementById("detail-title-input");
+    const sourceInput = document.getElementById("detail-source-input");
+    const noteInput = document.getElementById("detail-note-input");
+    const saveButton = document.getElementById("detail-save-button");
+    const cancelButton = document.getElementById("detail-cancel-button");
     const titleElement = document.getElementById("detail-title");
     const authorNameElement = document.getElementById("detail-author-name");
     const authorHandleElement = document.getElementById("detail-author-handle");
     const tagsElement = document.getElementById("detail-tags");
     const noteElement = document.getElementById("detail-note");
     const sourceElement = document.getElementById("detail-source");
+    const metaGrid = document.getElementById("detail-meta-grid");
 
     function readIllustrationId() {
         const rawId = new URLSearchParams(window.location.search).get("id");
@@ -39,6 +50,58 @@
 
     function textOrFallback(value, fallback) {
         return typeof value === "string" && value.trim() ? value : fallback;
+    }
+
+    function editableValue(value) {
+        return typeof value === "string" ? value : "";
+    }
+
+    function trimmedOrNull(value) {
+        const trimmed = value.trim();
+        return trimmed ? trimmed : null;
+    }
+
+    function populateEditForm(detail) {
+        titleInput.value = editableValue(detail && detail.title);
+        sourceInput.value = editableValue(detail && detail.sourceUrl);
+        noteInput.value = editableValue(detail && detail.note);
+    }
+
+    function setSaving(saving) {
+        state.saving = saving;
+        saveButton.disabled = saving;
+        cancelButton.disabled = saving;
+        titleInput.disabled = saving;
+        sourceInput.disabled = saving;
+        noteInput.disabled = saving;
+    }
+
+    function setEditing(editing) {
+        state.editing = editing;
+        editButton.hidden = editing;
+        editForm.hidden = !editing;
+        titleElement.hidden = editing;
+        metaGrid.hidden = editing;
+    }
+
+    function startEditing() {
+        if (!state.detail || state.saving) {
+            return;
+        }
+
+        populateEditForm(state.detail);
+        setEditing(true);
+        detailStatus.textContent = "正在编辑";
+        titleInput.focus();
+    }
+
+    function cancelEditing() {
+        if (state.saving) {
+            return;
+        }
+
+        setEditing(false);
+        detailStatus.textContent = "详情已加载";
     }
 
     function showState(title, message, canRetry) {
@@ -180,18 +243,20 @@
     }
 
     function renderDetail(detail) {
+        state.detail = detail;
         titleElement.textContent = titleFor(detail);
         renderImage(detail);
         renderAuthor(detail);
         renderTags(detail);
         noteElement.textContent = textOrFallback(detail && detail.note, "暂无备注");
         renderSource(detail);
+        setEditing(false);
         showDetail();
     }
 
     async function loadDetail() {
         if (state.loading || state.illustrationId === null) {
-            return;
+            return false;
         }
 
         state.loading = true;
@@ -209,15 +274,60 @@
             const detail = await response.json();
             renderDetail(detail);
             detailStatus.textContent = "详情已加载";
+            return true;
         } catch (error) {
             detailStatus.textContent = "加载失败";
             showState("详情加载失败", "暂时无法读取这幅插画，请稍后重试。", true);
+            return false;
         } finally {
             state.loading = false;
         }
     }
 
+    async function saveDetail(event) {
+        event.preventDefault();
+        if (state.saving || state.illustrationId === null) {
+            return;
+        }
+
+        const payload = {
+            title: trimmedOrNull(titleInput.value),
+            sourceUrl: trimmedOrNull(sourceInput.value),
+            note: trimmedOrNull(noteInput.value)
+        };
+
+        setSaving(true);
+        detailStatus.textContent = "正在保存…";
+
+        try {
+            const response = await fetch(`/api/illustrations/${state.illustrationId}`, {
+                method: "PATCH",
+                headers: {
+                    Accept: "application/json",
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok) {
+                throw new Error(`Update request failed with status ${response.status}`);
+            }
+
+            setEditing(false);
+            const refreshed = await loadDetail();
+            if (refreshed) {
+                detailStatus.textContent = "已保存";
+            }
+        } catch (error) {
+            detailStatus.textContent = "保存失败，请重试";
+        } finally {
+            setSaving(false);
+        }
+    }
+
     retryButton.addEventListener("click", loadDetail);
+    editButton.addEventListener("click", startEditing);
+    editForm.addEventListener("submit", saveDetail);
+    cancelButton.addEventListener("click", cancelEditing);
 
     state.illustrationId = readIllustrationId();
     if (state.illustrationId === null) {
