@@ -54,6 +54,26 @@
                         </label>
                     </div>
 
+                    <section class="detail-author-editor" aria-labelledby="detail-author-edit-label">
+                        <span id="detail-author-edit-label" class="detail-label">作者</span>
+                        <div class="detail-author-search-row">
+                            <label class="detail-field detail-author-search-field" for="detail-author-search-input">
+                                <span class="detail-label">搜索作者</span>
+                                <input id="detail-author-search-input" type="search"
+                                       placeholder="输入作者名称或 X 用户名" autocomplete="off">
+                            </label>
+                            <button id="detail-author-search-button" class="secondary-button" type="button">搜索作者</button>
+                        </div>
+
+                        <div class="detail-author-selection-row">
+                            <p id="detail-author-selection" class="detail-author-selection" aria-live="polite"></p>
+                            <button id="detail-author-clear-button" class="secondary-button" type="button">清除作者</button>
+                        </div>
+
+                        <p id="detail-author-search-status" class="detail-edit-status" aria-live="polite"></p>
+                        <ul id="detail-author-search-results" class="author-search-results"></ul>
+                    </section>
+
                     <div class="detail-edit-actions">
                         <button id="detail-save-button" class="primary-button" type="submit">保存</button>
                         <button id="detail-cancel-button" class="secondary-button" type="button">取消</button>

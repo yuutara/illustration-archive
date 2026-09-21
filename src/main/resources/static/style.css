@@ -537,6 +537,77 @@ h2 {
     border-color: var(--accent);
 }
 
+.detail-author-editor {
+    display: grid;
+    gap: 12px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+}
+
+.detail-author-search-row,
+.detail-author-selection-row {
+    display: flex;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.detail-author-search-field {
+    flex: 1 1 220px;
+}
+
+.detail-author-search-field .detail-label {
+    margin-bottom: 0;
+}
+
+.detail-author-selection-row {
+    align-items: center;
+    justify-content: space-between;
+}
+
+.detail-author-selection {
+    min-width: 0;
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 0.88rem;
+    overflow-wrap: anywhere;
+}
+
+.detail-edit-status {
+    min-height: 1.35em;
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 0.84rem;
+}
+
+.author-search-results {
+    display: grid;
+    gap: 8px;
+    max-height: 180px;
+    margin: 0;
+    padding: 0;
+    overflow: auto;
+    list-style: none;
+}
+
+.author-search-result {
+    width: 100%;
+    padding: 9px 11px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    background: var(--surface);
+    cursor: pointer;
+    text-align: left;
+}
+
+.author-search-result:hover,
+.author-search-result:focus-visible {
+    border-color: var(--accent);
+    color: var(--accent-dark);
+    outline: none;
+}
+
 .detail-edit-actions {
     display: flex;
     align-items: center;

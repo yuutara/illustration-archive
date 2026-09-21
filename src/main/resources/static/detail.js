@@ -6,7 +6,11 @@
         loading: false,
         detail: null,
         editing: false,
-        saving: false
+        saving: false,
+        authorDirty: false,
+        selectedAuthorId: null,
+        selectedAuthor: null,
+        authorSearching: false
     };
 
     const detailStatus = document.getElementById("detail-status");
@@ -22,6 +26,12 @@
     const titleInput = document.getElementById("detail-title-input");
     const sourceInput = document.getElementById("detail-source-input");
     const noteInput = document.getElementById("detail-note-input");
+    const authorSearchInput = document.getElementById("detail-author-search-input");
+    const authorSearchButton = document.getElementById("detail-author-search-button");
+    const authorClearButton = document.getElementById("detail-author-clear-button");
+    const authorSelectionElement = document.getElementById("detail-author-selection");
+    const authorSearchStatus = document.getElementById("detail-author-search-status");
+    const authorSearchResults = document.getElementById("detail-author-search-results");
     const saveButton = document.getElementById("detail-save-button");
     const cancelButton = document.getElementById("detail-cancel-button");
     const titleElement = document.getElementById("detail-title");
@@ -67,6 +77,134 @@
         noteInput.value = editableValue(detail && detail.note);
     }
 
+    function authorLabel(author) {
+        const displayName = textOrFallback(author && author.displayName, "未知作者");
+        const xUsername = textOrFallback(author && author.xUsername, "");
+        return xUsername ? `${displayName} · ${xUsername}` : displayName;
+    }
+
+    function renderAuthorSelection() {
+        if (state.authorDirty) {
+            authorSelectionElement.textContent = state.selectedAuthorId === null
+                ? "已选择清除作者关联（保存后生效）"
+                : `已选择作者：${authorLabel(state.selectedAuthor)}（保存后生效）`;
+            return;
+        }
+
+        const currentAuthor = state.detail && state.detail.author;
+        authorSelectionElement.textContent = currentAuthor
+            ? `当前作者：${authorLabel(currentAuthor)}（未修改）`
+            : "当前作者：未知作者（未修改）";
+    }
+
+    function resetAuthorEditor() {
+        state.authorDirty = false;
+        state.selectedAuthorId = null;
+        state.selectedAuthor = null;
+        authorSearchInput.value = "";
+        authorSearchResults.replaceChildren();
+        authorSearchStatus.textContent = "";
+        renderAuthorSelection();
+    }
+
+    function selectAuthor(author) {
+        const authorId = Number(author && author.id);
+        if (!Number.isSafeInteger(authorId) || authorId <= 0) {
+            return;
+        }
+
+        state.authorDirty = true;
+        state.selectedAuthorId = authorId;
+        state.selectedAuthor = author;
+        renderAuthorSelection();
+        authorSearchStatus.textContent = "已选择作者，保存后生效。";
+    }
+
+    function clearAuthorSelection() {
+        if (state.saving) {
+            return;
+        }
+
+        state.authorDirty = true;
+        state.selectedAuthorId = null;
+        state.selectedAuthor = null;
+        renderAuthorSelection();
+        authorSearchStatus.textContent = "已选择清除作者关联，保存后生效。";
+    }
+
+    function renderAuthorSearchResults(authors) {
+        authorSearchResults.replaceChildren();
+        const validAuthors = Array.isArray(authors)
+            ? authors.filter(function (author) {
+                const authorId = Number(author && author.id);
+                return Number.isSafeInteger(authorId) && authorId > 0;
+            })
+            : [];
+
+        if (validAuthors.length === 0) {
+            const emptyResults = document.createElement("li");
+            emptyResults.className = "empty-value";
+            emptyResults.textContent = "没有找到匹配作者";
+            authorSearchResults.appendChild(emptyResults);
+            return 0;
+        }
+
+        validAuthors.forEach(function (author) {
+            const resultItem = document.createElement("li");
+            const resultButton = document.createElement("button");
+            resultButton.className = "author-search-result";
+            resultButton.type = "button";
+            resultButton.disabled = state.saving;
+            resultButton.textContent = authorLabel(author);
+            resultButton.addEventListener("click", function () {
+                selectAuthor(author);
+            });
+            resultItem.appendChild(resultButton);
+            authorSearchResults.appendChild(resultItem);
+        });
+
+        return validAuthors.length;
+    }
+
+    async function searchAuthors() {
+        if (state.saving || state.authorSearching) {
+            return;
+        }
+
+        const keyword = authorSearchInput.value.trim();
+        if (!keyword) {
+            authorSearchResults.replaceChildren();
+            authorSearchStatus.textContent = "请输入关键词后搜索。";
+            return;
+        }
+
+        state.authorSearching = true;
+        authorSearchButton.disabled = true;
+        authorSearchStatus.textContent = "正在搜索…";
+        authorSearchResults.replaceChildren();
+
+        try {
+            const query = new URLSearchParams({ keyword: keyword });
+            const response = await fetch(`/api/authors?${query.toString()}`, {
+                headers: { Accept: "application/json" }
+            });
+            if (!response.ok) {
+                throw new Error(`Author search failed with status ${response.status}`);
+            }
+
+            const authors = await response.json();
+            const resultCount = renderAuthorSearchResults(authors);
+            authorSearchStatus.textContent = resultCount > 0
+                ? `找到 ${resultCount} 位作者。`
+                : "没有找到匹配作者。";
+        } catch (error) {
+            authorSearchStatus.textContent = "搜索作者失败，请重试。";
+        } finally {
+            state.authorSearching = false;
+            authorSearchButton.disabled = state.saving;
+        }
+    }
+
     function setSaving(saving) {
         state.saving = saving;
         saveButton.disabled = saving;
@@ -74,6 +212,12 @@
         titleInput.disabled = saving;
         sourceInput.disabled = saving;
         noteInput.disabled = saving;
+        authorSearchInput.disabled = saving;
+        authorSearchButton.disabled = saving || state.authorSearching;
+        authorClearButton.disabled = saving;
+        authorSearchResults.querySelectorAll("button").forEach(function (button) {
+            button.disabled = saving;
+        });
     }
 
     function setEditing(editing) {
@@ -90,6 +234,7 @@
         }
 
         populateEditForm(state.detail);
+        resetAuthorEditor();
         setEditing(true);
         detailStatus.textContent = "正在编辑";
         titleInput.focus();
@@ -100,6 +245,7 @@
             return;
         }
 
+        resetAuthorEditor();
         setEditing(false);
         detailStatus.textContent = "详情已加载";
     }
@@ -250,6 +396,7 @@
         renderTags(detail);
         noteElement.textContent = textOrFallback(detail && detail.note, "暂无备注");
         renderSource(detail);
+        resetAuthorEditor();
         setEditing(false);
         showDetail();
     }
@@ -295,6 +442,9 @@
             sourceUrl: trimmedOrNull(sourceInput.value),
             note: trimmedOrNull(noteInput.value)
         };
+        if (state.authorDirty) {
+            payload.authorId = state.selectedAuthorId;
+        }
 
         setSaving(true);
         detailStatus.textContent = "正在保存…";
@@ -328,6 +478,14 @@
     editButton.addEventListener("click", startEditing);
     editForm.addEventListener("submit", saveDetail);
     cancelButton.addEventListener("click", cancelEditing);
+    authorSearchButton.addEventListener("click", searchAuthors);
+    authorSearchInput.addEventListener("keydown", function (event) {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            searchAuthors();
+        }
+    });
+    authorClearButton.addEventListener("click", clearAuthorSelection);
 
     state.illustrationId = readIllustrationId();
     if (state.illustrationId === null) {
