@@ -7,6 +7,7 @@
         detail: null,
         editing: false,
         saving: false,
+        deleting: false,
         authorDirty: false,
         selectedAuthorId: null,
         selectedAuthor: null,
@@ -25,6 +26,7 @@
     const imageElement = document.getElementById("detail-image-element");
     const imageFallback = document.getElementById("detail-image-fallback");
     const editButton = document.getElementById("detail-edit-button");
+    const deleteButton = document.getElementById("detail-delete-button");
     const editForm = document.getElementById("detail-edit-form");
     const titleInput = document.getElementById("detail-title-input");
     const sourceInput = document.getElementById("detail-source-input");
@@ -393,13 +395,51 @@
     function setEditing(editing) {
         state.editing = editing;
         editButton.hidden = editing;
+        deleteButton.hidden = editing;
         editForm.hidden = !editing;
         titleElement.hidden = editing;
         metaGrid.hidden = editing;
     }
 
+    function setDeleting(deleting) {
+        state.deleting = deleting;
+        deleteButton.disabled = deleting;
+        editButton.disabled = deleting;
+    }
+
+    async function deleteIllustration() {
+        if (state.deleting || state.editing || !state.detail || state.illustrationId === null) {
+            return;
+        }
+
+        const confirmed = window.confirm(
+            "删除后插画记录和本地文件都会被删除，当前 V0.1 没有回收站。确定继续吗？"
+        );
+        if (!confirmed) {
+            return;
+        }
+
+        setDeleting(true);
+        detailStatus.textContent = "正在删除…";
+
+        try {
+            const response = await fetch(`/api/illustrations/${state.illustrationId}`, {
+                method: "DELETE",
+                headers: { Accept: "application/json" }
+            });
+            if (!response.ok) {
+                throw new Error(`Delete request failed with status ${response.status}`);
+            }
+
+            window.location.assign("/");
+        } catch (error) {
+            setDeleting(false);
+            detailStatus.textContent = "删除失败，请重试。";
+        }
+    }
+
     function startEditing() {
-        if (!state.detail || state.saving) {
+        if (!state.detail || state.saving || state.deleting) {
             return;
         }
 
@@ -412,7 +452,7 @@
     }
 
     function cancelEditing() {
-        if (state.saving) {
+        if (state.saving || state.deleting) {
             return;
         }
 
@@ -606,7 +646,7 @@
 
     async function saveDetail(event) {
         event.preventDefault();
-        if (state.saving || state.illustrationId === null) {
+        if (state.saving || state.deleting || state.illustrationId === null) {
             return;
         }
 
@@ -654,6 +694,7 @@
 
     retryButton.addEventListener("click", loadDetail);
     editButton.addEventListener("click", startEditing);
+    deleteButton.addEventListener("click", deleteIllustration);
     editForm.addEventListener("submit", saveDetail);
     cancelButton.addEventListener("click", cancelEditing);
     authorSearchButton.addEventListener("click", searchAuthors);

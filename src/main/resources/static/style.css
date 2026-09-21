@@ -490,6 +490,26 @@ h2 {
     margin-bottom: 0;
 }
 
+.detail-summary-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.danger-button {
+    color: #a34c4c;
+    border-color: rgba(163, 76, 76, 0.3);
+    background: rgba(163, 76, 76, 0.06);
+}
+
+.danger-button:hover:not(:disabled),
+.danger-button:focus-visible:not(:disabled) {
+    border-color: #a34c4c;
+    color: #8f3e3e;
+    background: rgba(163, 76, 76, 0.12);
+    outline: none;
+}
+
 .detail-edit-form {
     display: grid;
     gap: 18px;
