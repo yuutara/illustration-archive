@@ -75,6 +75,36 @@
                             <button id="detail-author-clear-button" class="secondary-button" type="button">清除作者</button>
                         </div>
 
+                        <div class="detail-author-create-row">
+                            <button id="detail-author-create-button" class="secondary-button" type="button">
+                                新建作者
+                            </button>
+                        </div>
+
+                        <div id="detail-author-create-panel" class="detail-author-create-panel" hidden>
+                            <div class="detail-author-create-fields">
+                                <label class="detail-field" for="detail-author-create-display-name">
+                                    <span class="detail-label">作者名称</span>
+                                    <input id="detail-author-create-display-name" type="text" autocomplete="off">
+                                </label>
+
+                                <label class="detail-field" for="detail-author-create-x-username">
+                                    <span class="detail-label">X 用户名（可选）</span>
+                                    <input id="detail-author-create-x-username" type="text" autocomplete="off">
+                                </label>
+                            </div>
+
+                            <div class="detail-author-create-actions">
+                                <button id="detail-author-create-submit" class="primary-button" type="button">
+                                    创建作者
+                                </button>
+                                <button id="detail-author-create-cancel" class="secondary-button" type="button">
+                                    取消
+                                </button>
+                            </div>
+                            <p id="detail-author-create-status" class="detail-edit-status" aria-live="polite"></p>
+                        </div>
+
                         <p id="detail-author-search-status" class="detail-edit-status" aria-live="polite"></p>
                         <ul id="detail-author-search-results" class="author-search-results"></ul>
                     </section>

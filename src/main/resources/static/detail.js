@@ -8,6 +8,7 @@
         editing: false,
         saving: false,
         deleting: false,
+        creatingAuthor: false,
         authorDirty: false,
         selectedAuthorId: null,
         selectedAuthor: null,
@@ -37,6 +38,13 @@
     const authorSelectionElement = document.getElementById("detail-author-selection");
     const authorSearchStatus = document.getElementById("detail-author-search-status");
     const authorSearchResults = document.getElementById("detail-author-search-results");
+    const authorCreateButton = document.getElementById("detail-author-create-button");
+    const authorCreatePanel = document.getElementById("detail-author-create-panel");
+    const authorCreateDisplayNameInput = document.getElementById("detail-author-create-display-name");
+    const authorCreateXUsernameInput = document.getElementById("detail-author-create-x-username");
+    const authorCreateSubmitButton = document.getElementById("detail-author-create-submit");
+    const authorCreateCancelButton = document.getElementById("detail-author-create-cancel");
+    const authorCreateStatus = document.getElementById("detail-author-create-status");
     const tagSearchInput = document.getElementById("detail-tag-search-input");
     const tagSearchButton = document.getElementById("detail-tag-search-button");
     const tagSelectionElement = document.getElementById("detail-tag-selection");
@@ -87,9 +95,18 @@
         noteInput.value = editableValue(detail && detail.note);
     }
 
+    function authorHandle(author) {
+        const xUsername = textOrFallback(author && author.xUsername, "").trim();
+        if (!xUsername) {
+            return "";
+        }
+
+        return xUsername.startsWith("@") ? xUsername : `@${xUsername}`;
+    }
+
     function authorLabel(author) {
         const displayName = textOrFallback(author && author.displayName, "未知作者");
-        const xUsername = textOrFallback(author && author.xUsername, "");
+        const xUsername = authorHandle(author);
         return xUsername ? `${displayName} · ${xUsername}` : displayName;
     }
 
@@ -108,6 +125,7 @@
     }
 
     function resetAuthorEditor() {
+        closeAuthorCreateForm();
         state.authorDirty = false;
         state.selectedAuthorId = null;
         state.selectedAuthor = null;
@@ -140,6 +158,88 @@
         state.selectedAuthor = null;
         renderAuthorSelection();
         authorSearchStatus.textContent = "已选择清除作者关联，保存后生效。";
+    }
+
+    function setCreatingAuthor(creating) {
+        state.creatingAuthor = creating;
+        authorCreateButton.disabled = creating || state.saving;
+        authorCreateSubmitButton.disabled = creating || state.saving;
+        authorCreateCancelButton.disabled = creating || state.saving;
+        authorCreateDisplayNameInput.disabled = creating || state.saving;
+        authorCreateXUsernameInput.disabled = creating || state.saving;
+        saveButton.disabled = state.saving || creating;
+        cancelButton.disabled = state.saving || creating;
+    }
+
+    function closeAuthorCreateForm() {
+        setCreatingAuthor(false);
+        authorCreatePanel.hidden = true;
+        authorCreateDisplayNameInput.value = "";
+        authorCreateXUsernameInput.value = "";
+        authorCreateStatus.textContent = "";
+    }
+
+    function openAuthorCreateForm() {
+        if (!state.editing || state.saving || state.deleting || state.creatingAuthor
+            || !authorCreatePanel.hidden) {
+            return;
+        }
+
+        authorCreateDisplayNameInput.value = "";
+        authorCreateXUsernameInput.value = "";
+        authorCreateStatus.textContent = "";
+        authorCreatePanel.hidden = false;
+        authorCreateDisplayNameInput.focus();
+    }
+
+    async function createAuthor() {
+        if (!state.editing || state.creatingAuthor || state.saving || state.deleting) {
+            return;
+        }
+
+        const displayName = authorCreateDisplayNameInput.value.trim();
+        if (!displayName) {
+            authorCreateStatus.textContent = "作者名称不能为空。";
+            authorCreateDisplayNameInput.focus();
+            return;
+        }
+
+        const xUsername = trimmedOrNull(authorCreateXUsernameInput.value);
+        setCreatingAuthor(true);
+        authorCreateStatus.textContent = "正在创建…";
+
+        try {
+            const response = await fetch("/api/authors", {
+                method: "POST",
+                headers: {
+                    Accept: "application/json",
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    displayName: displayName,
+                    xUsername: xUsername
+                })
+            });
+            if (!response.ok) {
+                throw new Error(`Author creation failed with status ${response.status}`);
+            }
+
+            const createdAuthor = await response.json();
+            const authorId = Number(createdAuthor && createdAuthor.id);
+            if (!Number.isSafeInteger(authorId) || authorId <= 0) {
+                throw new Error("Created author response has no valid id.");
+            }
+
+            closeAuthorCreateForm();
+            selectAuthor(createdAuthor);
+            authorSearchStatus.textContent = "已创建并选择作者，保存后生效。";
+        } catch (error) {
+            authorCreateStatus.textContent = "创建作者失败，请检查输入后重试。";
+        } finally {
+            if (state.creatingAuthor) {
+                setCreatingAuthor(false);
+            }
+        }
     }
 
     function renderAuthorSearchResults(authors) {
@@ -382,6 +482,11 @@
         authorSearchResults.querySelectorAll("button").forEach(function (button) {
             button.disabled = saving;
         });
+        authorCreateButton.disabled = saving || state.creatingAuthor;
+        authorCreateSubmitButton.disabled = saving || state.creatingAuthor;
+        authorCreateCancelButton.disabled = saving || state.creatingAuthor;
+        authorCreateDisplayNameInput.disabled = saving || state.creatingAuthor;
+        authorCreateXUsernameInput.disabled = saving || state.creatingAuthor;
         tagSearchInput.disabled = saving;
         tagSearchButton.disabled = saving || state.tagSearching;
         tagSelectionElement.querySelectorAll("button").forEach(function (button) {
@@ -439,7 +544,7 @@
     }
 
     function startEditing() {
-        if (!state.detail || state.saving || state.deleting) {
+        if (!state.detail || state.saving || state.deleting || state.creatingAuthor) {
             return;
         }
 
@@ -452,7 +557,7 @@
     }
 
     function cancelEditing() {
-        if (state.saving || state.deleting) {
+        if (state.saving || state.deleting || state.creatingAuthor) {
             return;
         }
 
@@ -532,11 +637,9 @@
             "未知作者"
         );
 
-        const xUsername = textOrFallback(author && author.xUsername, "");
+        const xUsername = authorHandle(author);
         if (xUsername) {
-            authorHandleElement.textContent = xUsername.startsWith("@")
-                ? xUsername
-                : `@${xUsername}`;
+            authorHandleElement.textContent = xUsername;
             authorHandleElement.hidden = false;
         } else {
             authorHandleElement.textContent = "";
@@ -646,7 +749,7 @@
 
     async function saveDetail(event) {
         event.preventDefault();
-        if (state.saving || state.deleting || state.illustrationId === null) {
+        if (state.saving || state.deleting || state.creatingAuthor || state.illustrationId === null) {
             return;
         }
 
@@ -705,6 +808,9 @@
         }
     });
     authorClearButton.addEventListener("click", clearAuthorSelection);
+    authorCreateButton.addEventListener("click", openAuthorCreateForm);
+    authorCreateSubmitButton.addEventListener("click", createAuthor);
+    authorCreateCancelButton.addEventListener("click", closeAuthorCreateForm);
     tagSearchButton.addEventListener("click", searchTags);
     tagSearchInput.addEventListener("keydown", function (event) {
         if (event.key === "Enter") {

@@ -593,6 +593,28 @@ h2 {
     overflow-wrap: anywhere;
 }
 
+.detail-author-create-row,
+.detail-author-create-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.detail-author-create-panel {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: rgba(245, 242, 238, 0.55);
+}
+
+.detail-author-create-fields {
+    display: grid;
+    gap: 12px;
+}
+
 .detail-edit-status {
     min-height: 1.35em;
     margin: 0;
