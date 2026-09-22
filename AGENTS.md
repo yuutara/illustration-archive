@@ -1,14 +1,27 @@
 # Illustration Archive
 
 - This is a long-lived Java backend learning project and internship-resume project that should also become genuinely usable.
-- The user is a Java backend beginner. Explain important concepts, architecture, and business logic; do not hide them behind needlessly complex implementations.
+- Explain important concepts, architecture, transaction boundaries, and business logic clearly; do not hide core reasoning behind needless complexity.
+
 - Keep changes small, explicit, and reviewable. Do not implement work outside the current task scope.
-- Do not add complexity merely for resume appeal. The current foundation is Java, Spring Boot, Maven, and MySQL.
+- Do not add complexity merely for resume appeal.
 - Do not introduce Redis, MQ, Elasticsearch, Docker, Spring Security, microservices, AI, or external integrations unless the current task explicitly requires them.
-- Store original media outside the Git repository. Never commit real images or other media files.
+- If requirements are unclear in a way that affects scope or business behavior, or a change would clearly expand scope, stop and explain rather than extending the design independently.
+
+- Preserve the current Controller / Service / Repository structure and JdbcTemplate style unless the task explicitly requires architectural change.
+- The current foundation is Java, Spring Boot, Maven, MySQL, JdbcTemplate, Flyway, and local filesystem storage.
+- Do not distort production design merely to make tests easier; tests should adapt to sound production code.
+
+- Store user archive media outside the Git repository. Documentation screenshots and repository documentation assets are allowed.
 - The image storage root must be configurable and must not be hardcoded as a machine-specific absolute path in Java code.
-- Future database records must store relative `storage_key` values, never machine-specific absolute file paths.
+- Database records must store relative `storage_key` values, never machine-specific absolute file paths.
+- Do not modify already-applied Flyway migrations; schema changes must use a new migration.
+- Database transactions cannot roll back filesystem operations; preserve explicit transaction boundaries and file-compensation behavior where needed.
+
 - Never commit passwords, API keys, tokens, or other secrets.
 - Unless explicitly requested, do not run `git commit` or `git push`.
-- After changes, summarize what changed, explain key design choices, and run task-relevant tests or build commands.
-- If requirements are unclear or a change would clearly expand scope, stop and explain rather than extending the design independently.
+- Preserve existing user changes. Do not stage unrelated files or temporary review artifacts such as patch files.
+
+- After changes, summarize what changed and explain key design choices.
+- Run validation proportional to the change: focused tests for small/local code changes; full test suite for cross-layer/core changes or phase acceptance. Documentation-only changes normally need only `git diff --check`. Follow the current task's explicit validation requirements; do not run Maven test/package by default for every change.
+- Report the actual commands run and their results; do not claim behavior was verified if it was not. A unit test that manually constructs a service does not verify Spring transaction rollback.
