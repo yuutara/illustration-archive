@@ -3,17 +3,21 @@ package com.yuutara.illustrationarchive.repository;
 import com.yuutara.illustrationarchive.dto.AssetContentInfo;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 
 import java.sql.ResultSet;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -85,5 +89,65 @@ class AssetRepositoryTest {
 		assertTrue(sql.contains("WHERE illustration_id = ?"));
 		assertTrue(sql.contains("ORDER BY sort_order ASC, id ASC"));
 		assertEquals("2026-09/example.jpg", rowMapperCaptor.getValue().mapRow(resultSet, 0));
+	}
+
+	@Test
+	void findsAssetIdBySha256() throws Exception {
+		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+		AssetRepository repository = new AssetRepository(jdbcTemplate);
+		ResultSet resultSet = mock(ResultSet.class);
+		when(resultSet.getLong("id")).thenReturn(20L);
+		String sha256 = "a".repeat(64);
+
+		@SuppressWarnings({"unchecked", "rawtypes"})
+		ArgumentCaptor<RowMapper<Long>> rowMapperCaptor =
+				(ArgumentCaptor) ArgumentCaptor.forClass(RowMapper.class);
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(sha256))).thenReturn(List.of(20L));
+
+		var result = repository.findIdBySha256(sha256);
+
+		assertEquals(Optional.of(20L), result);
+		ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+		verify(jdbcTemplate).query(sqlCaptor.capture(), rowMapperCaptor.capture(), eq(sha256));
+		String sql = sqlCaptor.getValue();
+		assertTrue(sql.contains("SELECT id"));
+		assertTrue(sql.contains("FROM asset"));
+		assertTrue(sql.contains("WHERE sha256 = ?"));
+		assertEquals(20L, rowMapperCaptor.getValue().mapRow(resultSet, 0));
+	}
+
+	@Test
+	void returnsEmptyWhenSha256DoesNotExist() {
+		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+		AssetRepository repository = new AssetRepository(jdbcTemplate);
+		String sha256 = "b".repeat(64);
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(sha256))).thenReturn(List.of());
+
+		var result = repository.findIdBySha256(sha256);
+
+		assertTrue(result.isEmpty());
+		verify(jdbcTemplate).query(anyString(), any(RowMapper.class), eq(sha256));
+	}
+
+	@Test
+	void updatesSha256ForAssetThatHasNoHash() {
+		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+		AssetRepository repository = new AssetRepository(jdbcTemplate);
+		String sha256 = "c".repeat(64);
+
+		repository.updateSha256(20L, sha256);
+
+		verify(jdbcTemplate).update("UPDATE asset SET sha256 = ? WHERE id = ?", sha256, 20L);
+	}
+
+	@Test
+	void propagatesDuplicateSha256ConstraintViolation() {
+		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+		AssetRepository repository = new AssetRepository(jdbcTemplate);
+		String sha256 = "d".repeat(64);
+		doThrow(new DuplicateKeyException("duplicate sha256"))
+				.when(jdbcTemplate).update(anyString(), any(Object[].class));
+
+		assertThrows(DuplicateKeyException.class, () -> repository.updateSha256(21L, sha256));
 	}
 }

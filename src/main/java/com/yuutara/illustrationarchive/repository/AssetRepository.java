@@ -41,6 +41,15 @@ public class AssetRepository {
 			ORDER BY sort_order ASC, id ASC
 			""";
 
+	private static final String FIND_ID_BY_SHA256_SQL = """
+			SELECT id
+			FROM asset
+			WHERE sha256 = ?
+			""";
+
+	private static final String UPDATE_SHA256_SQL =
+			"UPDATE asset SET sha256 = ? WHERE id = ?";
+
 	private final JdbcTemplate jdbcTemplate;
 
 	public AssetRepository(JdbcTemplate jdbcTemplate) {
@@ -88,5 +97,17 @@ public class AssetRepository {
 				(resultSet, rowNum) -> resultSet.getString("storage_key"),
 				illustrationId
 		);
+	}
+
+	public Optional<Long> findIdBySha256(String sha256) {
+		return jdbcTemplate.query(
+				FIND_ID_BY_SHA256_SQL,
+				(resultSet, rowNum) -> resultSet.getLong("id"),
+				sha256
+		).stream().findFirst();
+	}
+
+	public void updateSha256(long assetId, String sha256) {
+		jdbcTemplate.update(UPDATE_SHA256_SQL, sha256, assetId);
 	}
 }
