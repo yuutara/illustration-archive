@@ -1,9 +1,10 @@
 package com.yuutara.illustrationarchive.service;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import com.yuutara.illustrationarchive.storage.FileStorageService;
 import com.yuutara.illustrationarchive.storage.StoredFile;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -27,20 +28,45 @@ public class IllustrationImportService {
 		StoredFile storedFile = fileStorageService.store(file);
 
 		try {
+			illustrationPersistenceService.findIllustrationIdBySha256(storedFile.sha256())
+					.ifPresent(existingIllustrationId -> {
+						throw new DuplicateIllustrationException(existingIllustrationId);
+					});
 			return illustrationPersistenceService.persist(storedFile);
-		} catch (RuntimeException persistenceException) {
-			try {
-				fileStorageService.delete(storedFile.storageKey());
-			} catch (RuntimeException cleanupException) {
-				persistenceException.addSuppressed(cleanupException);
-
-				log.error(
-						"Failed to delete stored file after persistence failure. storageKey={}",
-						storedFile.storageKey(),
-						cleanupException
-				);
+		} catch (RuntimeException operationException) {
+			RuntimeException failure = operationException;
+			if (operationException instanceof DuplicateKeyException) {
+				failure = resolveConcurrentDuplicate(storedFile.sha256(), operationException);
 			}
-			throw persistenceException;
+			cleanupStoredFile(storedFile.storageKey(), failure);
+			throw failure;
+		}
+	}
+
+	private RuntimeException resolveConcurrentDuplicate(String sha256, RuntimeException originalException) {
+		try {
+			var existingIllustrationId = illustrationPersistenceService.findIllustrationIdBySha256(sha256);
+			if (existingIllustrationId.isPresent()) {
+				return new DuplicateIllustrationException(existingIllustrationId.get());
+			}
+			return originalException;
+		} catch (RuntimeException lookupException) {
+			originalException.addSuppressed(lookupException);
+			return originalException;
+		}
+	}
+
+	private void cleanupStoredFile(String storageKey, RuntimeException originalException) {
+		try {
+			fileStorageService.delete(storageKey);
+		} catch (RuntimeException cleanupException) {
+			originalException.addSuppressed(cleanupException);
+
+			log.error(
+					"Failed to delete stored file after import failure. storageKey={}",
+					storageKey,
+					cleanupException
+			);
 		}
 	}
 }

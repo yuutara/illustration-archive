@@ -6,6 +6,8 @@ import com.yuutara.illustrationarchive.storage.StoredFile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Optional;
+
 @Service
 public class IllustrationPersistenceService {
 
@@ -29,9 +31,14 @@ public class IllustrationPersistenceService {
 				storedFile.storageKey(),
 				storedFile.mimeType(),
 				storedFile.fileSize(),
-				0
+				0,
+				storedFile.sha256()
 		);
 
 		return new IllustrationImportResult(illustrationId, assetId);
+	}
+
+	public Optional<Long> findIllustrationIdBySha256(String sha256) {
+		return assetRepository.findIllustrationIdBySha256(sha256);
 	}
 }

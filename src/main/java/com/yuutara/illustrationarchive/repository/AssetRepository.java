@@ -20,9 +20,10 @@ public class AssetRepository {
 				storage_key,
 				mime_type,
 				file_size,
-				sort_order
+				sort_order,
+				sha256
 			)
-			VALUES (?, ?, ?, ?, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
 			""";
 
 	private static final String FIND_CONTENT_INFO_BY_ID_SQL = """
@@ -47,6 +48,12 @@ public class AssetRepository {
 			WHERE sha256 = ?
 			""";
 
+	private static final String FIND_ILLUSTRATION_ID_BY_SHA256_SQL = """
+			SELECT illustration_id
+			FROM asset
+			WHERE sha256 = ?
+			""";
+
 	private static final String UPDATE_SHA256_SQL =
 			"UPDATE asset SET sha256 = ? WHERE id = ?";
 
@@ -64,6 +71,18 @@ public class AssetRepository {
 			long fileSize,
 			int sortOrder
 	) {
+		return insert(illustrationId, originalFilename, storageKey, mimeType, fileSize, sortOrder, null);
+	}
+
+	public long insert(
+			long illustrationId,
+			String originalFilename,
+			String storageKey,
+			String mimeType,
+			long fileSize,
+			int sortOrder,
+			String sha256
+	) {
 		KeyHolder keyHolder = new GeneratedKeyHolder();
 		jdbcTemplate.update(connection -> {
 			var statement = connection.prepareStatement(INSERT_SQL, Statement.RETURN_GENERATED_KEYS);
@@ -73,6 +92,7 @@ public class AssetRepository {
 			statement.setString(4, mimeType);
 			statement.setLong(5, fileSize);
 			statement.setInt(6, sortOrder);
+			statement.setString(7, sha256);
 			return statement;
 		}, keyHolder);
 
@@ -103,6 +123,14 @@ public class AssetRepository {
 		return jdbcTemplate.query(
 				FIND_ID_BY_SHA256_SQL,
 				(resultSet, rowNum) -> resultSet.getLong("id"),
+				sha256
+		).stream().findFirst();
+	}
+
+	public Optional<Long> findIllustrationIdBySha256(String sha256) {
+		return jdbcTemplate.query(
+				FIND_ILLUSTRATION_ID_BY_SHA256_SQL,
+				(resultSet, rowNum) -> resultSet.getLong("illustration_id"),
 				sha256
 		).stream().findFirst();
 	}

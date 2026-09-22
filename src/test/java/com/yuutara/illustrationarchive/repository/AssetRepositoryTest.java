@@ -4,11 +4,17 @@ import com.yuutara.illustrationarchive.dto.AssetContentInfo;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.jdbc.core.PreparedStatementCreator;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.support.KeyHolder;
 
+import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.Statement;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -23,6 +29,46 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AssetRepositoryTest {
+
+	@Test
+	void insertsAssetWithSha256() throws Exception {
+		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+		AssetRepository repository = new AssetRepository(jdbcTemplate);
+		Connection connection = mock(Connection.class);
+		PreparedStatement statement = mock(PreparedStatement.class);
+		String sha256 = "a".repeat(64);
+		when(connection.prepareStatement(anyString(), eq(Statement.RETURN_GENERATED_KEYS))).thenReturn(statement);
+		when(jdbcTemplate.update(any(PreparedStatementCreator.class), any(KeyHolder.class))).thenAnswer(invocation -> {
+			PreparedStatementCreator creator = invocation.getArgument(0);
+			KeyHolder keyHolder = invocation.getArgument(1);
+			creator.createPreparedStatement(connection);
+			keyHolder.getKeyList().add(Map.of("id", 20L));
+			return 1;
+		});
+
+		long assetId = repository.insert(10L, "original.jpg", "2026-09/example.jpg", "image/jpeg", 1234L, 0, sha256);
+
+		assertEquals(20L, assetId);
+		ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+		verify(connection).prepareStatement(sqlCaptor.capture(), eq(Statement.RETURN_GENERATED_KEYS));
+		assertTrue(sqlCaptor.getValue().contains("sha256"));
+		verify(statement).setString(7, sha256);
+	}
+
+	@Test
+	void propagatesDuplicateKeyExceptionFromAssetInsert() {
+		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+		AssetRepository repository = new AssetRepository(jdbcTemplate);
+		String sha256 = "a".repeat(64);
+		DuplicateKeyException duplicateKeyException = new DuplicateKeyException("duplicate key");
+		when(jdbcTemplate.update(any(PreparedStatementCreator.class), any(KeyHolder.class)))
+				.thenThrow(duplicateKeyException);
+
+		assertThrows(
+				DuplicateKeyException.class,
+				() -> repository.insert(10L, "original.jpg", "2026-09/example.jpg", "image/jpeg", 1234L, 0, sha256)
+		);
+	}
 
 	@Test
 	void findsAndMapsAssetContentInfoById() throws Exception {
@@ -127,6 +173,27 @@ class AssetRepositoryTest {
 
 		assertTrue(result.isEmpty());
 		verify(jdbcTemplate).query(anyString(), any(RowMapper.class), eq(sha256));
+	}
+
+	@Test
+	void findsIllustrationIdBySha256() throws Exception {
+		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+		AssetRepository repository = new AssetRepository(jdbcTemplate);
+		ResultSet resultSet = mock(ResultSet.class);
+		when(resultSet.getLong("illustration_id")).thenReturn(10L);
+		String sha256 = "e".repeat(64);
+
+		@SuppressWarnings({"unchecked", "rawtypes"})
+		ArgumentCaptor<RowMapper<Long>> rowMapperCaptor =
+				(ArgumentCaptor) ArgumentCaptor.forClass(RowMapper.class);
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(sha256))).thenReturn(List.of(10L));
+
+		assertEquals(Optional.of(10L), repository.findIllustrationIdBySha256(sha256));
+		ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+		verify(jdbcTemplate).query(sqlCaptor.capture(), rowMapperCaptor.capture(), eq(sha256));
+		assertTrue(sqlCaptor.getValue().contains("SELECT illustration_id"));
+		assertTrue(sqlCaptor.getValue().contains("WHERE sha256 = ?"));
+		assertEquals(10L, rowMapperCaptor.getValue().mapRow(resultSet, 0));
 	}
 
 	@Test

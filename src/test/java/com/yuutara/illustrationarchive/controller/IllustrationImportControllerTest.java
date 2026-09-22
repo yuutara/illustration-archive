@@ -3,6 +3,8 @@ package com.yuutara.illustrationarchive.controller;
 import com.yuutara.illustrationarchive.service.IllustrationBatchImportItemResult;
 import com.yuutara.illustrationarchive.service.IllustrationBatchImportResult;
 import com.yuutara.illustrationarchive.service.IllustrationBatchImportService;
+import com.yuutara.illustrationarchive.service.DuplicateIllustrationException;
+import com.yuutara.illustrationarchive.service.IllustrationImportService;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
@@ -15,6 +17,7 @@ import org.mockito.ArgumentCaptor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -27,8 +30,12 @@ class IllustrationImportControllerTest {
 	@Test
 	void importsMultipleFilesAndReturnsBatchImportResult() throws Exception {
 		IllustrationBatchImportService illustrationBatchImportService = mock(IllustrationBatchImportService.class);
+		IllustrationImportService illustrationImportService = mock(IllustrationImportService.class);
 		MockMvc mockMvc = MockMvcBuilders
-				.standaloneSetup(new IllustrationImportController(illustrationBatchImportService))
+				.standaloneSetup(new IllustrationImportController(
+						illustrationBatchImportService,
+						illustrationImportService
+				))
 				.build();
 		MockMultipartFile firstFile = new MockMultipartFile(
 				"files",
@@ -76,5 +83,33 @@ class IllustrationImportControllerTest {
 				List.of("first.jpg", "second.png"),
 				filesCaptor.getValue().stream().map(MultipartFile::getOriginalFilename).toList()
 		);
+	}
+
+	@Test
+	void mapsSingleDuplicateImportToConflict() throws Exception {
+		IllustrationBatchImportService illustrationBatchImportService = mock(IllustrationBatchImportService.class);
+		IllustrationImportService illustrationImportService = mock(IllustrationImportService.class);
+		MockMvc mockMvc = MockMvcBuilders
+				.standaloneSetup(new IllustrationImportController(
+						illustrationBatchImportService,
+						illustrationImportService
+				))
+				.build();
+		MockMultipartFile file = new MockMultipartFile(
+				"file",
+				"duplicate.jpg",
+				"image/jpeg",
+				new byte[]{1, 2, 3}
+		);
+
+		when(illustrationImportService.importSingle(any()))
+				.thenThrow(new DuplicateIllustrationException(42L));
+
+		mockMvc.perform(multipart("/api/illustrations/import/single").file(file))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value("DUPLICATE_IMAGE"))
+				.andExpect(jsonPath("$.illustrationId").value(42));
+
+		verify(illustrationImportService).importSingle(any());
 	}
 }
