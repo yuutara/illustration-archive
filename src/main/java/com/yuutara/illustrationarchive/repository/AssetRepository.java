@@ -54,6 +54,13 @@ public class AssetRepository {
 			WHERE sha256 = ?
 			""";
 
+	private static final String FIND_SHA256_BACKFILL_CANDIDATES_SQL = """
+			SELECT id, storage_key
+			FROM asset
+			WHERE sha256 IS NULL
+			ORDER BY id ASC
+			""";
+
 	private static final String UPDATE_SHA256_SQL =
 			"UPDATE asset SET sha256 = ? WHERE id = ?";
 
@@ -133,6 +140,16 @@ public class AssetRepository {
 				(resultSet, rowNum) -> resultSet.getLong("illustration_id"),
 				sha256
 		).stream().findFirst();
+	}
+
+	public List<AssetSha256BackfillCandidate> findSha256BackfillCandidates() {
+		return jdbcTemplate.query(
+				FIND_SHA256_BACKFILL_CANDIDATES_SQL,
+				(resultSet, rowNum) -> new AssetSha256BackfillCandidate(
+						resultSet.getLong("id"),
+						resultSet.getString("storage_key")
+				)
+		);
 	}
 
 	public void updateSha256(long assetId, String sha256) {

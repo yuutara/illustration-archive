@@ -25,6 +25,7 @@ public class FileStorageService {
 
 	private static final long MAX_FILE_SIZE = 50L * 1024 * 1024;
 	private static final int SIGNATURE_LENGTH = 8;
+	private static final int STREAM_BUFFER_SIZE = 8192;
 	private static final DateTimeFormatter STORAGE_MONTH_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM");
 
 	private final Path storageRoot;
@@ -66,7 +67,7 @@ public class FileStorageService {
 					storageKey,
 					actualFormat.mimeType(),
 					savedSize,
-					HexFormat.of().formatHex(sha256Digest.digest())
+					formatSha256(sha256Digest)
 			);
 		} catch (IOException exception) {
 			throw new FileStorageException("Failed to store uploaded file.", exception);
@@ -90,6 +91,21 @@ public class FileStorageService {
 			throw new FileStorageException("Stored file does not exist or is not a regular file.");
 		}
 		return new FileSystemResource(filePath);
+	}
+
+	public String calculateSha256(String storageKey) {
+		Resource resource = load(storageKey);
+		MessageDigest sha256Digest = createSha256Digest();
+
+		try (InputStream inputStream = new DigestInputStream(resource.getInputStream(), sha256Digest)) {
+			byte[] buffer = new byte[STREAM_BUFFER_SIZE];
+			while (inputStream.read(buffer) != -1) {
+				// DigestInputStream updates the hash as each chunk is read.
+			}
+			return formatSha256(sha256Digest);
+		} catch (IOException exception) {
+			throw new FileStorageException("Failed to read stored file.", exception);
+		}
 	}
 
 	private void validateFile(MultipartFile file) {
@@ -185,7 +201,7 @@ public class FileStorageService {
 		try (var outputStream = Files.newOutputStream(temporaryFile)) {
 			outputStream.write(signature);
 			long savedSize = signature.length;
-			byte[] buffer = new byte[8192];
+			byte[] buffer = new byte[STREAM_BUFFER_SIZE];
 			int bytesRead;
 			while ((bytesRead = inputStream.read(buffer)) != -1) {
 				savedSize += bytesRead;
@@ -204,6 +220,10 @@ public class FileStorageService {
 		} catch (NoSuchAlgorithmException exception) {
 			throw new IllegalStateException("SHA-256 is not available.", exception);
 		}
+	}
+
+	private String formatSha256(MessageDigest sha256Digest) {
+		return HexFormat.of().formatHex(sha256Digest.digest());
 	}
 
 	private void moveWithoutReplacing(Path temporaryFile, Path targetPath) throws IOException {

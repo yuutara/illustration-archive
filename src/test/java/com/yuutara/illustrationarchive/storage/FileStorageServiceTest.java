@@ -10,7 +10,11 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.util.Arrays;
+import java.util.HexFormat;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -96,6 +100,35 @@ class FileStorageServiceTest {
 	}
 
 	@Test
+	void calculatesSha256ForExistingFileWithoutChangingIt() throws IOException {
+		Path storedPath = temporaryStorageRoot.resolve("2026-09/historical.jpg");
+		Files.createDirectories(storedPath.getParent());
+		Files.write(storedPath, JPEG_WITH_BODY_BYTES);
+
+		String sha256 = fileStorageService.calculateSha256("2026-09/historical.jpg");
+
+		assertEquals(
+				"b3eea2ea6200fe4a401f2541343a9143b35bf6b10e908182a5b3ce86a8192d2d",
+				sha256
+		);
+		assertArrayEquals(JPEG_WITH_BODY_BYTES, Files.readAllBytes(storedPath));
+	}
+
+	@Test
+	void calculatesSha256ForLargeExistingFileUsingExpectedDigest() throws Exception {
+		byte[] content = new byte[1024 * 1024 + 123];
+		Arrays.fill(content, (byte) 0x5A);
+		Path storedPath = temporaryStorageRoot.resolve("2026-09/large.jpg");
+		Files.createDirectories(storedPath.getParent());
+		Files.write(storedPath, content);
+
+		MessageDigest digest = MessageDigest.getInstance("SHA-256");
+		String expectedSha256 = HexFormat.of().formatHex(digest.digest(content));
+
+		assertEquals(expectedSha256, fileStorageService.calculateSha256("2026-09/large.jpg"));
+	}
+
+	@Test
 	void rejectsFileLargerThan50MegabytesBeforeOpeningItsStream() {
 		MultipartFile oversizedFile = mock(MultipartFile.class);
 		when(oversizedFile.isEmpty()).thenReturn(false);
@@ -172,8 +205,20 @@ class FileStorageServiceTest {
 	}
 
 	@Test
+	void rejectsStorageKeyThatEscapesStorageRootWhenCalculatingSha256() {
+		assertThrows(FileStorageValidationException.class,
+				() -> fileStorageService.calculateSha256("../outside-storage-root.jpg"));
+	}
+
+	@Test
 	void failsWhenLoadingMissingFile() {
 		assertThrows(FileStorageException.class, () -> fileStorageService.load("2026-09/missing.jpg"));
+	}
+
+	@Test
+	void failsWhenCalculatingSha256ForMissingFile() {
+		assertThrows(FileStorageException.class,
+				() -> fileStorageService.calculateSha256("2026-09/missing.jpg"));
 	}
 
 	private MockMultipartFile file(String filename, byte[] content) {

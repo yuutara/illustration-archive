@@ -197,6 +197,37 @@ class AssetRepositoryTest {
 	}
 
 	@Test
+	void findsSha256BackfillCandidatesByIdAscending() throws Exception {
+		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+		AssetRepository repository = new AssetRepository(jdbcTemplate);
+		ResultSet resultSet = mock(ResultSet.class);
+		when(resultSet.getLong("id")).thenReturn(20L);
+		when(resultSet.getString("storage_key")).thenReturn("2026-09/example.jpg");
+
+		@SuppressWarnings({"unchecked", "rawtypes"})
+		ArgumentCaptor<RowMapper<AssetSha256BackfillCandidate>> rowMapperCaptor =
+				(ArgumentCaptor) ArgumentCaptor.forClass(RowMapper.class);
+		List<AssetSha256BackfillCandidate> candidates = List.of(
+				new AssetSha256BackfillCandidate(10L, "2026-08/first.jpg"),
+				new AssetSha256BackfillCandidate(20L, "2026-09/example.jpg")
+		);
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class))).thenReturn(candidates);
+
+		assertEquals(candidates, repository.findSha256BackfillCandidates());
+
+		ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+		verify(jdbcTemplate).query(sqlCaptor.capture(), rowMapperCaptor.capture());
+		String sql = sqlCaptor.getValue();
+		assertTrue(sql.contains("SELECT id, storage_key"));
+		assertTrue(sql.contains("FROM asset"));
+		assertTrue(sql.contains("WHERE sha256 IS NULL"));
+		assertTrue(sql.contains("ORDER BY id ASC"));
+
+		AssetSha256BackfillCandidate candidate = rowMapperCaptor.getValue().mapRow(resultSet, 0);
+		assertEquals(new AssetSha256BackfillCandidate(20L, "2026-09/example.jpg"), candidate);
+	}
+
+	@Test
 	void updatesSha256ForAssetThatHasNoHash() {
 		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
 		AssetRepository repository = new AssetRepository(jdbcTemplate);
