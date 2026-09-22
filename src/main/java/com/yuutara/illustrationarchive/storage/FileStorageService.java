@@ -11,8 +11,12 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
+import java.security.DigestInputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
+import java.util.HexFormat;
 import java.util.Locale;
 import java.util.UUID;
 
@@ -36,8 +40,9 @@ public class FileStorageService {
 		String extension = extractExtension(originalFilename);
 		ImageFormat actualFormat;
 		Path temporaryFile = null;
+		MessageDigest sha256Digest = createSha256Digest();
 
-		try (InputStream inputStream = file.getInputStream()) {
+		try (InputStream inputStream = new DigestInputStream(file.getInputStream(), sha256Digest)) {
 			byte[] signature = inputStream.readNBytes(SIGNATURE_LENGTH);
 			actualFormat = detectFormat(signature);
 			validateExtensionMatchesFormat(extension, actualFormat);
@@ -56,7 +61,13 @@ public class FileStorageService {
 			moveWithoutReplacing(temporaryFile, targetPath);
 			temporaryFile = null;
 
-			return new StoredFile(originalFilename, storageKey, actualFormat.mimeType(), savedSize);
+			return new StoredFile(
+					originalFilename,
+					storageKey,
+					actualFormat.mimeType(),
+					savedSize,
+					HexFormat.of().formatHex(sha256Digest.digest())
+			);
 		} catch (IOException exception) {
 			throw new FileStorageException("Failed to store uploaded file.", exception);
 		} finally {
@@ -184,6 +195,14 @@ public class FileStorageService {
 				outputStream.write(buffer, 0, bytesRead);
 			}
 			return savedSize;
+		}
+	}
+
+	private MessageDigest createSha256Digest() {
+		try {
+			return MessageDigest.getInstance("SHA-256");
+		} catch (NoSuchAlgorithmException exception) {
+			throw new IllegalStateException("SHA-256 is not available.", exception);
 		}
 	}
 

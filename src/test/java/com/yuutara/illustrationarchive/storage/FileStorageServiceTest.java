@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.core.io.Resource;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -12,12 +13,19 @@ import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class FileStorageServiceTest {
 
 	private static final byte[] JPEG_BYTES = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 0x00};
+	private static final byte[] JPEG_WITH_BODY_BYTES = {
+			(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 0x00,
+			0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08
+	};
 	private static final byte[] PNG_BYTES = {(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
 	private static final byte[] GIF_BYTES = {'G', 'I', 'F', '8', '9', 'a'};
 
@@ -56,6 +64,45 @@ class FileStorageServiceTest {
 
 		assertEquals("image/gif", storedFile.mimeType());
 		assertTrue(storedFile.storageKey().endsWith(".gif"));
+	}
+
+	@Test
+	void calculatesSha256ForCompleteFileIncludingMagicNumber() {
+		StoredFile storedFile = fileStorageService.store(file("hash.jpg", JPEG_WITH_BODY_BYTES));
+
+		assertEquals(
+				"b3eea2ea6200fe4a401f2541343a9143b35bf6b10e908182a5b3ce86a8192d2d",
+				storedFile.sha256()
+		);
+	}
+
+	@Test
+	void calculatesSameSha256ForSameContentWithDifferentFilenames() {
+		StoredFile first = fileStorageService.store(file("first.jpg", JPEG_WITH_BODY_BYTES));
+		StoredFile second = fileStorageService.store(file("second.jpg", JPEG_WITH_BODY_BYTES));
+
+		assertEquals(first.sha256(), second.sha256());
+	}
+
+	@Test
+	void calculatesDifferentSha256ForDifferentContent() {
+		StoredFile first = fileStorageService.store(file("first.jpg", JPEG_WITH_BODY_BYTES));
+		StoredFile second = fileStorageService.store(file("second.jpg", new byte[] {
+				(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 0x00,
+				0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x09
+		}));
+
+		assertNotEquals(first.sha256(), second.sha256());
+	}
+
+	@Test
+	void rejectsFileLargerThan50MegabytesBeforeOpeningItsStream() {
+		MultipartFile oversizedFile = mock(MultipartFile.class);
+		when(oversizedFile.isEmpty()).thenReturn(false);
+		when(oversizedFile.getOriginalFilename()).thenReturn("large.jpg");
+		when(oversizedFile.getSize()).thenReturn(50L * 1024 * 1024 + 1);
+
+		assertThrows(FileStorageValidationException.class, () -> fileStorageService.store(oversizedFile));
 	}
 
 	@Test

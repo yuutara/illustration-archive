@@ -21,7 +21,8 @@ class IllustrationPersistenceServiceTest {
 				"original.jpg",
 				"2026-09/example.jpg",
 				"image/jpeg",
-				1234L
+				1234L,
+				"a".repeat(64)
 		);
 
 		when(illustrationRepository.insert()).thenReturn(10L);
