@@ -28,6 +28,8 @@ public class IllustrationBatchImportService {
 
 		List<IllustrationBatchImportItemResult> items = new ArrayList<>(files.size());
 		int successCount = 0;
+		int duplicateCount = 0;
+		int failureCount = 0;
 
 		for (MultipartFile file : files) {
 			String filename = file == null ? null : file.getOriginalFilename();
@@ -38,9 +40,20 @@ public class IllustrationBatchImportService {
 						true,
 						result.illustrationId(),
 						null,
-						null
+						null,
+						IllustrationBatchImportItemResult.SUCCESS
 				));
 				successCount++;
+			} catch (DuplicateIllustrationException exception) {
+				items.add(new IllustrationBatchImportItemResult(
+						filename,
+						false,
+						exception.illustrationId(),
+						DuplicateIllustrationException.ERROR_CODE,
+						exception.getMessage(),
+						IllustrationBatchImportItemResult.DUPLICATE
+				));
+				duplicateCount++;
 			} catch (FileStorageValidationException exception) {
 				items.add(new IllustrationBatchImportItemResult(
 						filename,
@@ -49,24 +62,35 @@ public class IllustrationBatchImportService {
 						"INVALID_FILE",
 						exception.getMessage()
 				));
+				failureCount++;
 			} catch (FileStorageException exception) {
 				log.error("Failed to store file during batch import. filename={}", filename, exception);
 				items.add(failure(filename, "STORAGE_FAILED", "Failed to store file."));
+				failureCount++;
 			} catch (RuntimeException exception) {
 				log.error("Failed to import illustration during batch import. filename={}", filename, exception);
 				items.add(failure(filename, "IMPORT_FAILED", "Failed to import illustration."));
+				failureCount++;
 			}
 		}
 
 		return new IllustrationBatchImportResult(
 				files.size(),
 				successCount,
-				files.size() - successCount,
+				duplicateCount,
+				failureCount,
 				List.copyOf(items)
 		);
 	}
 
 	private IllustrationBatchImportItemResult failure(String filename, String errorCode, String message) {
-		return new IllustrationBatchImportItemResult(filename, false, null, errorCode, message);
+		return new IllustrationBatchImportItemResult(
+				filename,
+				false,
+				null,
+				errorCode,
+				message,
+				IllustrationBatchImportItemResult.FAILED
+		);
 	}
 }

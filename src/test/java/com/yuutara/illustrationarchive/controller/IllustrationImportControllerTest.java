@@ -52,6 +52,7 @@ class IllustrationImportControllerTest {
 		IllustrationBatchImportResult batchResult = new IllustrationBatchImportResult(
 				2,
 				1,
+				0,
 				1,
 				List.of(
 						new IllustrationBatchImportItemResult("first.jpg", true, 10L, null, null),
@@ -67,12 +68,15 @@ class IllustrationImportControllerTest {
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.total").value(2))
 				.andExpect(jsonPath("$.successCount").value(1))
+				.andExpect(jsonPath("$.duplicateCount").value(0))
 				.andExpect(jsonPath("$.failureCount").value(1))
 				.andExpect(jsonPath("$.items[0].filename").value("first.jpg"))
 				.andExpect(jsonPath("$.items[0].success").value(true))
+				.andExpect(jsonPath("$.items[0].status").value("SUCCESS"))
 				.andExpect(jsonPath("$.items[0].illustrationId").value(10))
 				.andExpect(jsonPath("$.items[1].filename").value("second.png"))
 				.andExpect(jsonPath("$.items[1].success").value(false))
+				.andExpect(jsonPath("$.items[1].status").value("FAILED"))
 				.andExpect(jsonPath("$.items[1].errorCode").value("INVALID_FILE"))
 				.andExpect(jsonPath("$.items[1].message").value("Unsupported image format."));
 
