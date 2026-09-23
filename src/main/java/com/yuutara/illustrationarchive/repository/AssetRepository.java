@@ -61,6 +61,13 @@ public class AssetRepository {
 			ORDER BY id ASC
 			""";
 
+	private static final String FIND_THUMBNAIL_BACKFILL_CANDIDATES_SQL = """
+			SELECT id, storage_key, mime_type
+			FROM asset
+			WHERE mime_type IN ('image/jpeg', 'image/png', 'image/gif')
+			ORDER BY id ASC
+			""";
+
 	private static final String UPDATE_SHA256_SQL =
 			"UPDATE asset SET sha256 = ? WHERE id = ?";
 
@@ -148,6 +155,17 @@ public class AssetRepository {
 				(resultSet, rowNum) -> new AssetSha256BackfillCandidate(
 						resultSet.getLong("id"),
 						resultSet.getString("storage_key")
+				)
+		);
+	}
+
+	public List<AssetThumbnailBackfillCandidate> findThumbnailBackfillCandidates() {
+		return jdbcTemplate.query(
+				FIND_THUMBNAIL_BACKFILL_CANDIDATES_SQL,
+				(resultSet, rowNum) -> new AssetThumbnailBackfillCandidate(
+						resultSet.getLong("id"),
+						resultSet.getString("storage_key"),
+						resultSet.getString("mime_type")
 				)
 		);
 	}

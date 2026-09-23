@@ -2,6 +2,9 @@ package com.yuutara.illustrationarchive.service;
 
 import com.yuutara.illustrationarchive.storage.FileStorageException;
 import com.yuutara.illustrationarchive.storage.FileStorageValidationException;
+import com.yuutara.illustrationarchive.storage.FileStorageService;
+import com.yuutara.illustrationarchive.storage.StoredFile;
+import com.yuutara.illustrationarchive.storage.ThumbnailService;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -11,12 +14,47 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import java.util.Optional;
+
 class IllustrationBatchImportServiceTest {
+
+	@Test
+	void thumbnailFailureAfterPersistenceKeepsBatchItemSuccessful() {
+		FileStorageService fileStorageService = mock(FileStorageService.class);
+		IllustrationPersistenceService persistenceService = mock(IllustrationPersistenceService.class);
+		ThumbnailService thumbnailService = mock(ThumbnailService.class);
+		IllustrationImportService importService = new IllustrationImportService(
+				fileStorageService,
+				persistenceService,
+				thumbnailService
+		);
+		IllustrationBatchImportService batchService = new IllustrationBatchImportService(importService);
+		MultipartFile file = file("original.jpg");
+		StoredFile storedFile = new StoredFile(
+				"original.jpg", "2026-09/example.jpg", "image/jpeg", 1234L, "a".repeat(64)
+		);
+		IllustrationImportResult persistedResult = new IllustrationImportResult(10L, 20L);
+
+		when(fileStorageService.store(file)).thenReturn(storedFile);
+		when(persistenceService.findIllustrationIdBySha256(storedFile.sha256())).thenReturn(Optional.empty());
+		when(persistenceService.persist(storedFile)).thenReturn(persistedResult);
+		doThrow(new IllegalStateException("thumbnail decode failure"))
+				.when(thumbnailService).generateThumbnail(storedFile.storageKey());
+
+		IllustrationBatchImportResult result = batchService.importBatch(List.of(file));
+
+		assertEquals(1, result.successCount());
+		assertEquals(0, result.failureCount());
+		assertEquals(IllustrationBatchImportItemResult.SUCCESS, result.items().get(0).status());
+		assertEquals(persistedResult.illustrationId(), result.items().get(0).illustrationId());
+		verify(fileStorageService, org.mockito.Mockito.never()).delete(storedFile.storageKey());
+	}
 
 	@Test
 	void importsAllFilesInOrderWhenEveryFileSucceeds() {

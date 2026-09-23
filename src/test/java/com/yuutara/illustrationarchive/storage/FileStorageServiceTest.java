@@ -63,11 +63,17 @@ class FileStorageServiceTest {
 	}
 
 	@Test
-	void storesValidGif() {
+	void storesValidGif() throws Exception {
 		StoredFile storedFile = fileStorageService.store(file("animation.gif", GIF_BYTES));
+		MessageDigest digest = MessageDigest.getInstance("SHA-256");
+		String expectedSha256 = HexFormat.of().formatHex(digest.digest(GIF_BYTES));
 
 		assertEquals("image/gif", storedFile.mimeType());
+		assertEquals(GIF_BYTES.length, storedFile.fileSize());
 		assertTrue(storedFile.storageKey().endsWith(".gif"));
+		assertTrue(Files.isRegularFile(temporaryStorageRoot.resolve(storedFile.storageKey())));
+		assertArrayEquals(GIF_BYTES, Files.readAllBytes(temporaryStorageRoot.resolve(storedFile.storageKey())));
+		assertEquals(expectedSha256, storedFile.sha256());
 	}
 
 	@Test

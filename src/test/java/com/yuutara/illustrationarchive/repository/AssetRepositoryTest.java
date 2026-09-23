@@ -228,6 +228,38 @@ class AssetRepositoryTest {
 	}
 
 	@Test
+	void findsSupportedThumbnailBackfillCandidatesByIdAscending() throws Exception {
+		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+		AssetRepository repository = new AssetRepository(jdbcTemplate);
+		ResultSet resultSet = mock(ResultSet.class);
+		when(resultSet.getLong("id")).thenReturn(20L);
+		when(resultSet.getString("storage_key")).thenReturn("2026-09/example.png");
+		when(resultSet.getString("mime_type")).thenReturn("image/png");
+
+		@SuppressWarnings({"unchecked", "rawtypes"})
+		ArgumentCaptor<RowMapper<AssetThumbnailBackfillCandidate>> rowMapperCaptor =
+				(ArgumentCaptor) ArgumentCaptor.forClass(RowMapper.class);
+		List<AssetThumbnailBackfillCandidate> candidates = List.of(
+				new AssetThumbnailBackfillCandidate(10L, "2026-08/first.jpg", "image/jpeg"),
+				new AssetThumbnailBackfillCandidate(20L, "2026-09/example.png", "image/png")
+		);
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class))).thenReturn(candidates);
+
+		assertEquals(candidates, repository.findThumbnailBackfillCandidates());
+
+		ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
+		verify(jdbcTemplate).query(sqlCaptor.capture(), rowMapperCaptor.capture());
+		String sql = sqlCaptor.getValue();
+		assertTrue(sql.contains("SELECT id, storage_key, mime_type"));
+		assertTrue(sql.contains("FROM asset"));
+		assertTrue(sql.contains("mime_type IN ('image/jpeg', 'image/png', 'image/gif')"));
+		assertTrue(sql.contains("ORDER BY id ASC"));
+
+		AssetThumbnailBackfillCandidate candidate = rowMapperCaptor.getValue().mapRow(resultSet, 0);
+		assertEquals(new AssetThumbnailBackfillCandidate(20L, "2026-09/example.png", "image/png"), candidate);
+	}
+
+	@Test
 	void updatesSha256ForAssetThatHasNoHash() {
 		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
 		AssetRepository repository = new AssetRepository(jdbcTemplate);

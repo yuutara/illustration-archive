@@ -39,7 +39,7 @@ public class ThumbnailService {
 		rejectParentPathSegments(storageKey);
 		Path sourcePath = fileStorageService.resolveStoragePath(storageKey);
 		String format = imageFormat(sourcePath);
-		String thumbnailKey = THUMBNAIL_DIRECTORY + storageKey;
+		String thumbnailKey = thumbnailStorageKey(storageKey);
 		Path thumbnailPath = fileStorageService.resolveStoragePath(thumbnailKey);
 
 		if (Files.exists(thumbnailPath, LinkOption.NOFOLLOW_LINKS)) {
@@ -80,6 +80,16 @@ public class ThumbnailService {
 		} finally {
 			deleteTemporaryFile(temporaryFile);
 		}
+	}
+
+	public void deleteThumbnail(String storageKey) {
+		rejectParentPathSegments(storageKey);
+		fileStorageService.resolveStoragePath(storageKey);
+		fileStorageService.delete(thumbnailStorageKey(storageKey));
+	}
+
+	private String thumbnailStorageKey(String storageKey) {
+		return THUMBNAIL_DIRECTORY + storageKey;
 	}
 
 	private void rejectParentPathSegments(String storageKey) {

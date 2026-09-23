@@ -111,6 +111,21 @@ class ThumbnailServiceTest {
 	}
 
 	@Test
+	void deletesDerivedThumbnailWithoutDeletingOriginalAndIsIdempotent() throws IOException {
+		String storageKey = "2026-09/delete-me.png";
+		writeImage(storageKey, 24, 18, "png", Color.MAGENTA);
+		Path sourcePath = storageRoot.resolve(storageKey);
+		String thumbnailKey = thumbnailService.generateThumbnail(storageKey);
+		Path thumbnailPath = storageRoot.resolve(thumbnailKey);
+
+		thumbnailService.deleteThumbnail(storageKey);
+		thumbnailService.deleteThumbnail(storageKey);
+
+		assertTrue(Files.isRegularFile(sourcePath));
+		assertTrue(Files.notExists(thumbnailPath));
+	}
+
+	@Test
 	void rejectsParentTraversalAndAbsoluteStorageKeys() {
 		assertThrows(
 				FileStorageValidationException.class,
@@ -119,6 +134,14 @@ class ThumbnailServiceTest {
 		assertThrows(
 				FileStorageValidationException.class,
 				() -> thumbnailService.generateThumbnail(storageRoot.resolve("outside.png").toString())
+		);
+		assertThrows(
+				FileStorageValidationException.class,
+				() -> thumbnailService.deleteThumbnail("nested/../outside.png")
+		);
+		assertThrows(
+				FileStorageValidationException.class,
+				() -> thumbnailService.deleteThumbnail(storageRoot.resolve("outside.png").toString())
 		);
 	}
 
