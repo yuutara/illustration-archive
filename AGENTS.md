@@ -7,6 +7,9 @@
 - Do not add complexity merely for resume appeal.
 - Do not introduce Redis, MQ, Elasticsearch, Docker, Spring Security, microservices, AI, or external integrations unless the current task explicitly requires them.
 - If requirements are unclear in a way that affects scope or business behavior, or a change would clearly expand scope, stop and explain rather than extending the design independently.
+- Treat `docs/PROJECT_STATE.md` as the source of truth for the current project phase, completed milestones, and next planned stage. Do not advance the phase unless the task explicitly does so.
+- Automated tests and `BUILD SUCCESS` are evidence, not substitutes for real-environment acceptance when behavior depends on MySQL, filesystem state, HTTP, or browser behavior.
+- One-off maintenance or backfill jobs must be explicit opt-in operations, default to disabled, and be safe to rerun where practical.
 
 - Preserve the current Controller / Service / Repository structure and JdbcTemplate style unless the task explicitly requires architectural change.
 - The current foundation is Java, Spring Boot, Maven, MySQL, JdbcTemplate, Flyway, and local filesystem storage.

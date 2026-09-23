@@ -9,7 +9,7 @@ V0.2 - Archive Quality & Gallery Experience
 
 Current development stage:
 
-**B2 - Thumbnail integration and historical thumbnail backfill: COMPLETE; real environment acceptance passed. B3 has not started.**
+**B2 - Thumbnail integration and historical thumbnail backfill: COMPLETE; real environment acceptance passed. B3 is the next planned stage and has not started.**
 
 ---
 
@@ -217,7 +217,7 @@ GIF 当前继续使用原始动态图。
 
 ##### B3｜Thumbnail HTTP 与图库切换
 
-状态：⬜ 未开始
+状态：⬜ 下一计划阶段；尚未开始
 
 需要完成：
 
@@ -283,8 +283,8 @@ README 根据最终效果进行必要更新
 - AI、OCR、外部平台集成或对象存储。
 - 为本版本目标之外的功能重写现有后端分层或引入大型前端框架。
 
-以上边界遵循 `AGENTS.md` 和工作流的 scope 控制；若未来确有新需求，应先由用户确认范围变化。
+以上边界遵循 `AGENTS.md` 中的 scope 控制；若未来确有新需求，应先由用户确认范围变化。
 
 ### Current next step
 
-B2 已完成并通过真实 MySQL 与文件系统验收。B3 尚未开始；等待用户明确提出下一项工作后再开始。
+B2 已完成并通过真实 MySQL 与文件系统验收。B3 是下一计划阶段，但尚未开始；等待用户明确提出启动下一阶段后再开始。
