@@ -175,7 +175,7 @@ public class FileStorageService {
 		return month + "/" + filename;
 	}
 
-	private Path resolveStoragePath(String storageKey) {
+	Path resolveStoragePath(String storageKey) {
 		if (storageKey == null || storageKey.isBlank()) {
 			throw new FileStorageValidationException("Storage key must not be blank.");
 		}
@@ -189,7 +189,6 @@ public class FileStorageService {
 		if (keyPath.isAbsolute()) {
 			throw new FileStorageValidationException("Storage key must be a relative path.");
 		}
-
 		Path resolvedPath = storageRoot.resolve(keyPath).normalize();
 		if (!resolvedPath.startsWith(storageRoot)) {
 			throw new FileStorageValidationException("Storage key must stay within the configured storage root.");
