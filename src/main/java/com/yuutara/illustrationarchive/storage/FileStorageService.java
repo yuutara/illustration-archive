@@ -90,7 +90,16 @@ public class FileStorageService {
 		if (!Files.isRegularFile(filePath)) {
 			throw new FileStorageException("Stored file does not exist or is not a regular file.");
 		}
-		return new FileSystemResource(filePath);
+		try {
+			Path realRoot = storageRoot.toRealPath();
+			Path realFile = filePath.toRealPath();
+			if (!realFile.startsWith(realRoot)) {
+				throw new FileStorageValidationException("Stored file must stay within the configured storage root.");
+			}
+			return new FileSystemResource(realFile);
+		} catch (IOException exception) {
+			throw new FileStorageException("Failed to locate stored file.", exception);
+		}
 	}
 
 	public String calculateSha256(String storageKey) {

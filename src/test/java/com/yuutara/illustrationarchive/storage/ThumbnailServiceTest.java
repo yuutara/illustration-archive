@@ -143,6 +143,14 @@ class ThumbnailServiceTest {
 				FileStorageValidationException.class,
 				() -> thumbnailService.deleteThumbnail(storageRoot.resolve("outside.png").toString())
 		);
+		assertThrows(
+				FileStorageValidationException.class,
+				() -> thumbnailService.loadThumbnail("nested/../outside.png")
+		);
+		assertThrows(
+				FileStorageValidationException.class,
+				() -> thumbnailService.loadThumbnail(storageRoot.resolve("outside.png").toString())
+		);
 	}
 
 	@Test

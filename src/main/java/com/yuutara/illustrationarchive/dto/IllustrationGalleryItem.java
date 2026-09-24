@@ -7,6 +7,7 @@ public record IllustrationGalleryItem(
 		String title,
 		AuthorSummary author,
 		Long coverAssetId,
+		String coverMimeType,
 		int assetCount,
 		LocalDateTime createdAt
 ) {

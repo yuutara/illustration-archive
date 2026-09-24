@@ -33,13 +33,8 @@ public class IllustrationRepository {
 				a.id AS author_id,
 				a.display_name AS author_display_name,
 				a.x_username AS author_x_username,
-				(
-					SELECT cover_asset.id
-					FROM asset cover_asset
-					WHERE cover_asset.illustration_id = i.id
-					ORDER BY cover_asset.sort_order ASC, cover_asset.id ASC
-					LIMIT 1
-				) AS cover_asset_id,
+			cover_asset.id AS cover_asset_id,
+			cover_asset.mime_type AS cover_mime_type,
 				(
 					SELECT COUNT(*)
 					FROM asset asset_count
@@ -48,6 +43,13 @@ public class IllustrationRepository {
 				i.created_at AS illustration_created_at
 			FROM illustration i
 			LEFT JOIN author a ON i.author_id = a.id
+			LEFT JOIN asset cover_asset ON cover_asset.id = (
+				SELECT candidate.id
+				FROM asset candidate
+				WHERE candidate.illustration_id = i.id
+				ORDER BY candidate.sort_order ASC, candidate.id ASC
+				LIMIT 1
+			)
 			ORDER BY i.created_at DESC, i.id DESC
 			LIMIT ? OFFSET ?
 			""";
@@ -131,6 +133,7 @@ public class IllustrationRepository {
 					resultSet.getString("illustration_title"),
 					author,
 					resultSet.getObject("cover_asset_id", Long.class),
+					resultSet.getString("cover_mime_type"),
 					resultSet.getInt("asset_count"),
 					resultSet.getTimestamp("illustration_created_at").toLocalDateTime()
 			);

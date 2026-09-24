@@ -1,6 +1,7 @@
 package com.yuutara.illustrationarchive.storage;
 
 import org.springframework.stereotype.Service;
+import org.springframework.core.io.Resource;
 
 import javax.imageio.IIOImage;
 import javax.imageio.ImageIO;
@@ -86,6 +87,17 @@ public class ThumbnailService {
 		rejectParentPathSegments(storageKey);
 		fileStorageService.resolveStoragePath(storageKey);
 		fileStorageService.delete(thumbnailStorageKey(storageKey));
+	}
+
+	public Resource loadThumbnail(String storageKey) {
+		rejectParentPathSegments(storageKey);
+		fileStorageService.resolveStoragePath(storageKey);
+		String thumbnailKey = thumbnailStorageKey(storageKey);
+		Path thumbnailPath = fileStorageService.resolveStoragePath(thumbnailKey);
+		if (Files.notExists(thumbnailPath, LinkOption.NOFOLLOW_LINKS)) {
+			throw new ThumbnailNotFoundException();
+		}
+		return fileStorageService.load(thumbnailKey);
 	}
 
 	private String thumbnailStorageKey(String storageKey) {

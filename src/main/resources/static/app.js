@@ -189,6 +189,22 @@
             : "未知作者";
     }
 
+    function galleryImageUrl(item) {
+        const assetId = item && item.coverAssetId;
+        if (assetId === null || assetId === undefined) {
+            return null;
+        }
+
+        const mimeType = item.coverMimeType;
+        if (mimeType === "image/jpeg" || mimeType === "image/png") {
+            return `/api/assets/${encodeURIComponent(String(assetId))}/thumbnail`;
+        }
+        if (mimeType === "image/gif") {
+            return `/api/assets/${encodeURIComponent(String(assetId))}/content`;
+        }
+        return null;
+    }
+
     function updatePagination() {
         pageInfo.textContent = state.totalPages > 0
             ? `第 ${state.page + 1} / ${state.totalPages} 页`
@@ -243,9 +259,10 @@
         fallback.hidden = true;
 
         const assetId = item && item.coverAssetId;
-        if (assetId !== null && assetId !== undefined) {
+        const imageUrl = galleryImageUrl(item);
+        if (imageUrl !== null) {
             const image = document.createElement("img");
-            image.src = `/api/assets/${encodeURIComponent(String(assetId))}/content`;
+            image.src = imageUrl;
             image.alt = title;
             image.loading = "lazy";
             image.decoding = "async";
@@ -255,7 +272,7 @@
             }, { once: true });
             imageContainer.appendChild(image);
         } else {
-            fallback.textContent = "暂无图片";
+            fallback.textContent = assetId === null || assetId === undefined ? "暂无图片" : "图片加载失败";
             fallback.hidden = false;
         }
         imageContainer.appendChild(fallback);

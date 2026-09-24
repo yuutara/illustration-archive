@@ -31,14 +31,15 @@ class IllustrationGalleryControllerTest {
 				10,
 				21L,
 				3,
-				List.of(new IllustrationGalleryItem(
-						10L,
-						"Sunset",
-						new AuthorSummary(2L, "Artist", "artist_x"),
-						20L,
-						2,
-						LocalDateTime.of(2026, 9, 19, 12, 30)
-				))
+				List.of(
+						new IllustrationGalleryItem(10L, "Sunset",
+								new AuthorSummary(2L, "Artist", "artist_x"), 20L, "image/jpeg", 2,
+								LocalDateTime.of(2026, 9, 19, 12, 30)),
+						new IllustrationGalleryItem(11L, "PNG", null, 21L, "image/png", 1,
+								LocalDateTime.of(2026, 9, 19, 12, 31)),
+						new IllustrationGalleryItem(12L, "GIF", null, 22L, "image/gif", 1,
+								LocalDateTime.of(2026, 9, 19, 12, 32))
+				)
 		);
 		when(illustrationGalleryService.getGallery(1, 10)).thenReturn(galleryPage);
 
@@ -54,6 +55,11 @@ class IllustrationGalleryControllerTest {
 				.andExpect(jsonPath("$.items[0].author.displayName").value("Artist"))
 				.andExpect(jsonPath("$.items[0].author.xUsername").value("artist_x"))
 				.andExpect(jsonPath("$.items[0].coverAssetId").value(20))
+				.andExpect(jsonPath("$.items[0].coverMimeType").value("image/jpeg"))
+				.andExpect(jsonPath("$.items[1].coverAssetId").value(21))
+				.andExpect(jsonPath("$.items[1].coverMimeType").value("image/png"))
+				.andExpect(jsonPath("$.items[2].coverAssetId").value(22))
+				.andExpect(jsonPath("$.items[2].coverMimeType").value("image/gif"))
 				.andExpect(jsonPath("$.items[0].assetCount").value(2))
 				.andExpect(jsonPath("$.items[0].createdAt").value("2026-09-19T12:30:00"));
 

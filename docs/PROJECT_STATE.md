@@ -9,7 +9,7 @@ V0.2 - Archive Quality & Gallery Experience
 
 Current development stage:
 
-**B2 - Thumbnail integration and historical thumbnail backfill: COMPLETE; real environment acceptance passed. B3 is the next planned stage and has not started.**
+**B3 - Thumbnail HTTP and gallery switching: COMPLETE; real HTTP and browser acceptance passed. B4 is the next planned stage and has not started.**
 
 ---
 
@@ -217,18 +217,12 @@ GIF 当前继续使用原始动态图。
 
 ##### B3｜Thumbnail HTTP 与图库切换
 
-状态：⬜ 下一计划阶段；尚未开始
+状态：✅ 已完成；B3-1 真实 HTTP 验收与 B3-2 真实浏览器验收均通过
 
-需要完成：
-
-- 提供 thumbnail 内容访问方式
-- JPG / PNG 图库优先加载 thumbnail
-- GIF 保留动画显示
-- 详情页仍能够读取原始媒体
-- 不暴露真实磁盘绝对路径
-- HTTP Content-Type 等行为正确
-- 相关自动化测试
-- 浏览器真实验证
+- `GET /api/assets/{assetId}/thumbnail` 返回已有 JPG/JPEG/PNG thumbnail。
+- 首页 JPG/JPEG/PNG 卡片使用 thumbnail；GIF 卡片使用 `/content` 并保持动画。
+- 详情页所有格式继续使用 `/content` 读取原始媒体。
+- 浏览器 Network 已确认静态图片请求切换到 thumbnail。
 
 ---
 
@@ -287,4 +281,4 @@ README 根据最终效果进行必要更新
 
 ### Current next step
 
-B2 已完成并通过真实 MySQL 与文件系统验收。B3 是下一计划阶段，但尚未开始；等待用户明确提出启动下一阶段后再开始。
+B3 已完成并通过真实环境验收。下一计划阶段为 B4｜图库布局与浏览体验，尚未开始。

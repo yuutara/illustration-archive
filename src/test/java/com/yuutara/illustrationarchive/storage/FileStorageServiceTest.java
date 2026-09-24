@@ -188,7 +188,7 @@ class FileStorageServiceTest {
 		Resource resource = fileStorageService.load("2026-09/image.jpg");
 
 		assertTrue(resource.exists());
-		assertEquals(storedPath.toAbsolutePath(), resource.getFile().toPath().toAbsolutePath());
+		assertEquals(storedPath.toRealPath(), resource.getFile().toPath().toRealPath());
 	}
 
 	@Test

@@ -48,6 +48,7 @@ class IllustrationRepositoryTest {
 		when(resultSet.getLong("illustration_id")).thenReturn(10L);
 		when(resultSet.getString("illustration_title")).thenReturn("Untitled");
 		when(resultSet.getObject("cover_asset_id", Long.class)).thenReturn(20L);
+		when(resultSet.getString("cover_mime_type")).thenReturn("image/jpeg");
 		when(resultSet.getInt("asset_count")).thenReturn(2);
 		when(resultSet.getTimestamp("illustration_created_at")).thenReturn(Timestamp.valueOf(createdAt));
 
@@ -63,7 +64,10 @@ class IllustrationRepositoryTest {
 		verify(jdbcTemplate).query(sqlCaptor.capture(), any(RowMapper.class), eq(24), eq(48L));
 		String sql = sqlCaptor.getValue();
 		assertTrue(sql.contains("LEFT JOIN author a ON i.author_id = a.id"));
-		assertTrue(sql.contains("ORDER BY cover_asset.sort_order ASC, cover_asset.id ASC"));
+		assertTrue(sql.contains("cover_asset.id AS cover_asset_id"));
+		assertTrue(sql.contains("cover_asset.mime_type AS cover_mime_type"));
+		assertTrue(sql.contains("LEFT JOIN asset cover_asset ON cover_asset.id = ("));
+		assertTrue(sql.contains("ORDER BY candidate.sort_order ASC, candidate.id ASC"));
 		assertTrue(sql.contains("ORDER BY i.created_at DESC, i.id DESC"));
 		assertTrue(sql.contains("LIMIT ? OFFSET ?"));
 		IllustrationGalleryItem item = rowMapperCaptor.getValue().mapRow(resultSet, 0);
@@ -71,6 +75,7 @@ class IllustrationRepositoryTest {
 		assertEquals("Untitled", item.title());
 		assertNull(item.author());
 		assertEquals(20L, item.coverAssetId());
+		assertEquals("image/jpeg", item.coverMimeType());
 		assertEquals(2, item.assetCount());
 		assertEquals(createdAt, item.createdAt());
 	}
@@ -104,6 +109,7 @@ class IllustrationRepositoryTest {
 		assertEquals("artist_x", item.author().xUsername());
 		assertNull(item.title());
 		assertNull(item.coverAssetId());
+		assertNull(item.coverMimeType());
 		assertEquals(0, item.assetCount());
 	}
 

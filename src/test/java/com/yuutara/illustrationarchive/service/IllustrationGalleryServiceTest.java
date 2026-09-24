@@ -21,7 +21,7 @@ class IllustrationGalleryServiceTest {
 		IllustrationRepository repository = mock(IllustrationRepository.class);
 		IllustrationGalleryService service = new IllustrationGalleryService(repository);
 		IllustrationGalleryItem item = new IllustrationGalleryItem(
-				10L, "Example", null, 20L, 1, LocalDateTime.of(2026, 9, 18, 10, 0)
+				10L, "Example", null, 20L, "image/jpeg", 1, LocalDateTime.of(2026, 9, 18, 10, 0)
 		);
 		when(repository.count()).thenReturn(53L);
 		when(repository.findGalleryPage(24, 24L)).thenReturn(List.of(item));

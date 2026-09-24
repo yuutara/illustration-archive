@@ -3,6 +3,7 @@ package com.yuutara.illustrationarchive.service;
 import com.yuutara.illustrationarchive.dto.AssetContentInfo;
 import com.yuutara.illustrationarchive.repository.AssetRepository;
 import com.yuutara.illustrationarchive.storage.FileStorageService;
+import com.yuutara.illustrationarchive.storage.ThumbnailService;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.Resource;
 
@@ -22,7 +23,8 @@ class AssetContentServiceTest {
 	void combinesAssetContentInfoWithStoredFileResource() {
 		AssetRepository assetRepository = mock(AssetRepository.class);
 		FileStorageService fileStorageService = mock(FileStorageService.class);
-		AssetContentService service = new AssetContentService(assetRepository, fileStorageService);
+		AssetContentService service = new AssetContentService(assetRepository, fileStorageService,
+				mock(ThumbnailService.class));
 		AssetContentInfo contentInfo = new AssetContentInfo("2026-09/example.jpg", "image/jpeg", 123L);
 		Resource resource = mock(Resource.class);
 		when(assetRepository.findContentInfoById(10L)).thenReturn(Optional.of(contentInfo));
@@ -41,7 +43,8 @@ class AssetContentServiceTest {
 	void throwsWhenAssetDoesNotExistWithoutLoadingAFile() {
 		AssetRepository assetRepository = mock(AssetRepository.class);
 		FileStorageService fileStorageService = mock(FileStorageService.class);
-		AssetContentService service = new AssetContentService(assetRepository, fileStorageService);
+		AssetContentService service = new AssetContentService(assetRepository, fileStorageService,
+				mock(ThumbnailService.class));
 		when(assetRepository.findContentInfoById(99L)).thenReturn(Optional.empty());
 
 		assertThrows(AssetNotFoundException.class, () -> service.load(99L));
