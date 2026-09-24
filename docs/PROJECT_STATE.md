@@ -9,7 +9,7 @@ V0.2 - Archive Quality & Gallery Experience
 
 Current development stage:
 
-**B3 - Thumbnail HTTP and gallery switching: COMPLETE; real HTTP and browser acceptance passed. B4 is the next planned stage and has not started.**
+**V0.2 COMPLETE; Final Acceptance / 封版已完成。最终 commit、push 和 tag 待手动执行。**
 
 ---
 
@@ -48,7 +48,7 @@ Main capabilities:
 
 ---
 
-## V0.2 Progress
+## V0.2 Completed Work
 
 ### A. SHA-256 Deduplication
 
@@ -123,7 +123,7 @@ Status: ✅ COMPLETE; REAL ENVIRONMENT ACCEPTANCE PASSED
 - Real import acceptance passed: JPEG/PNG generate thumbnails, while GIF imports successfully without a thumbnail.
 - Real deletion acceptance passed: HTTP 204; the Illustration and Asset rows, original file, and thumbnail were removed.
 - The temporary backfill startup parameter was removed after acceptance.
-- The B2 implementation remains uncommitted. The reviewed run on 2026-09-23 passed 174 automated tests.
+- The B2 implementation has been committed. The reviewed run on 2026-09-23 passed 174 automated tests.
 
 ---
 
@@ -197,7 +197,7 @@ GIF 当前继续使用原始动态图。
 
 ##### B2｜Thumbnail 接入与历史 Backfill
 
-状态：✅ 已完成，真实环境验收通过；尚未提交
+状态：✅ 已完成，真实环境验收通过；已提交
 
 验收范围：
 
@@ -228,24 +228,13 @@ GIF 当前继续使用原始动态图。
 
 ##### B4｜图库布局与浏览体验
 
-状态：⬜ 未开始
+状态：✅ 已完成；真实浏览器验收通过
 
-目标：
-
-在不大规模引入前端框架的前提下，
-改善图库作为真实个人工具时的浏览体验。
-
-至少保证：
-
-- thumbnail 展示尺寸合理
-- 不同宽高比图片不会严重破坏布局
-- 分页仍然稳定
-- 点击能够进入详情
-- GIF 使用体验可接受
-- 原图不会被图库首页无意义地批量加载
-
-具体 UI 实现根据 B3 完成后的真实效果再决定，
-不提前锁死设计。
+- Gallery 使用固定 1:1 预览区域和 `object-fit: cover`，允许适度裁切；作者名保持单行省略，响应式布局正常。
+- Gallery 的 JPG/JPEG/PNG 继续使用 thumbnail；GIF 继续使用 `/content` 并保持动画。分页和点击进入详情保持正常。
+- Detail 采用 Artwork-first 布局：原始 `/content` 图片是页面第一视觉主体。横图充分利用页面宽度，竖图受合理最大高度限制；所有图片保持原始比例，不裁切、不拉伸。
+- Detail 的编辑、删除、作者、标签、备注和来源等既有功能保持不变。
+- 已使用真实横图及其他图片比例完成浏览器验收。
 
 ---
 
@@ -258,17 +247,25 @@ SHA-256 去重完整闭环                       ✅
 JPG/PNG thumbnail 生成                    ✅
 新导入自动接入 thumbnail                    ✅
 历史 thumbnail backfill                     ✅
-图库实际使用 thumbnail
-GIF 保留合理的动画体验
-详情仍可访问原始图片
-自动化测试全部通过
+图库实际使用 thumbnail                    ✅
+GIF 保留合理的动画体验                    ✅
+详情仍可访问原始图片                      ✅
+自动化测试全部通过                         ✅
 真实 MySQL 验收通过                         ✅
 真实文件系统验收通过                       ✅
-真实浏览器验收通过
-没有已知的数据一致性严重问题
-PROJECT_STATE 更新完成
-README 根据最终效果进行必要更新
+真实浏览器验收通过                         ✅
+没有已知的数据一致性严重问题               ✅
+PROJECT_STATE 更新完成                    ✅
+README 根据最终效果进行必要更新            ✅
 ```
+
+### V0.2 Final Acceptance
+
+2026-09-24 最终验收完成：使用项目 Maven Wrapper 运行完整 `test`，结果为 183 tests、0 failures、0 errors、0 skipped，`BUILD SUCCESS`。此前真实 MySQL、文件系统、HTTP 和浏览器验收结果见上方各阶段记录；本轮没有重新执行真实 MySQL 验收。
+
+根据上述验收、当前测试及 SHA-256 去重、导入失败文件补偿、缩略图生成和删除清理的现有设计，当前未发现已知的数据一致性严重问题。数据库事务不能回滚文件系统操作，相关清理失败会记录日志；这不是对所有故障情形的绝对保证。
+
+README 已按 V0.2 最终能力收尾。V0.2 已完成 Final Acceptance；尚未进行最终 commit、push 或 tag。
 
 ### V0.2 Out of Scope
 
@@ -281,4 +278,4 @@ README 根据最终效果进行必要更新
 
 ### Current next step
 
-B3 已完成并通过真实环境验收。下一计划阶段为 B4｜图库布局与浏览体验，尚未开始。
+V0.2 Final Acceptance 已完成。下一步由项目维护者手动进行最终 commit、push 和 tag；此处不记录为已发布。

@@ -6,9 +6,9 @@
 
 Illustration Archive 解决的是“把散落在本地的插画文件整理成可浏览、可追踪的个人图库”这一问题。
 
-V0.1 采用 local-first 设计：图片文件留在配置的本地存储目录，数据库只保存插画、作者、标签以及文件元数据。浏览器端使用 Spring Boot 静态资源目录中的原生 HTML、CSS 和 JavaScript，不需要前端构建工具。
+项目采用 local-first 设计：图片文件留在配置的本地存储目录，数据库只保存插画、作者、标签以及文件元数据。浏览器端使用 Spring Boot 静态资源目录中的原生 HTML、CSS 和 JavaScript，不需要前端构建工具。
 
-项目当前以 `v0.1.0` tag 作为第一个可用版本基线。
+V0.2 已完成最终验收；`v0.1.0` 是已发布的第一个可用版本基线。
 
 ## 项目截图
 
@@ -16,22 +16,23 @@ V0.1 采用 local-first 设计：图片文件留在配置的本地存储目录�
 
 支持批量导入插画，并以分页卡片形式展示图库内容。
 
-![图库首页](docs/screenshots/gallery.png)
+![图库首页](docs/screenshots/gallery_v0.2.png)
 
 ### 插画详情页
 
 支持查看插画大图、标题、作者、标签、备注和来源等元数据，并提供编辑与删除入口。
 
-![插画详情页](docs/screenshots/detail.png)
+![插画详情页](docs/screenshots/detail_v0.2.png)
 
-## V0.1 已完成功能
+## 当前功能
 
-- 公开 HTTP 接口通过 `multipart/form-data` 批量导入 JPG、JPEG、PNG、GIF 图片；`IllustrationBatchImportService` 逐项复用 `IllustrationImportService.importSingle(...)`，支持部分成功并返回每个文件的处理结果。
-- 首页图库分页浏览，默认每页 24 条；卡片显示封面、标题和作者，并可进入详情页。
-- 详情页读取主图片、标题、作者、标签、备注和来源链接。
+- 导入 JPG、JPEG、PNG、GIF 图片；按文件内容计算 SHA-256 去重。单张重复导入返回 `409 Conflict` 和已有插画 ID；批量导入逐项返回 `SUCCESS`、`DUPLICATE` 或 `FAILED`，支持部分成功。
+- 可按需对历史 Asset 执行 SHA-256 回填；新导入的 JPG/PNG 自动生成缩略图，也支持历史缩略图回填。
+- 首页图库分页浏览，默认每页 24 条。JPG/PNG 卡片使用缩略图，GIF 保持原始动画；卡片显示封面、标题和作者，并可进入详情页。
+- Artwork-first 详情页以保持原始比例的原图为主体，同时显示标题、作者、标签、备注和来源链接。
 - 编辑标题、来源链接、备注，并通过 PATCH 更新已有 Author 关联和 Tag 关联。
 - 搜索和创建 Author；搜索、创建、选择、移除 Tag。
-- 删除单个 Illustration，并在数据库删除事务提交后清理对应的本地图片文件。
+- 删除单个 Illustration，并在数据库删除事务提交后清理原图和缩略图。
 - 通过 Asset 内容接口按 `asset id` 读取图片流；HTTP DTO 不暴露 `storage_key` 或本地绝对路径。
 - 首页和详情页包含加载失败、空数据、图片加载失败以及批量导入结果等基础状态反馈。
 
@@ -94,6 +95,7 @@ erDiagram
         BIGINT illustration_id FK
         VARCHAR original_filename
         VARCHAR storage_key UK
+        CHAR sha256 UK
         VARCHAR mime_type
         BIGINT file_size
         INT sort_order
@@ -110,8 +112,8 @@ erDiagram
 
 - 一个 `Illustration` 可以有多个 `Asset`；删除 Illustration 时由外键级联删除 Asset 和 `illustration_tag` 关联行。
 - 一个 `Illustration` 可以不关联 Author，也可以关联一个 Author；一个 Author 可以关联零个或多个 Illustration。删除 Author 时，Illustration 的 `author_id` 由数据库置为 `NULL`。
-- `Illustration` 与 `Tag` 是多对多关系，通过 `illustration_tag` 连接；删除 Tag 会级联删除关联行，但 V0.1 没有删除 Tag 的 HTTP API。
-- `asset.storage_key`、Author 的 `x_username` 和 Tag 的 `name` 在数据库中有唯一约束。
+- `Illustration` 与 `Tag` 是多对多关系，通过 `illustration_tag` 连接；删除 Tag 会级联删除关联行，当前没有删除 Tag 的 HTTP API。
+- `asset.storage_key`、非空的 `asset.sha256`、Author 的 `x_username` 和 Tag 的 `name` 在数据库中有唯一约束。
 
 ## 核心设计
 
@@ -132,20 +134,21 @@ erDiagram
 
 单张导入的顺序是“先保存文件，再执行数据库事务”：
 
-1. `FileStorageService.store(...)` 完成校验并写入文件。
-2. `IllustrationPersistenceService.persist(...)` 在 `@Transactional` 方法中插入 Illustration 和 Asset。
-3. 如果数据库持久化失败，`IllustrationImportService` 会执行补偿删除，尝试删除刚保存的文件；如果补偿删除也失败，清理异常会作为原持久化异常的 suppressed exception 保留，随后由上层 `IllustrationBatchImportService` 在捕获导入失败时记录异常日志。
+1. `FileStorageService.store(...)` 完成校验，在流式保存时计算文件内容的 SHA-256。
+2. 导入服务先查询相同 SHA-256，再由数据库唯一约束兜底并发重复；重复文件会被清理。
+3. `IllustrationPersistenceService.persist(...)` 在 `@Transactional` 方法中插入 Illustration 和 Asset。持久化失败时尝试补偿删除刚保存的文件，并记录清理失败。
+4. 持久化成功后尝试生成 JPG/PNG 缩略图；缩略图失败会记日志，不改变原图与数据库记录的成功导入结果。
 
-批量导入由 `IllustrationBatchImportService` 逐项调用单张导入。某一项失败不会中断剩余项目，响应会返回 `total`、`successCount`、`failureCount` 以及每个文件的 `filename`、`success`、`illustrationId`、`errorCode` 和 `message`。
+批量导入逐项复用单张导入。某一项失败不会中断剩余项目；响应包含 `successCount`、`duplicateCount`、`failureCount`，每项有 `status` 和对应的处理结果。
 
 ### 删除的一致性策略
 
 删除采用两个 Service 的边界：
 
 1. `IllustrationDatabaseDeleteService.delete(...)` 使用 `@Transactional`，确认记录存在，按 `sort_order ASC, id ASC` 查询全部 Asset 的 `storage_key`，然后只执行 `DELETE FROM illustration WHERE id = ?`。Asset 和 `illustration_tag` 由外键级联处理，Author 和 Tag 本身不会被删除。
-2. 数据库事务成功提交后，外层 `IllustrationDeleteService` 才逐个调用 `FileStorageService.delete(storageKey)`。
+2. 数据库事务成功提交后，外层 `IllustrationDeleteService` 才逐个清理缩略图和原图。
 
-文件系统操作无法参与 MySQL 事务，因此文件删除不会放在数据库事务方法内部。某个文件删除失败时记录包含 `storageKey` 和完整异常的 ERROR 日志，并继续清理其余文件；数据库删除不会被恢复。
+文件系统操作无法参与 MySQL 事务，因此文件删除不会放在数据库事务方法内部。某个缩略图或原图删除失败时会记录包含 `storageKey` 和完整异常的 ERROR 日志，并继续清理其余文件；数据库删除不会被恢复。
 
 ### PATCH 的三态语义
 
@@ -171,9 +174,11 @@ Tag ID 会先校验存在性，并去除重复 ID，然后在同一数据库事�
 | `GET` | `/api/illustrations?page=0&size=24` | Query 参数可省略，默认 `page=0`、`size=24`；后端校验 `page >= 0`，`size` 必须为 `1..100` | `IllustrationGalleryPage`：`page`、`size`、`totalElements`、`totalPages`、`items[]`。每个 item 包含 `id`、`title`、`author`、`coverAssetId`、`assetCount`、`createdAt` |
 | `GET` | `/api/illustrations/{id}` | Path variable `id` | `IllustrationDetail`：基础元数据、Author、`assets[]`、`tags[]`、创建/更新时间 |
 | `PATCH` | `/api/illustrations/{id}` | `application/json`；可包含 `title`、`sourceUrl`、`note`、`authorId`、`tagIds` | 按上文三态语义更新，成功返回 `204 No Content` |
-| `DELETE` | `/api/illustrations/{id}` | 无请求体 | 删除数据库记录并在事务提交后清理关联图片，成功返回 `204 No Content` |
-| `POST` | `/api/illustrations/import` | `multipart/form-data`；多个同名 `files` 字段，对应 `List<MultipartFile>` | `IllustrationBatchImportResult`，逐项报告成功或失败 |
+| `DELETE` | `/api/illustrations/{id}` | 无请求体 | 删除数据库记录并在事务提交后清理原图与缩略图，成功返回 `204 No Content` |
+| `POST` | `/api/illustrations/import` | `multipart/form-data`；多个同名 `files` 字段，对应 `List<MultipartFile>` | `IllustrationBatchImportResult`，逐项报告成功、重复或失败 |
+| `POST` | `/api/illustrations/import/single` | `multipart/form-data`；单个 `file` 字段 | 成功返回插画和 Asset ID；内容重复返回 `409 Conflict` 和已有插画 ID |
 | `GET` | `/api/assets/{id}/content` | Path variable `id` | 以数据库中的 MIME type 和文件大小返回图片 `Resource` 内容流 |
+| `GET` | `/api/assets/{id}/thumbnail` | Path variable `id` | 返回已有 JPG/PNG 缩略图；缺失时返回 `404` |
 
 `IllustrationGalleryItem` 和 `IllustrationDetail` 都只返回 Asset 的公开摘要字段，不返回 `storage_key`。
 
@@ -181,8 +186,9 @@ Tag ID 会先校验存在性，并去除重复 ID，然后在同一数据库事�
 
 ```json
 {
-  "total": 2,
+  "total": 3,
   "successCount": 1,
+  "duplicateCount": 1,
   "failureCount": 1,
   "items": [
     {
@@ -190,20 +196,30 @@ Tag ID 会先校验存在性，并去除重复 ID，然后在同一数据库事�
       "success": true,
       "illustrationId": 10,
       "errorCode": null,
-      "message": null
+      "message": null,
+      "status": "SUCCESS"
+    },
+    {
+      "filename": "same-image.png",
+      "success": false,
+      "illustrationId": 10,
+      "errorCode": "DUPLICATE_IMAGE",
+      "message": "An illustration with the same image already exists.",
+      "status": "DUPLICATE"
     },
     {
       "filename": "fake.jpg",
       "success": false,
       "illustrationId": null,
       "errorCode": "INVALID_FILE",
-      "message": "Uploaded file is not a supported image format."
+      "message": "Uploaded file is not a supported image format.",
+      "status": "FAILED"
     }
   ]
 }
 ```
 
-当前实现使用的失败代码包括 `INVALID_FILE`、`STORAGE_FAILED` 和 `IMPORT_FAILED`。
+当前实现使用的错误代码包括 `DUPLICATE_IMAGE`、`INVALID_FILE`、`STORAGE_FAILED` 和 `IMPORT_FAILED`。
 
 ### Author
 
@@ -237,7 +253,8 @@ Tag ID 会先校验存在性，并去除重复 ID，然后在同一数据库事�
 │  │  │  └─ storage/          # 本地文件存储、校验与安全路径
 │  │  └─ resources/
 │  │     ├─ db/migration/
-│  │     │  └─ V1__init_schema.sql
+│  │     │  ├─ V1__init_schema.sql
+│  │     │  └─ V2__add_asset_sha256.sql
 │  │     ├─ static/
 │  │     │  ├─ index.html
 │  │     │  ├─ app.js
@@ -304,7 +321,7 @@ macOS/Linux：
 ./mvnw spring-boot:run
 ```
 
-Flyway 会在启动时执行 `src/main/resources/db/migration/V1__init_schema.sql`。启动后访问：
+Flyway 会在启动时执行 `src/main/resources/db/migration/` 中尚未应用的迁移。启动后访问：
 
 <http://localhost:8080/>
 
@@ -322,6 +339,10 @@ Flyway 会在启动时执行 `src/main/resources/db/migration/V1__init_schema.sq
 | `spring.servlet.multipart.max-request-size` | HTTP multipart 单次请求上限，当前为 500MB |
 
 HTTP multipart 配置上限不等同于图片业务校验上限：`FileStorageService` 的单张图片业务限制仍是 50 MB。
+
+### 历史 SHA-256 回填
+
+历史 Asset 的 SHA-256 回填默认关闭。需要执行时，临时设置 `illustration.maintenance.sha256-backfill=true` 并重启应用；完成后删除该配置或设为 `false`。回填只处理 SHA-256 为空的记录，报告更新、重复和失败项；可安全重跑。
 
 ### 历史缩略图回填
 
@@ -351,18 +372,18 @@ macOS/Linux：
 
 测试覆盖 Controller 的 standalone MockMvc、Service 业务流程、Repository SQL/映射以及 FileStorageService 的校验和路径行为；当前测试使用 Mockito、模拟的 `JdbcTemplate` 和临时目录，不需要连接真实 MySQL。
 
-## V0.1 状态
+## 版本状态
 
-`v0.1.0` 已完成并打 tag。当前版本已经具备从文件导入到图库浏览、详情查看、元数据维护、Author/Tag 关联和 Illustration 删除的最小闭环，适合作为个人本地归档工具的第一版基线。
+`v0.1.0` 已完成并打 tag。V0.2 已完成最终验收，增加内容去重、缩略图和更适合浏览的图库与详情布局；V0.2 的最终 commit、push 和 tag 尚待完成。
 
 当前版本仍然是单机、本地文件系统存储，不包含用户认证、云对象存储或后台任务。
 
 ## Roadmap
 
 - X 平台导入，以及导入来源信息的进一步整理。
-- 基于文件内容或感知哈希的重复检测与合并策略。
+- 感知哈希重复检测与合并策略。
 - 孤儿文件扫描、诊断和人工确认后的修复工具。
 - 更丰富的图库搜索、筛选、排序和批量整理能力。
 - 在保持 `storage_key` 与数据库元数据解耦的前提下，继续整理可替换的存储实现。
 
-Roadmap 中的内容尚未作为 V0.1 功能实现。
+Roadmap 中的内容尚未作为 V0.2 功能实现。
