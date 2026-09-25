@@ -38,12 +38,23 @@ public class FileStorageService {
 		validateFile(file);
 
 		String originalFilename = file.getOriginalFilename();
+		// Preserve extension validation before opening the MultipartFile stream.
+		extractExtension(originalFilename);
+		try {
+			return store(originalFilename, file.getInputStream());
+		} catch (IOException exception) {
+			throw new FileStorageException("Failed to store uploaded file.", exception);
+		}
+	}
+
+	public StoredFile store(String originalFilename, InputStream source) {
+		validateFilename(originalFilename);
 		String extension = extractExtension(originalFilename);
 		ImageFormat actualFormat;
 		Path temporaryFile = null;
 		MessageDigest sha256Digest = createSha256Digest();
 
-		try (InputStream inputStream = new DigestInputStream(file.getInputStream(), sha256Digest)) {
+		try (InputStream inputStream = new DigestInputStream(source, sha256Digest)) {
 			byte[] signature = inputStream.readNBytes(SIGNATURE_LENGTH);
 			actualFormat = detectFormat(signature);
 			validateExtensionMatchesFormat(extension, actualFormat);
@@ -121,11 +132,15 @@ public class FileStorageService {
 		if (file == null || file.isEmpty()) {
 			throw new FileStorageValidationException("Uploaded file must not be empty.");
 		}
-		if (file.getOriginalFilename() == null || file.getOriginalFilename().isBlank()) {
-			throw new FileStorageValidationException("Uploaded file must have an original filename.");
-		}
+		validateFilename(file.getOriginalFilename());
 		if (file.getSize() > MAX_FILE_SIZE) {
 			throw new FileStorageValidationException("Uploaded file must not exceed 50 MB.");
+		}
+	}
+
+	private void validateFilename(String originalFilename) {
+		if (originalFilename == null || originalFilename.isBlank()) {
+			throw new FileStorageValidationException("Uploaded file must have an original filename.");
 		}
 	}
 

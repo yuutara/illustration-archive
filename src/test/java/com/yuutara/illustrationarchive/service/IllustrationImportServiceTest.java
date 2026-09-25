@@ -51,6 +51,24 @@ class IllustrationImportServiceTest {
 	}
 
 	@Test
+	void archivesStoredFileWithoutMultipartInput() {
+		FileStorageService fileStorageService = mock(FileStorageService.class);
+		IllustrationPersistenceService persistenceService = mock(IllustrationPersistenceService.class);
+		ThumbnailService thumbnailService = mock(ThumbnailService.class);
+		IllustrationImportService service = new IllustrationImportService(fileStorageService, persistenceService, thumbnailService);
+		StoredFile storedFile = storedFile();
+		IllustrationImportResult expectedResult = new IllustrationImportResult(10L, 20L);
+
+		when(persistenceService.findIllustrationIdBySha256(storedFile.sha256())).thenReturn(Optional.empty());
+		when(persistenceService.persist(storedFile)).thenReturn(expectedResult);
+
+		assertSame(expectedResult, service.archiveStoredFile(storedFile));
+		verifyNoInteractions(fileStorageService);
+		verify(persistenceService).persist(storedFile);
+		verify(thumbnailService).generateThumbnail(storedFile.storageKey());
+	}
+
+	@Test
 	void generatesPngThumbnailAfterPersistenceSucceeds() {
 		FileStorageService fileStorageService = mock(FileStorageService.class);
 		IllustrationPersistenceService persistenceService = mock(IllustrationPersistenceService.class);

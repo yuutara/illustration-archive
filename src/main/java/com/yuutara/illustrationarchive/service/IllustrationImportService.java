@@ -30,7 +30,10 @@ public class IllustrationImportService {
 
 	public IllustrationImportResult importSingle(MultipartFile file) {
 		StoredFile storedFile = fileStorageService.store(file);
+		return archiveStoredFile(storedFile);
+	}
 
+	public IllustrationImportResult archiveStoredFile(StoredFile storedFile) {
 		IllustrationImportResult result;
 		try {
 			illustrationPersistenceService.findIllustrationIdBySha256(storedFile.sha256())

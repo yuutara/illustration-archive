@@ -7,7 +7,10 @@ import org.springframework.core.io.Resource;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.SequenceInputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
@@ -21,6 +24,8 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class FileStorageServiceTest {
@@ -84,6 +89,63 @@ class FileStorageServiceTest {
 				"b3eea2ea6200fe4a401f2541343a9143b35bf6b10e908182a5b3ce86a8192d2d",
 				storedFile.sha256()
 		);
+	}
+
+	@Test
+	void streamStoragePreservesFilenameContentAndSha256() throws IOException {
+		StoredFile storedFile = fileStorageService.store("stream.PNG", new ByteArrayInputStream(PNG_BYTES));
+
+		assertEquals("stream.PNG", storedFile.originalFilename());
+		assertEquals("image/png", storedFile.mimeType());
+		assertEquals(PNG_BYTES.length, storedFile.fileSize());
+		assertTrue(storedFile.storageKey().endsWith(".png"));
+		assertArrayEquals(PNG_BYTES, Files.readAllBytes(temporaryStorageRoot.resolve(storedFile.storageKey())));
+		assertEquals("4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6", storedFile.sha256());
+	}
+
+	@Test
+	void streamStorageKeepsExtensionAndMagicNumberValidation() {
+		assertThrows(FileStorageValidationException.class,
+				() -> fileStorageService.store("image.webp", new ByteArrayInputStream(JPEG_BYTES)));
+		assertThrows(FileStorageValidationException.class,
+				() -> fileStorageService.store("image.png", new ByteArrayInputStream(JPEG_BYTES)));
+		assertThrows(FileStorageValidationException.class,
+				() -> fileStorageService.store("image.jpg", new ByteArrayInputStream(new byte[] {1, 2, 3, 4})));
+	}
+
+	@Test
+	void streamStorageRejectsMoreThan50MbOfBytesActuallyReadAndRemovesTemporaryFile() throws IOException {
+		InputStream oversizedStream = new SequenceInputStream(
+				new ByteArrayInputStream(JPEG_BYTES),
+				new InputStream() {
+					private long remaining = 50L * 1024 * 1024 + 1 - JPEG_BYTES.length;
+
+					@Override
+					public int read() {
+						if (remaining-- <= 0) {
+							return -1;
+						}
+						return 0;
+					}
+
+					@Override
+					public int read(byte[] buffer, int offset, int length) {
+						if (remaining == 0) {
+							return -1;
+						}
+						int count = (int) Math.min(remaining, length);
+						Arrays.fill(buffer, offset, offset + count, (byte) 0);
+						remaining -= count;
+						return count;
+					}
+				}
+		);
+
+		assertThrows(FileStorageValidationException.class,
+				() -> fileStorageService.store("large.jpg", oversizedStream));
+		try (var files = Files.walk(temporaryStorageRoot)) {
+			assertEquals(0, files.filter(Files::isRegularFile).count());
+		}
 	}
 
 	@Test
@@ -155,6 +217,16 @@ class FileStorageServiceTest {
 	void rejectsUnsupportedExtension() {
 		assertThrows(FileStorageValidationException.class,
 				() -> fileStorageService.store(file("not-supported.webp", JPEG_BYTES)));
+	}
+
+	@Test
+	void rejectsUnsupportedMultipartExtensionBeforeOpeningStream() throws IOException {
+		MultipartFile file = mock(MultipartFile.class);
+		when(file.isEmpty()).thenReturn(false);
+		when(file.getOriginalFilename()).thenReturn("not-supported.webp");
+
+		assertThrows(FileStorageValidationException.class, () -> fileStorageService.store(file));
+		verify(file, never()).getInputStream();
 	}
 
 	@Test
