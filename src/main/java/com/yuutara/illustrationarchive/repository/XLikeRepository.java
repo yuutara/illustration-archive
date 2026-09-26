@@ -16,6 +16,9 @@ import java.util.List;
 
 @Repository
 public class XLikeRepository {
+	public record ImportItem(long id, String xPostId, String xAuthorId,
+			String authorUsername, String authorDisplayName, XLikeStatus status) {
+	}
 	private static final String INSERT = """
 			INSERT INTO x_like_item (x_post_id, x_author_id, author_username,
 			    author_display_name, post_text, post_created_at, status, discovered_at, updated_at)
@@ -77,6 +80,25 @@ public class XLikeRepository {
 				SET status = 'SKIPPED', updated_at = UTC_TIMESTAMP(3)
 				WHERE id = ? AND status = 'PENDING'
 				""", itemId);
+	}
+
+	public java.util.Optional<ImportItem> findForImport(long itemId, boolean lock) {
+		String sql = "SELECT id, x_post_id, x_author_id, author_username, author_display_name, status "
+				+ "FROM x_like_item WHERE id = ?" + (lock ? " FOR UPDATE" : "");
+		return jdbcTemplate.query(sql, (rs, row) -> new ImportItem(rs.getLong("id"),
+				rs.getString("x_post_id"), rs.getString("x_author_id"),
+				rs.getString("author_username"), rs.getString("author_display_name"),
+				XLikeStatus.valueOf(rs.getString("status"))), itemId).stream().findFirst();
+	}
+
+	public void markImported(long itemId, long illustrationId) {
+		int changed = jdbcTemplate.update("""
+				UPDATE x_like_item SET status = 'IMPORTED', imported_illustration_id = ?,
+				updated_at = UTC_TIMESTAMP(3) WHERE id = ? AND status = 'PENDING'
+				""", illustrationId, itemId);
+		if (changed != 1) {
+			throw new IllegalStateException("X Like item is no longer pending.");
+		}
 	}
 
 	public List<XLikeInboxItem> findPending() {

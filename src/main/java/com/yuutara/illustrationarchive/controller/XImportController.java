@@ -4,6 +4,7 @@ import com.yuutara.illustrationarchive.dto.XLikeInboxItem;
 import com.yuutara.illustrationarchive.dto.XLikeSyncSummary;
 import com.yuutara.illustrationarchive.service.XApiException;
 import com.yuutara.illustrationarchive.service.XLikeSyncService;
+import com.yuutara.illustrationarchive.service.XImportService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -21,9 +22,11 @@ import java.util.List;
 @RequestMapping("/api/x-import")
 public class XImportController {
 	private final XLikeSyncService syncService;
+	private final XImportService importService;
 
-	public XImportController(XLikeSyncService syncService) {
+	public XImportController(XLikeSyncService syncService, XImportService importService) {
 		this.syncService = syncService;
+		this.importService = importService;
 	}
 
 	@PostMapping("/sync/recent")
@@ -39,6 +42,11 @@ public class XImportController {
 	@PatchMapping("/inbox/skip")
 	public XLikeSyncService.SkipSummary skip(@RequestBody SkipRequest request) {
 		return syncService.skip(request.itemIds());
+	}
+
+	@PostMapping("/inbox/import")
+	public XImportService.Summary importSelected(@RequestBody SkipRequest request) {
+		return importService.importSelected(request.itemIds());
 	}
 
 	@ExceptionHandler(IllegalArgumentException.class)

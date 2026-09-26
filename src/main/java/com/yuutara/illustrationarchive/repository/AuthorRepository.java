@@ -63,6 +63,32 @@ public class AuthorRepository {
 		return generatedKey.longValue();
 	}
 
+	public Optional<Long> findIdByXUserId(String xUserId) {
+		return jdbcTemplate.query("SELECT id FROM author WHERE x_user_id = ?",
+				(rs, row) -> rs.getLong("id"), xUserId).stream().findFirst();
+	}
+
+	public long insertXAuthor(String xUserId, String displayName, String username) {
+		KeyHolder keys = new GeneratedKeyHolder();
+		jdbcTemplate.update(connection -> {
+			var statement = connection.prepareStatement(
+					"INSERT INTO author (x_user_id, display_name, x_username) VALUES (?, ?, ?)",
+					Statement.RETURN_GENERATED_KEYS);
+			statement.setString(1, xUserId);
+			statement.setString(2, displayName);
+			statement.setString(3, username);
+			return statement;
+		}, keys);
+		Number id = keys.getKey();
+		if (id == null) throw new IllegalStateException("Failed to obtain X author id.");
+		return id.longValue();
+	}
+
+	public void updateXAuthor(long id, String displayName, String username) {
+		jdbcTemplate.update("UPDATE author SET display_name = ?, x_username = ? WHERE id = ?",
+				displayName, username, id);
+	}
+
 	public Optional<AuthorDetail> findById(long id) {
 		return jdbcTemplate.query(FIND_BY_ID_SQL, (resultSet, rowNum) -> new AuthorDetail(
 				resultSet.getLong("id"),

@@ -9,7 +9,7 @@ V0.3 - X Likes Import Inbox
 
 Current development stage:
 
-**V0.3-A 后端数据基础已实现；自动化测试通过，真实 MySQL / X HTTP 验收尚未执行。**
+**V0.3-C2 X Post → Illustration + Multi-Asset Archive 已实现；自动化测试通过，C2 真实 MySQL / 文件系统 / HTTP / 浏览器验收尚未执行。**
 
 V0.2 的 Final Acceptance 已完成；其最终 commit、push 和 tag 是否执行由项目维护者决定。
 
@@ -21,6 +21,18 @@ V0.2 的 Final Acceptance 已完成；其最终 commit、push 和 tag 是否执�
 - `GET /api/x-import/inbox` 仅返回 `PENDING`，按 Post 创建时间倒序并按媒体顺序返回。
 - `POST /api/x-import/sync/recent` 返回本页同步摘要。X Access Token 只从未跟踪的本地配置或环境变量读取；默认关闭。
 - 自动测试使用模拟 X HTTP 响应，不访问真实 X API。真实 MySQL 迁移、HTTP 和浏览器行为尚未验收；本阶段不下载或归档 X 媒体。
+
+### V0.3-C1 | X photo full-resolution download
+
+- 按本轮提供的验收记录，C1 已完成真实验收：`1269×1265 → 1269×1265`，`4096×2498 → 4096×2498`。
+
+### V0.3-C2 | X Post → Illustration + Multi-Asset Archive
+
+- `POST /api/x-import/inbox/import` 按 Post 返回 `SUCCESS` / `DUPLICATE` / `FAILED` 明细，批量允许部分成功。
+- 单 Post 全部照片下载完成后，Author、Illustration、全部 Assets 和 Inbox 状态在一个数据库事务中写入；成功状态为 `IMPORTED`，记录 `imported_illustration_id`。
+- Author 使用稳定 `x_user_id` 匹配，更新展示名和 username；任意照片 SHA-256 重复时整 Post 拒绝归档。
+- 下载或数据库失败会补偿删除本轮原图；缩略图在核心归档提交后生成，失败仅记录。
+- 自动化测试不访问真实 X API / CDN。C2 尚未做真实 MySQL migration、文件系统、HTTP 和浏览器验收。
 
 ---
 
@@ -289,4 +301,4 @@ README 已按 V0.2 最终能力收尾。V0.2 已完成 Final Acceptance；尚未
 
 ### Current next step
 
-V0.3-A 已完成后端实现和自动测试。下一步是按计划进行真实 MySQL / HTTP 验收，再决定后续工作包；本文件不将其记为已验收或已发布。
+V0.3-C2 已完成实现和自动化测试。下一步是进行 C2 真实 MySQL migration、文件系统、HTTP 和浏览器验收；本文件不将 C2 记为已真实验收或已发布。

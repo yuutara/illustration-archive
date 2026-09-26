@@ -109,6 +109,21 @@ public class IllustrationRepository {
 		return generatedKey.longValue();
 	}
 
+	public long insertXPost(long authorId, String sourceUrl) {
+		KeyHolder keys = new GeneratedKeyHolder();
+		jdbcTemplate.update(connection -> {
+			var statement = connection.prepareStatement(
+					"INSERT INTO illustration (author_id, source_url) VALUES (?, ?)",
+					Statement.RETURN_GENERATED_KEYS);
+			statement.setLong(1, authorId);
+			statement.setString(2, sourceUrl);
+			return statement;
+		}, keys);
+		Number id = keys.getKey();
+		if (id == null) throw new IllegalStateException("Failed to obtain X illustration id.");
+		return id.longValue();
+	}
+
 	public long count() {
 		Long total = jdbcTemplate.queryForObject(COUNT_SQL, Long.class);
 		if (total == null) {

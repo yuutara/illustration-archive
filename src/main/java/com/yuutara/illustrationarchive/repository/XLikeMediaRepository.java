@@ -37,6 +37,16 @@ public class XLikeMediaRepository {
 						rs.getObject("width", Integer.class), rs.getObject("height", Integer.class))));
 	}
 
+	public List<XLikeMedia> findByItemId(long itemId) {
+		return jdbcTemplate.query("""
+				SELECT media_key, sort_order, media_type, source_url, width, height
+				FROM x_like_media WHERE x_like_item_id = ? ORDER BY sort_order
+				""", (rs, row) -> new XLikeMedia(rs.getString("media_key"),
+				rs.getInt("sort_order"), rs.getString("media_type"),
+				rs.getString("source_url"), rs.getObject("width", Integer.class),
+				rs.getObject("height", Integer.class)), itemId);
+	}
+
 	public record PendingMedia(long itemId, XLikeMedia media) {
 	}
 }

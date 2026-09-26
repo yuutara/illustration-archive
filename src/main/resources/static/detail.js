@@ -25,8 +25,7 @@
     const stateMessage = document.getElementById("detail-state-message");
     const retryButton = document.getElementById("detail-retry-button");
     const detailContent = document.getElementById("detail-content");
-    const imageElement = document.getElementById("detail-image-element");
-    const imageFallback = document.getElementById("detail-image-fallback");
+    const imagesElement = document.getElementById("detail-images");
     const editButton = document.getElementById("detail-edit-button");
     const deleteButton = document.getElementById("detail-delete-button");
     const editForm = document.getElementById("detail-edit-form");
@@ -676,54 +675,54 @@
         detailContent.hidden = false;
     }
 
-    function primaryAssetFor(detail) {
+    function orderedAssetsFor(detail) {
         const assets = Array.isArray(detail && detail.assets)
             ? detail.assets.filter(function (asset) {
                 return asset && asset.id !== null && asset.id !== undefined;
             })
             : [];
 
-        return assets.reduce(function (primaryAsset, asset) {
-            if (!primaryAsset) {
-                return asset;
-            }
-
-            const assetSortOrder = Number(asset.sortOrder);
-            const primarySortOrder = Number(primaryAsset.sortOrder);
-            if (assetSortOrder < primarySortOrder) {
-                return asset;
-            }
-            if (assetSortOrder === primarySortOrder
-                && Number(asset.id) < Number(primaryAsset.id)) {
-                return asset;
-            }
-            return primaryAsset;
-        }, null);
+        return assets.sort(function (left, right) {
+            return Number(left.sortOrder) - Number(right.sortOrder)
+                || Number(left.id) - Number(right.id);
+        });
     }
 
-    function renderImage(detail) {
-        imageElement.hidden = true;
-        imageElement.removeAttribute("src");
-        imageFallback.hidden = false;
-        imageFallback.textContent = "暂无图片";
-
-        const primaryAsset = primaryAssetFor(detail);
-        if (!primaryAsset) {
+    function renderImages(detail) {
+        imagesElement.replaceChildren();
+        const assets = orderedAssetsFor(detail);
+        if (assets.length === 0) {
+            const emptyImage = document.createElement("div");
+            emptyImage.className = "detail-image";
+            const emptyMessage = document.createElement("span");
+            emptyMessage.className = "detail-image-fallback";
+            emptyMessage.textContent = "暂无图片";
+            emptyImage.appendChild(emptyMessage);
+            imagesElement.appendChild(emptyImage);
             return;
         }
 
-        imageFallback.hidden = true;
-        imageFallback.textContent = "图片加载失败";
-        imageElement.alt = titleFor(detail);
-        imageElement.src = `/api/assets/${encodeURIComponent(String(primaryAsset.id))}/content`;
-        imageElement.addEventListener("load", function () {
-            imageElement.hidden = false;
-            imageFallback.hidden = true;
-        }, { once: true });
-        imageElement.addEventListener("error", function () {
-            imageElement.hidden = true;
-            imageFallback.hidden = false;
-        }, { once: true });
+        assets.forEach(function (asset, index) {
+            const imageContainer = document.createElement("div");
+            imageContainer.className = "detail-image";
+            const image = document.createElement("img");
+            image.alt = assets.length === 1
+                ? titleFor(detail)
+                : `${titleFor(detail)} · 第 ${index + 1} 张`;
+            image.loading = index === 0 ? "eager" : "lazy";
+            const fallback = document.createElement("span");
+            fallback.className = "detail-image-fallback";
+            fallback.textContent = "图片加载失败";
+            fallback.hidden = true;
+            image.addEventListener("error", function () {
+                image.hidden = true;
+                fallback.hidden = false;
+            }, { once: true });
+            imageContainer.appendChild(image);
+            imageContainer.appendChild(fallback);
+            image.src = `/api/assets/${encodeURIComponent(String(asset.id))}/content`;
+            imagesElement.appendChild(imageContainer);
+        });
     }
 
     function renderAuthor(detail) {
@@ -802,7 +801,7 @@
     function renderDetail(detail) {
         state.detail = detail;
         titleElement.textContent = titleFor(detail);
-        renderImage(detail);
+        renderImages(detail);
         renderAuthor(detail);
         renderTags(detail);
         noteElement.textContent = textOrFallback(detail && detail.note, "暂无备注");

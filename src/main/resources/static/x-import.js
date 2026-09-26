@@ -12,6 +12,7 @@
     const selectAllButton = document.getElementById("select-all-button");
     const clearButton = document.getElementById("clear-button");
     const skipButton = document.getElementById("skip-button");
+    const importButton = document.getElementById("import-button");
     let items = [];
     let busy = false;
     let loading = false;
@@ -39,6 +40,7 @@
         selectAllButton.disabled = busy || loading || items.length === 0 || selectionCount === items.length;
         clearButton.disabled = busy || loading || selectionCount === 0;
         skipButton.disabled = busy || loading || selectionCount === 0;
+        importButton.disabled = busy || loading || selectionCount === 0;
         list.querySelectorAll("input[type=checkbox]").forEach(input => { input.disabled = busy; });
     }
 
@@ -182,8 +184,34 @@
         }
     }
 
+    async function importSelected() {
+        if (busy) return;
+        const ids = selectedIds();
+        if (ids.length === 0) return;
+        busy = true;
+        updateActions();
+        setMessage("正在导入选中的项目…", false);
+        try {
+            const response = await fetch("/api/x-import/inbox/import", {
+                method: "POST",
+                headers: { Accept: "application/json", "Content-Type": "application/json" },
+                body: JSON.stringify({ itemIds: ids })
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.message || `HTTP ${response.status}`);
+            await loadInbox();
+            setMessage(`导入完成：成功 ${result.successCount}，重复 ${result.duplicateCount}，失败 ${result.failureCount}。`, false);
+        } catch (error) {
+            setMessage(`导入失败：${error.message}`, true);
+        } finally {
+            busy = false;
+            updateActions();
+        }
+    }
+
     syncButton.addEventListener("click", syncLatest);
     skipButton.addEventListener("click", skipSelected);
+    importButton.addEventListener("click", importSelected);
     selectAllButton.addEventListener("click", () => {
         list.querySelectorAll("input[type=checkbox]").forEach(input => { input.checked = true; });
         updateActions();

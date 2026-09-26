@@ -5,6 +5,7 @@ import com.yuutara.illustrationarchive.dto.XLikeMedia;
 import com.yuutara.illustrationarchive.dto.XLikeSyncSummary;
 import com.yuutara.illustrationarchive.service.XApiException;
 import com.yuutara.illustrationarchive.service.XLikeSyncService;
+import com.yuutara.illustrationarchive.service.XImportService;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -22,6 +23,23 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class XImportControllerTest {
+	@Test
+	void importEndpointReturnsPerPostSummary() throws Exception {
+		XImportService imports = mock(XImportService.class);
+		when(imports.importSelected(List.of(1L, 2L))).thenReturn(new XImportService.Summary(2, 1, 1, 0,
+				List.of(new XImportService.ItemResult(1, "SUCCESS", 20L, null),
+						new XImportService.ItemResult(2, "DUPLICATE", null, "duplicate photo"))));
+		MockMvc mvc = MockMvcBuilders.standaloneSetup(new XImportController(mock(XLikeSyncService.class), imports)).build();
+		mvc.perform(post("/api/x-import/inbox/import")
+				.contentType("application/json").content("{\"itemIds\":[1,2]}"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.successCount").value(1))
+				.andExpect(jsonPath("$.duplicateCount").value(1))
+				.andExpect(jsonPath("$.items[0].illustrationId").value(20))
+				.andExpect(jsonPath("$.items[1].status").value("DUPLICATE"));
+		verify(imports).importSelected(List.of(1L, 2L));
+	}
+
 	@Test
 	void syncEndpointReturnsSummaryAndUsesDefaultWhenSizeMissing() throws Exception {
 		XLikeSyncService service = mock(XLikeSyncService.class);
@@ -106,6 +124,6 @@ class XImportControllerTest {
 	}
 
 	private MockMvc mvc(XLikeSyncService service) {
-		return MockMvcBuilders.standaloneSetup(new XImportController(service)).build();
+		return MockMvcBuilders.standaloneSetup(new XImportController(service, mock(XImportService.class))).build();
 	}
 }

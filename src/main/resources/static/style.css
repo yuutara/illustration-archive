@@ -452,6 +452,12 @@ h2 {
     gap: 30px;
 }
 
+.detail-images {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+}
+
 .detail-image {
     display: flex;
     align-items: center;
