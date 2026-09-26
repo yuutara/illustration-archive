@@ -5,11 +5,22 @@
 
 ## Current Version
 
-V0.2 - Archive Quality & Gallery Experience
+V0.3 - X Likes Import Inbox
 
 Current development stage:
 
-**V0.2 COMPLETE; Final Acceptance / 封版已完成。最终 commit、push 和 tag 待手动执行。**
+**V0.3-A 后端数据基础已实现；自动化测试通过，真实 MySQL / X HTTP 验收尚未执行。**
+
+V0.2 的 Final Acceptance 已完成；其最终 commit、push 和 tag 是否执行由项目维护者决定。
+
+### V0.3-A | X Likes → Import Inbox backend
+
+- 单次同步只请求最近 Likes 的一页；默认 `maxResults=5`，范围 5..100，不自动翻页或保存 `next_token`。
+- 新增 `x_like_item` / `x_like_media`，用唯一 `x_post_id` 防止重复候选；同一个 Post 再次出现时保留已有状态和媒体。
+- 只有直接 attachments 全为带 URL 的 photo 且至少一张时标记 `PENDING`；其余标记 `UNSUPPORTED`。
+- `GET /api/x-import/inbox` 仅返回 `PENDING`，按 Post 创建时间倒序并按媒体顺序返回。
+- `POST /api/x-import/sync/recent` 返回本页同步摘要。X Access Token 只从未跟踪的本地配置或环境变量读取；默认关闭。
+- 自动测试使用模拟 X HTTP 响应，不访问真实 X API。真实 MySQL 迁移、HTTP 和浏览器行为尚未验收；本阶段不下载或归档 X 媒体。
 
 ---
 
@@ -278,4 +289,4 @@ README 已按 V0.2 最终能力收尾。V0.2 已完成 Final Acceptance；尚未
 
 ### Current next step
 
-V0.2 Final Acceptance 已完成。下一步由项目维护者手动进行最终 commit、push 和 tag；此处不记录为已发布。
+V0.3-A 已完成后端实现和自动测试。下一步是按计划进行真实 MySQL / HTTP 验收，再决定后续工作包；本文件不将其记为已验收或已发布。

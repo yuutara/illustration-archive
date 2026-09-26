@@ -9,3 +9,9 @@ ILLUSTRATION_ARCHIVE_DB_PASSWORD=replace_with_your_mysql_password
 # An absolute directory is allowed here, but never in Java source code.
 # Example on Windows: D:/IllustrationArchiveData
 ILLUSTRATION_ARCHIVE_STORAGE_ROOT=replace_with_your_local_storage_root
+
+# Optional X Likes inbox sync. Keep the real token only in the ignored local copy.
+X_API_ENABLED=false
+X_API_BASE_URL=https://api.x.com
+X_API_ACCESS_TOKEN=
+X_API_DEFAULT_PAGE_SIZE=5
