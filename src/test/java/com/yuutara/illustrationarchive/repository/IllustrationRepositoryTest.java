@@ -1,17 +1,20 @@
 package com.yuutara.illustrationarchive.repository;
 
 import com.yuutara.illustrationarchive.dto.AssetSummary;
+import com.yuutara.illustrationarchive.dto.GalleryAsset;
 import com.yuutara.illustrationarchive.dto.IllustrationGalleryItem;
 import com.yuutara.illustrationarchive.dto.TagSummary;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.core.RowCallbackHandler;
 
 import java.sql.ResultSet;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -111,6 +114,33 @@ class IllustrationRepositoryTest {
 		assertNull(item.coverAssetId());
 		assertNull(item.coverMimeType());
 		assertEquals(0, item.assetCount());
+	}
+
+	@Test
+	void loadsGalleryAssetsForPageInSortOrder() throws Exception {
+		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate);
+		Map<Long, List<GalleryAsset>> assets =
+				repository.findGalleryAssetsByIllustrationIds(List.of(10L, 11L));
+
+		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+		ArgumentCaptor<RowCallbackHandler> handler = ArgumentCaptor.forClass(RowCallbackHandler.class);
+		verify(jdbcTemplate).query(sql.capture(), handler.capture(), eq(10L), eq(11L));
+		assertTrue(sql.getValue().contains("WHERE illustration_id IN (?, ?)"));
+		assertTrue(sql.getValue().contains("ORDER BY illustration_id, sort_order ASC, id ASC"));
+		assertFalse(sql.getValue().contains("storage_key"));
+
+		ResultSet row = mock(ResultSet.class);
+		when(row.getLong("illustration_id")).thenReturn(10L, 10L, 10L);
+		when(row.getLong("id")).thenReturn(31L, 32L, 33L);
+		when(row.getString("mime_type")).thenReturn("image/jpeg", "image/png", "image/gif");
+		when(row.getInt("sort_order")).thenReturn(0, 1, 2);
+		handler.getValue().processRow(row);
+		handler.getValue().processRow(row);
+		handler.getValue().processRow(row);
+		assertEquals(List.of(31L, 32L, 33L), assets.get(10L).stream().map(asset -> asset.id()).toList());
+		assertEquals(List.of(0, 1, 2), assets.get(10L).stream().map(asset -> asset.sortOrder()).toList());
+		assertFalse(assets.containsKey(11L));
 	}
 
 	@Test

@@ -248,9 +248,15 @@ h2 {
     box-shadow: 0 20px 40px rgba(66, 51, 40, 0.12);
 }
 
-.illustration-card:focus-visible {
-    outline: 3px solid rgba(112, 85, 166, 0.36);
-    outline-offset: 3px;
+.illustration-card a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.illustration-card a:focus-visible,
+.card-asset-button:focus-visible {
+    outline: 3px solid rgba(112, 85, 166, 0.6);
+    outline-offset: -3px;
 }
 
 .card-image {
@@ -262,11 +268,56 @@ h2 {
     background: var(--surface-muted);
 }
 
+.card-image-link {
+    display: grid;
+    width: 100%;
+    height: 100%;
+    place-items: center;
+}
+
 .card-image img {
     width: 100%;
     height: 100%;
     object-fit: cover;
     background: var(--surface-muted);
+}
+
+.card-asset-button {
+    position: absolute;
+    z-index: 1;
+    top: 50%;
+    width: 34px;
+    height: 42px;
+    transform: translateY(-50%);
+    border: 0;
+    border-radius: 8px;
+    background: rgba(24, 22, 27, 0.78);
+    color: white;
+    font-size: 28px;
+    cursor: pointer;
+}
+
+.card-asset-button:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.card-asset-previous { left: 8px; }
+.card-asset-next { right: 8px; }
+
+.card-asset-position {
+    position: absolute;
+    z-index: 1;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 3px 9px;
+    border-radius: 10px;
+    background: rgba(24, 22, 27, 0.78);
+    color: white;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    pointer-events: none;
 }
 
 .image-fallback {
@@ -277,6 +328,7 @@ h2 {
 }
 
 .card-body {
+    display: block;
     padding: 15px 16px 17px;
 }
 

@@ -2,6 +2,7 @@ package com.yuutara.illustrationarchive.repository;
 
 import com.yuutara.illustrationarchive.dto.AuthorSummary;
 import com.yuutara.illustrationarchive.dto.AssetSummary;
+import com.yuutara.illustrationarchive.dto.GalleryAsset;
 import com.yuutara.illustrationarchive.dto.IllustrationGalleryItem;
 import com.yuutara.illustrationarchive.dto.IllustrationPatchRequest;
 import com.yuutara.illustrationarchive.dto.TagSummary;
@@ -12,7 +13,10 @@ import org.springframework.stereotype.Repository;
 
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @Repository
@@ -150,9 +154,27 @@ public class IllustrationRepository {
 					resultSet.getObject("cover_asset_id", Long.class),
 					resultSet.getString("cover_mime_type"),
 					resultSet.getInt("asset_count"),
-					resultSet.getTimestamp("illustration_created_at").toLocalDateTime()
+					resultSet.getTimestamp("illustration_created_at").toLocalDateTime(),
+					List.of()
 			);
 		}, size, offset);
+	}
+
+	public Map<Long, List<GalleryAsset>> findGalleryAssetsByIllustrationIds(List<Long> illustrationIds) {
+		if (illustrationIds.isEmpty()) {
+			return Map.of();
+		}
+		String placeholders = String.join(", ", Collections.nCopies(illustrationIds.size(), "?"));
+		String sql = "SELECT illustration_id, id, mime_type, sort_order FROM asset "
+				+ "WHERE illustration_id IN (" + placeholders + ") "
+				+ "ORDER BY illustration_id, sort_order ASC, id ASC";
+		Map<Long, List<GalleryAsset>> assets = new LinkedHashMap<>();
+		jdbcTemplate.query(sql, resultSet -> {
+			assets.computeIfAbsent(resultSet.getLong("illustration_id"), ignored -> new ArrayList<>())
+					.add(new GalleryAsset(resultSet.getLong("id"), resultSet.getString("mime_type"),
+							resultSet.getInt("sort_order")));
+		}, illustrationIds.toArray());
+		return assets;
 	}
 
 	public Optional<IllustrationDetailBase> findDetailBaseById(long id) {

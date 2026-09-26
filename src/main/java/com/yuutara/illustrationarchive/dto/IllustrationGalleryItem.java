@@ -1,6 +1,7 @@
 package com.yuutara.illustrationarchive.dto;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 public record IllustrationGalleryItem(
 		Long id,
@@ -9,6 +10,7 @@ public record IllustrationGalleryItem(
 		Long coverAssetId,
 		String coverMimeType,
 		int assetCount,
-		LocalDateTime createdAt
+		LocalDateTime createdAt,
+		List<GalleryAsset> assets
 ) {
 }

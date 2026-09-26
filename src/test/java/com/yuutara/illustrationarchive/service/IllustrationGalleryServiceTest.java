@@ -1,11 +1,13 @@
 package com.yuutara.illustrationarchive.service;
 
 import com.yuutara.illustrationarchive.dto.IllustrationGalleryItem;
+import com.yuutara.illustrationarchive.dto.GalleryAsset;
 import com.yuutara.illustrationarchive.repository.IllustrationRepository;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -21,10 +23,12 @@ class IllustrationGalleryServiceTest {
 		IllustrationRepository repository = mock(IllustrationRepository.class);
 		IllustrationGalleryService service = new IllustrationGalleryService(repository);
 		IllustrationGalleryItem item = new IllustrationGalleryItem(
-				10L, "Example", null, 20L, "image/jpeg", 1, LocalDateTime.of(2026, 9, 18, 10, 0)
+				10L, "Example", null, 20L, "image/jpeg", 1, LocalDateTime.of(2026, 9, 18, 10, 0), List.of()
 		);
+		List<GalleryAsset> assets = List.of(new GalleryAsset(20L, "image/jpeg", 0));
 		when(repository.count()).thenReturn(53L);
 		when(repository.findGalleryPage(24, 24L)).thenReturn(List.of(item));
+		when(repository.findGalleryAssetsByIllustrationIds(List.of(10L))).thenReturn(Map.of(10L, assets));
 
 		var result = service.getGallery(1, 24);
 
@@ -32,9 +36,10 @@ class IllustrationGalleryServiceTest {
 		assertEquals(24, result.size());
 		assertEquals(53L, result.totalElements());
 		assertEquals(3, result.totalPages());
-		assertEquals(List.of(item), result.items());
+		assertEquals(assets, result.items().get(0).assets());
 		verify(repository).count();
 		verify(repository).findGalleryPage(24, 24L);
+		verify(repository).findGalleryAssetsByIllustrationIds(List.of(10L));
 	}
 
 	@Test

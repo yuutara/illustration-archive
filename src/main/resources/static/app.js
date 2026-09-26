@@ -189,13 +189,13 @@
             : "未知作者";
     }
 
-    function galleryImageUrl(item) {
-        const assetId = item && item.coverAssetId;
+    function galleryImageUrl(asset) {
+        const assetId = asset && asset.id;
         if (assetId === null || assetId === undefined) {
             return null;
         }
 
-        const mimeType = item.coverMimeType;
+        const mimeType = asset.mimeType;
         if (mimeType === "image/jpeg" || mimeType === "image/png") {
             return `/api/assets/${encodeURIComponent(String(assetId))}/thumbnail`;
         }
@@ -244,10 +244,19 @@
 
     function createCard(item) {
         const title = titleFor(item);
-        const card = document.createElement("a");
+        const card = document.createElement("article");
         card.className = "illustration-card";
+        const detailUrl = item && item.id !== null && item.id !== undefined
+            ? `/detail.html?id=${encodeURIComponent(String(item.id))}` : null;
+
+        const imageLink = document.createElement("a");
+        imageLink.className = "card-image-link";
+        imageLink.setAttribute("aria-label", `查看${title}详情`);
+        const bodyLink = document.createElement("a");
+        bodyLink.className = "card-body";
         if (item && item.id !== null && item.id !== undefined) {
-            card.href = `/detail.html?id=${encodeURIComponent(String(item.id))}`;
+            imageLink.href = detailUrl;
+            bodyLink.href = detailUrl;
         }
 
         const imageContainer = document.createElement("div");
@@ -258,27 +267,69 @@
         fallback.textContent = "图片加载失败";
         fallback.hidden = true;
 
-        const assetId = item && item.coverAssetId;
-        const imageUrl = galleryImageUrl(item);
-        if (imageUrl !== null) {
-            const image = document.createElement("img");
-            image.src = imageUrl;
-            image.alt = title;
-            image.loading = "lazy";
-            image.decoding = "async";
-            image.addEventListener("error", function () {
-                image.hidden = true;
-                fallback.hidden = false;
-            }, { once: true });
-            imageContainer.appendChild(image);
-        } else {
-            fallback.textContent = assetId === null || assetId === undefined ? "暂无图片" : "图片加载失败";
+        const assets = Array.isArray(item && item.assets) && item.assets.length > 0
+            ? item.assets.slice().sort((left, right) => Number(left.sortOrder) - Number(right.sortOrder) || Number(left.id) - Number(right.id))
+            : item && item.coverAssetId != null
+                ? [{ id: item.coverAssetId, mimeType: item.coverMimeType }]
+                : [];
+        let currentIndex = 0;
+        const image = document.createElement("img");
+        image.alt = title;
+        image.loading = "lazy";
+        image.decoding = "async";
+        image.addEventListener("error", function () {
+            image.hidden = true;
             fallback.hidden = false;
-        }
-        imageContainer.appendChild(fallback);
+        });
+        imageLink.append(image, fallback);
+        imageContainer.appendChild(imageLink);
 
-        const cardBody = document.createElement("div");
-        cardBody.className = "card-body";
+        function showAsset() {
+            const asset = assets[currentIndex];
+            const imageUrl = galleryImageUrl(asset);
+            image.hidden = imageUrl === null;
+            fallback.hidden = imageUrl !== null;
+            fallback.textContent = asset ? "图片加载失败" : "暂无图片";
+            if (imageUrl !== null) {
+                image.src = imageUrl;
+            }
+        }
+        showAsset();
+
+        if (assets.length > 1) {
+            const previous = document.createElement("button");
+            previous.type = "button";
+            previous.className = "card-asset-button card-asset-previous";
+            previous.setAttribute("aria-label", `上一张：${title}`);
+            previous.textContent = "‹";
+            const next = document.createElement("button");
+            next.type = "button";
+            next.className = "card-asset-button card-asset-next";
+            next.setAttribute("aria-label", `下一张：${title}`);
+            next.textContent = "›";
+            const position = document.createElement("span");
+            position.className = "card-asset-position";
+            position.setAttribute("aria-live", "polite");
+            function updateControls() {
+                position.textContent = `${currentIndex + 1} / ${assets.length}`;
+            }
+            previous.addEventListener("click", function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                currentIndex = (currentIndex - 1 + assets.length) % assets.length;
+                showAsset();
+                updateControls();
+            });
+            next.addEventListener("click", function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                currentIndex = (currentIndex + 1) % assets.length;
+                showAsset();
+                updateControls();
+            });
+            updateControls();
+            imageContainer.append(previous, next, position);
+        }
 
         const titleElement = document.createElement("h3");
         titleElement.className = "card-title";
@@ -289,8 +340,8 @@
         authorElement.className = "card-author";
         authorElement.textContent = authorFor(item);
 
-        cardBody.append(titleElement, authorElement);
-        card.append(imageContainer, cardBody);
+        bodyLink.append(titleElement, authorElement);
+        card.append(imageContainer, bodyLink);
         return card;
     }
 
