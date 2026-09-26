@@ -12,6 +12,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -48,5 +49,24 @@ class XLikeSyncServiceTest {
 		assertThrows(IllegalArgumentException.class, () -> service.syncRecent(4));
 		assertThrows(IllegalArgumentException.class, () -> service.syncRecent(101));
 		verifyNoInteractions(client, persistence);
+	}
+
+	@Test
+	void skipCountsOnlyPendingTransitionsAndDeduplicatesIds() {
+		XLikeRepository items = mock(XLikeRepository.class);
+		XLikeSyncService service = new XLikeSyncService(mock(XApiClient.class),
+				mock(XLikePersistenceService.class), items, mock(XLikeMediaRepository.class), 5);
+		when(items.skipIfPending(1L)).thenReturn(1);
+		when(items.skipIfPending(2L)).thenReturn(1);
+		// An already skipped, unsupported or unknown id returns zero from the conditional SQL update.
+		var result = service.skip(List.of(1L, 2L, 2L, 3L, 4L, 99L));
+
+		assertEquals(6, result.requestedCount());
+		assertEquals(2, result.skippedCount());
+		verify(items).skipIfPending(1L);
+		verify(items).skipIfPending(2L);
+		verify(items).skipIfPending(3L);
+		verify(items).skipIfPending(4L);
+		verify(items).skipIfPending(99L);
 	}
 }

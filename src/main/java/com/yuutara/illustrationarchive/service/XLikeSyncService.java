@@ -7,6 +7,7 @@ import com.yuutara.illustrationarchive.repository.XLikeMediaRepository;
 import com.yuutara.illustrationarchive.repository.XLikeRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -48,5 +49,20 @@ public class XLikeSyncService {
 		return pending.stream().map(item -> new XLikeInboxItem(item.id(), item.xPostId(),
 				item.authorDisplayName(), item.authorUsername(), item.postText(),
 				item.postCreatedAt(), List.copyOf(byItem.getOrDefault(item.id(), List.of())))).toList();
+	}
+
+	@Transactional
+	public SkipSummary skip(List<Long> itemIds) {
+		if (itemIds == null || itemIds.isEmpty() || itemIds.stream().anyMatch(id -> id == null || id <= 0)) {
+			throw new IllegalArgumentException("itemIds must contain at least one positive item id.");
+		}
+		int skipped = 0;
+		for (long itemId : itemIds.stream().distinct().toList()) {
+			skipped += items.skipIfPending(itemId);
+		}
+		return new SkipSummary(itemIds.size(), skipped);
+	}
+
+	public record SkipSummary(int requestedCount, int skippedCount) {
 	}
 }

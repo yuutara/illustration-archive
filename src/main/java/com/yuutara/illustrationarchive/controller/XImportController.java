@@ -8,7 +8,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -34,6 +36,11 @@ public class XImportController {
 		return syncService.inbox();
 	}
 
+	@PatchMapping("/inbox/skip")
+	public XLikeSyncService.SkipSummary skip(@RequestBody SkipRequest request) {
+		return syncService.skip(request.itemIds());
+	}
+
 	@ExceptionHandler(IllegalArgumentException.class)
 	public ResponseEntity<ApiError> invalidPageSize(IllegalArgumentException exception) {
 		return ResponseEntity.badRequest().body(new ApiError("INVALID_REQUEST", null, exception.getMessage()));
@@ -48,5 +55,8 @@ public class XImportController {
 	}
 
 	public record ApiError(String code, Integer upstreamStatus, String message) {
+	}
+
+	public record SkipRequest(List<Long> itemIds) {
 	}
 }

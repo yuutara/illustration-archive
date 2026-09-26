@@ -16,6 +16,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -74,6 +75,34 @@ class XImportControllerTest {
 		mvc.perform(post("/api/x-import/sync/recent?maxResults=6"))
 				.andExpect(status().isTooManyRequests())
 				.andExpect(jsonPath("$.upstreamStatus").value(429));
+	}
+
+	@Test
+	void skipEndpointReturnsActualCount() throws Exception {
+		XLikeSyncService service = mock(XLikeSyncService.class);
+		when(service.skip(List.of(1L, 2L, 99L)))
+				.thenReturn(new XLikeSyncService.SkipSummary(3, 2));
+
+		mvc(service).perform(patch("/api/x-import/inbox/skip")
+				.contentType("application/json")
+				.content("{\"itemIds\":[1,2,99]}"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.requestedCount").value(3))
+				.andExpect(jsonPath("$.skippedCount").value(2));
+	}
+
+	@Test
+	void emptyIdsReturnClearBadRequest() throws Exception {
+		XLikeSyncService service = mock(XLikeSyncService.class);
+		when(service.skip(List.of())).thenThrow(new IllegalArgumentException(
+				"itemIds must contain at least one positive item id."));
+
+		mvc(service).perform(patch("/api/x-import/inbox/skip")
+				.contentType("application/json")
+				.content("{\"itemIds\":[]}"))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+				.andExpect(jsonPath("$.message").value("itemIds must contain at least one positive item id."));
 	}
 
 	private MockMvc mvc(XLikeSyncService service) {

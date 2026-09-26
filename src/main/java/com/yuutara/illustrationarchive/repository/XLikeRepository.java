@@ -71,6 +71,14 @@ public class XLikeRepository {
 		return statuses.get(0);
 	}
 
+	public int skipIfPending(long itemId) {
+		return jdbcTemplate.update("""
+				UPDATE x_like_item
+				SET status = 'SKIPPED', updated_at = UTC_TIMESTAMP(3)
+				WHERE id = ? AND status = 'PENDING'
+				""", itemId);
+	}
+
 	public List<XLikeInboxItem> findPending() {
 		return jdbcTemplate.query(FIND_PENDING, (rs, row) -> {
 			LocalDateTime created = rs.getObject("post_created_at", LocalDateTime.class);

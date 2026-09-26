@@ -72,6 +72,25 @@ class XLikePersistenceServiceTest {
 		verifyNoMoreInteractions(media);
 	}
 
+	@Test
+	void syncingSkippedPostKeepsSkippedStatusAndDoesNotReinsertMedia() {
+		XLikeRepository items = mock(XLikeRepository.class);
+		XLikeMediaRepository media = mock(XLikeMediaRepository.class);
+		XLikeCandidate candidate = candidate("11", XLikeStatus.PENDING,
+				List.of(new XLikeMedia("p1", 0, "photo", "https://img/1", 100, 200)));
+		when(items.insertIfAbsent(candidate)).thenReturn(null);
+		when(items.findStatusByPostId("11")).thenReturn(XLikeStatus.SKIPPED);
+
+		var summary = new XLikePersistenceService(items, media)
+				.savePage(new XLikePage(List.of(candidate), false));
+
+		assertEquals(0, summary.newCount());
+		assertEquals(1, summary.existingCount());
+		assertEquals(0, summary.pendingCount());
+		assertEquals(0, summary.unsupportedCount());
+		verifyNoMoreInteractions(media);
+	}
+
 	private XLikeCandidate candidate(String id, XLikeStatus status, List<XLikeMedia> media) {
 		return new XLikeCandidate(id, "a", "author", "Author", "text",
 				Instant.parse("2026-09-25T09:00:00Z"), status, media);

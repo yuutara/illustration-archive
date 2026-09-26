@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>X Import Inbox · Illustration Archive</title>
+    <link rel="stylesheet" href="/style.css">
+    <script src="/x-import.js" defer></script>
+</head>
+<body>
+<main class="page-shell">
+    <header class="page-header inbox-header">
+        <div>
+            <a class="back-link" href="/">← Back to Gallery</a>
+            <p class="eyebrow">Illustration Archive</p>
+            <h1>X Import Inbox</h1>
+            <p class="page-description">查看最近收藏的候选作品，选择不需要的项目并跳过。</p>
+        </div>
+        <button id="sync-button" class="primary-button" type="button">Sync latest Likes</button>
+    </header>
+
+    <section aria-label="Inbox 操作">
+        <div class="inbox-toolbar">
+            <span id="inbox-count" class="total-count"></span>
+            <div class="inbox-actions">
+                <button id="select-all-button" class="secondary-button" type="button" disabled>Select All</button>
+                <button id="clear-button" class="secondary-button" type="button" disabled>Clear Selection</button>
+                <button id="skip-button" class="secondary-button danger-button" type="button" disabled>Skip Selected</button>
+            </div>
+        </div>
+        <p id="inbox-message" class="import-status" role="status" aria-live="polite"></p>
+        <div id="inbox-list" class="inbox-list" aria-live="polite"></div>
+        <div id="inbox-state" class="state-panel" role="status" hidden>
+            <h2 id="inbox-state-title"></h2>
+            <p id="inbox-state-message"></p>
+            <button id="inbox-retry-button" class="secondary-button" type="button" hidden>重新加载</button>
+        </div>
+    </section>
+</main>
+</body>
+</html>

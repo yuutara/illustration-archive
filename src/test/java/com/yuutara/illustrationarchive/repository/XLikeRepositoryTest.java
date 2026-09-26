@@ -89,4 +89,18 @@ class XLikeRepositoryTest {
 		XLikeInboxItem item = mapper.getValue().mapRow(rs, 0);
 		assertEquals(Instant.parse("2026-09-25T09:00:00Z"), item.postCreatedAt());
 	}
+
+	@Test
+	void skipSqlOnlyUpdatesPendingRows() {
+		JdbcTemplate jdbc = mock(JdbcTemplate.class);
+		when(jdbc.update(anyString(), eq(7L))).thenReturn(1, 0);
+		XLikeRepository repository = new XLikeRepository(jdbc);
+
+		assertEquals(1, repository.skipIfPending(7L));
+		assertEquals(0, repository.skipIfPending(7L));
+		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+		verify(jdbc, org.mockito.Mockito.times(2)).update(sql.capture(), eq(7L));
+		assertTrue(sql.getValue().contains("SET status = 'SKIPPED'"));
+		assertTrue(sql.getValue().contains("WHERE id = ? AND status = 'PENDING'"));
+	}
 }
