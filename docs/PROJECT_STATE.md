@@ -9,18 +9,18 @@ V0.3 - X Likes Import Inbox
 
 Current development stage:
 
-**V0.3-C2 X Post → Illustration + Multi-Asset Archive 已实现；自动化测试通过，C2 真实 MySQL / 文件系统 / HTTP / 浏览器验收尚未执行。**
+**V0.3-D1 X Likes Incremental Sync & Pagination 已实现，自动化测试通过，V5 migration 已在真实 MySQL 成功执行；真实 X API 增量分页与跨轮 continuation 尚未验收。C2、C3、C4 的真实环境验收已完成。**
 
 V0.2 的 Final Acceptance 已完成；其最终 commit、push 和 tag 是否执行由项目维护者决定。
 
 ### V0.3-A | X Likes → Import Inbox backend
 
-- 单次同步只请求最近 Likes 的一页；默认 `maxResults=5`，范围 5..100，不自动翻页或保存 `next_token`。
+- V0.3-A 最初只请求最近 Likes 的一页；V0.3-D1 增加单次手动同步的有限分页，见下方 D1 记录。
 - 新增 `x_like_item` / `x_like_media`，用唯一 `x_post_id` 防止重复候选；同一个 Post 再次出现时保留已有状态和媒体。
 - 只有直接 attachments 全为带 URL 的 photo 且至少一张时标记 `PENDING`；其余标记 `UNSUPPORTED`。
 - `GET /api/x-import/inbox` 仅返回 `PENDING`，按 Post 创建时间倒序并按媒体顺序返回。
-- `POST /api/x-import/sync/recent` 返回本页同步摘要。X Access Token 只从未跟踪的本地配置或环境变量读取；默认关闭。
-- 自动测试使用模拟 X HTTP 响应，不访问真实 X API。真实 MySQL 迁移、HTTP 和浏览器行为尚未验收；本阶段不下载或归档 X 媒体。
+- `POST /api/x-import/sync/recent` 返回本次同步摘要。X Access Token 只从未跟踪的本地配置或环境变量读取；默认关闭。
+- V0.3-A 的自动测试使用模拟 X HTTP 响应，不访问真实 X API；该阶段不下载或归档 X 媒体。后续真实环境验收状态见 C2、C3、C4 和 D1。
 
 ### V0.3-C1 | X photo full-resolution download
 
@@ -32,7 +32,23 @@ V0.2 的 Final Acceptance 已完成；其最终 commit、push 和 tag 是否执�
 - 单 Post 全部照片下载完成后，Author、Illustration、全部 Assets 和 Inbox 状态在一个数据库事务中写入；成功状态为 `IMPORTED`，记录 `imported_illustration_id`。
 - Author 使用稳定 `x_user_id` 匹配，更新展示名和 username；任意照片 SHA-256 重复时整 Post 拒绝归档。
 - 下载或数据库失败会补偿删除本轮原图；缩略图在核心归档提交后生成，失败仅记录。
-- 自动化测试不访问真实 X API / CDN。C2 尚未做真实 MySQL migration、文件系统、HTTP 和浏览器验收。
+- C2 已完成真实 MySQL migration、文件系统、HTTP 和浏览器验收。
+
+### V0.3-C3 | Detail multi-Asset
+
+- 已完成真实多 Asset Detail 浏览器验收。
+
+### V0.3-C4 | Gallery multi-Asset preview
+
+- 已完成真实 Gallery 多 Asset 左右循环切换浏览器验收。
+
+### V0.3-D1 | X Likes Incremental Sync & Pagination
+
+- 只在用户点击 Sync latest Likes 时请求 X Likes；逐页使用 `meta.next_token` 作为下一次请求的 `pagination_token`，每页复用原有幂等持久化逻辑。
+- `maxResults` 默认 5、范围 5..100；`maxPages` 默认 3、范围 1..10。远端无下一页、达到页数上限、游标缺失或重复时停止。
+- 摘要汇总请求页数、各状态数量、远端是否仍有下一页，以及是否因页数上限或异常游标停止。自动化测试通过；V5 migration 已在真实 MySQL 成功执行。真实 X API 的增量分页与跨轮 continuation 行为尚未验收。
+- D1 提交前修复：页数上限处把下一页 token 和 `maxResults` 保存到 `x_like_sync_state`，后续手动 Sync 从该位置继续；完整追完后清除 continuation，下次回到最新 Likes。`x_like_sync_seen_token` 记录 token 摘要，防止跨次同步循环。
+- 游标缺失、重复或被 X 以 HTTP 400 拒绝时标记为 `INVALID` 并停止；429 等暂时错误保留 continuation。只有显式调用 `POST /api/x-import/sync/continuation/reset` 才清除无效状态；重置后可能存在未补齐的 Likes 缺口。一次同步只请求一次 `/2/users/me`。
 
 ---
 
@@ -301,4 +317,4 @@ README 已按 V0.2 最终能力收尾。V0.2 已完成 Final Acceptance；尚未
 
 ### Current next step
 
-V0.3-C2 已完成实现和自动化测试。下一步是进行 C2 真实 MySQL migration、文件系统、HTTP 和浏览器验收；本文件不将 C2 记为已真实验收或已发布。
+V0.3-D1 已完成实现和自动化测试，V5 migration 已在真实 MySQL 成功执行；下一步是进行真实 X API 的增量分页与跨轮 continuation 验收。C2 真实 MySQL migration、文件系统、HTTP 和浏览器验收，C3 真实多 Asset Detail 浏览器验收，以及 C4 真实 Gallery 多 Asset 左右循环切换浏览器验收均已完成。

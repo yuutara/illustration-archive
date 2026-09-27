@@ -30,8 +30,15 @@ public class XImportController {
 	}
 
 	@PostMapping("/sync/recent")
-	public XLikeSyncSummary syncRecent(@RequestParam(required = false) Integer maxResults) {
-		return syncService.syncRecent(maxResults);
+	public XLikeSyncSummary syncRecent(@RequestParam(required = false) Integer maxResults,
+			@RequestParam(required = false) Integer maxPages) {
+		return syncService.syncRecent(maxResults, maxPages);
+	}
+
+	@PostMapping("/sync/continuation/reset")
+	public ResponseEntity<Void> resetInvalidContinuation() {
+		syncService.resetInvalidContinuation();
+		return ResponseEntity.noContent().build();
 	}
 
 	@GetMapping("/inbox")

@@ -39,10 +39,11 @@ class XApiClientTest {
 				"meta":{"next_token":"opaque"}}
 				"""));
 
-		XLikePage page = client.fetchRecentLikes(5);
+		XLikePage page = client.fetchRecentLikes(client.resolveUserId(), 5, null);
 
 		assertEquals(2, page.candidates().size());
 		assertTrue(page.hasMore());
+		assertEquals("opaque", page.nextToken());
 		assertEquals(XLikeStatus.PENDING, page.candidates().get(0).status());
 		assertEquals("a2", page.candidates().get(0).xAuthorId());
 		assertEquals("two", page.candidates().get(0).authorUsername());
@@ -75,9 +76,10 @@ class XApiClientTest {
 				{"media_key":"p","type":"photo","url":"https://img/p"}]},"meta":{}}
 				"""));
 
-		XLikePage page = client.fetchRecentLikes(5);
+		XLikePage page = client.fetchRecentLikes(client.resolveUserId(), 5, null);
 
 		assertFalse(page.hasMore());
+		assertEquals(null, page.nextToken());
 		assertEquals(5, page.candidates().size());
 		assertTrue(page.candidates().stream().allMatch(p -> p.status() == XLikeStatus.UNSUPPORTED));
 		assertEquals(2, page.candidates().get(3).media().size());
@@ -87,7 +89,7 @@ class XApiClientTest {
 	void handlesUpstreamErrorsWithoutExposingToken() throws Exception {
 		for (int status : List.of(401, 403, 429, 500, 503)) {
 			XApiClient client = client(new ArrayList<>(), response(status, "secret-from-response"));
-			XApiException error = assertThrows(XApiException.class, () -> client.fetchRecentLikes(5));
+			XApiException error = assertThrows(XApiException.class, client::resolveUserId);
 			assertEquals(status, error.upstreamStatus());
 			assertFalse(error.getMessage().contains("test-secret"));
 			assertFalse(error.getMessage().contains("secret-from-response"));
@@ -98,11 +100,43 @@ class XApiClientTest {
 	void disabledClientAndInvalidSizeNeverCallHttp() {
 		HttpClient http = mock(HttpClient.class);
 		XApiClient disabled = new XApiClient(http, new ObjectMapper(), false, "https://api.x.com", "test-secret");
-		assertThrows(XApiException.class, () -> disabled.fetchRecentLikes(5));
+		assertThrows(XApiException.class, disabled::resolveUserId);
 		XApiClient enabled = new XApiClient(http, new ObjectMapper(), true, "https://api.x.com", "test-secret");
-		assertThrows(IllegalArgumentException.class, () -> enabled.fetchRecentLikes(4));
-		assertThrows(IllegalArgumentException.class, () -> enabled.fetchRecentLikes(101));
+		assertThrows(IllegalArgumentException.class, () -> enabled.fetchRecentLikes("999", 4, null));
+		assertThrows(IllegalArgumentException.class, () -> enabled.fetchRecentLikes("999", 101, null));
 		verifyNoInteractions(http);
+	}
+
+	@Test
+	void sendsEncodedPaginationTokenAndTreatsBlankNextTokenAsEnd() throws Exception {
+		List<HttpRequest> requests = new ArrayList<>();
+		XApiClient client = client(requests, response(200, ME), response(200, """
+				{"meta":{"next_token":"  "}}
+				"""));
+
+		XLikePage page = client.fetchRecentLikes(client.resolveUserId(), 5, "opaque+with/slash");
+
+		assertFalse(page.hasMore());
+		assertEquals(null, page.nextToken());
+		assertTrue(requests.get(1).uri().toString().contains("pagination_token=opaque%2Bwith%2Fslash"));
+	}
+
+	@Test
+	void multiplePagesResolveUserIdOnlyOnce() throws Exception {
+		List<HttpRequest> requests = new ArrayList<>();
+		XApiClient client = client(requests, response(200, ME),
+				response(200, "{\"meta\":{\"next_token\":\"next\"}}"),
+				response(200, "{\"meta\":{}}"));
+
+		String userId = client.resolveUserId();
+		XLikePage first = client.fetchRecentLikes(userId, 5, null);
+		XLikePage second = client.fetchRecentLikes(userId, 5, first.nextToken());
+
+		assertFalse(second.hasMore());
+		assertEquals(3, requests.size());
+		assertTrue(requests.get(0).uri().toString().endsWith("/2/users/me"));
+		assertTrue(requests.get(1).uri().toString().contains("/2/users/999999999999999999999999999999/liked_tweets"));
+		assertTrue(requests.get(2).uri().toString().contains("pagination_token=next"));
 	}
 
 	@SuppressWarnings("unchecked")

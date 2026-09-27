@@ -28,8 +28,8 @@ class XLikePersistenceServiceTest {
 		when(items.insertIfAbsent(candidate)).thenReturn(7L, null);
 		when(items.findStatusByPostId("11")).thenReturn(XLikeStatus.PENDING);
 
-		var first = service.savePage(new XLikePage(List.of(candidate), true));
-		var second = service.savePage(new XLikePage(List.of(candidate), false));
+		var first = service.savePage(new XLikePage(List.of(candidate), true, "next"));
+		var second = service.savePage(new XLikePage(List.of(candidate), false, null));
 
 		assertEquals(1, first.newCount());
 		assertEquals(0, first.existingCount());
@@ -51,7 +51,7 @@ class XLikePersistenceServiceTest {
 		XLikeCandidate candidate = candidate("12", XLikeStatus.PENDING, List.of(first, second));
 		when(items.insertIfAbsent(candidate)).thenReturn(8L);
 
-		var summary = new XLikePersistenceService(items, media).savePage(new XLikePage(List.of(candidate), false));
+		var summary = new XLikePersistenceService(items, media).savePage(new XLikePage(List.of(candidate), false, null));
 
 		assertEquals(1, summary.fetchedCount());
 		assertEquals(1, summary.newCount());
@@ -66,7 +66,7 @@ class XLikePersistenceServiceTest {
 		XLikeCandidate candidate = candidate("13", XLikeStatus.UNSUPPORTED, List.of());
 		when(items.insertIfAbsent(candidate)).thenReturn(9L);
 
-		var summary = new XLikePersistenceService(items, media).savePage(new XLikePage(List.of(candidate), false));
+		var summary = new XLikePersistenceService(items, media).savePage(new XLikePage(List.of(candidate), false, null));
 
 		assertEquals(1, summary.unsupportedCount());
 		verifyNoMoreInteractions(media);
@@ -82,9 +82,27 @@ class XLikePersistenceServiceTest {
 		when(items.findStatusByPostId("11")).thenReturn(XLikeStatus.SKIPPED);
 
 		var summary = new XLikePersistenceService(items, media)
-				.savePage(new XLikePage(List.of(candidate), false));
+				.savePage(new XLikePage(List.of(candidate), false, null));
 
 		assertEquals(0, summary.newCount());
+		assertEquals(1, summary.existingCount());
+		assertEquals(0, summary.pendingCount());
+		assertEquals(0, summary.unsupportedCount());
+		verifyNoMoreInteractions(media);
+	}
+
+	@Test
+	void syncingImportedPostKeepsImportedStatusAndDoesNotReinsertMedia() {
+		XLikeRepository items = mock(XLikeRepository.class);
+		XLikeMediaRepository media = mock(XLikeMediaRepository.class);
+		XLikeCandidate candidate = candidate("12", XLikeStatus.PENDING,
+				List.of(new XLikeMedia("p2", 0, "photo", "https://img/2", 100, 200)));
+		when(items.insertIfAbsent(candidate)).thenReturn(null);
+		when(items.findStatusByPostId("12")).thenReturn(XLikeStatus.IMPORTED);
+
+		var summary = new XLikePersistenceService(items, media)
+				.savePage(new XLikePage(List.of(candidate), false, null));
+
 		assertEquals(1, summary.existingCount());
 		assertEquals(0, summary.pendingCount());
 		assertEquals(0, summary.unsupportedCount());

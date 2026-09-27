@@ -44,14 +44,25 @@ class XImportControllerTest {
 	void syncEndpointReturnsSummaryAndUsesDefaultWhenSizeMissing() throws Exception {
 		XLikeSyncService service = mock(XLikeSyncService.class);
 		MockMvc mvc = mvc(service);
-		when(service.syncRecent(null)).thenReturn(new XLikeSyncSummary(1, 1, 0, 1, 0, true));
+		when(service.syncRecent(null, null)).thenReturn(new XLikeSyncSummary(1, 1, 1, 0, 1, 0, true, true, false));
 
 		mvc.perform(post("/api/x-import/sync/recent"))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.fetchedCount").value(1))
 				.andExpect(jsonPath("$.newCount").value(1))
-				.andExpect(jsonPath("$.hasMore").value(true));
-		verify(service).syncRecent(null);
+				.andExpect(jsonPath("$.hasMore").value(true))
+				.andExpect(jsonPath("$.pagesFetched").value(1))
+				.andExpect(jsonPath("$.stoppedByMaxPages").value(true));
+		verify(service).syncRecent(null, null);
+	}
+
+	@Test
+	void invalidContinuationCanBeResetExplicitly() throws Exception {
+		XLikeSyncService service = mock(XLikeSyncService.class);
+
+		mvc(service).perform(post("/api/x-import/sync/continuation/reset"))
+				.andExpect(status().isNoContent());
+		verify(service).resetInvalidContinuation();
 	}
 
 	@Test
@@ -79,13 +90,17 @@ class XImportControllerTest {
 	void mapsValidationAndUpstreamErrorsWithoutSecret() throws Exception {
 		XLikeSyncService service = mock(XLikeSyncService.class);
 		MockMvc mvc = mvc(service);
-		when(service.syncRecent(4)).thenThrow(new IllegalArgumentException("maxResults must be between 5 and 100."));
-		when(service.syncRecent(5)).thenThrow(new XApiException("X API rejected the access token or its permissions.", 401));
-		when(service.syncRecent(6)).thenThrow(new XApiException("X API rate limit reached; retry manually later.", 429));
+		when(service.syncRecent(4, null)).thenThrow(new IllegalArgumentException("maxResults must be between 5 and 100."));
+		when(service.syncRecent(5, 0)).thenThrow(new IllegalArgumentException("maxPages must be between 1 and 10."));
+		when(service.syncRecent(5, null)).thenThrow(new XApiException("X API rejected the access token or its permissions.", 401));
+		when(service.syncRecent(6, null)).thenThrow(new XApiException("X API rate limit reached; retry manually later.", 429));
 
 		mvc.perform(post("/api/x-import/sync/recent?maxResults=4"))
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+		mvc.perform(post("/api/x-import/sync/recent?maxResults=5&maxPages=0"))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.message").value("maxPages must be between 1 and 10."));
 		mvc.perform(post("/api/x-import/sync/recent?maxResults=5"))
 				.andExpect(status().isBadGateway())
 				.andExpect(jsonPath("$.upstreamStatus").value(401))

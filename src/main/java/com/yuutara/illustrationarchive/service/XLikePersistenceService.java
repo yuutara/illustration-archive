@@ -46,7 +46,7 @@ public class XLikePersistenceService {
 				unsupported++;
 			}
 		}
-		return new XLikeSyncSummary(page.candidates().size(), added, existing,
-				pending, unsupported, page.hasMore());
+		return new XLikeSyncSummary(1, page.candidates().size(), added, existing,
+				pending, unsupported, page.hasMore(), false, false);
 	}
 }

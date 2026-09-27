@@ -12,9 +12,11 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
@@ -52,10 +54,7 @@ public class XApiClient {
 		this.accessToken = accessToken;
 	}
 
-	public XLikePage fetchRecentLikes(int maxResults) {
-		if (maxResults < 5 || maxResults > 100) {
-			throw new IllegalArgumentException("maxResults must be between 5 and 100.");
-		}
+	public String resolveUserId() {
 		if (!enabled || accessToken == null || accessToken.isBlank()) {
 			throw new XApiException("X API sync is disabled or its access token is missing.", null);
 		}
@@ -63,7 +62,24 @@ public class XApiClient {
 		if (!userId.matches("[0-9]+")) {
 			throw new XApiException("X API returned an invalid user id.", null);
 		}
-		JsonNode response = get("/2/users/" + userId + "/liked_tweets" + LIKES_FIELDS.formatted(maxResults));
+		return userId;
+	}
+
+	public XLikePage fetchRecentLikes(String userId, int maxResults, String paginationToken) {
+		if (maxResults < 5 || maxResults > 100) {
+			throw new IllegalArgumentException("maxResults must be between 5 and 100.");
+		}
+		if (!enabled || accessToken == null || accessToken.isBlank()) {
+			throw new XApiException("X API sync is disabled or its access token is missing.", null);
+		}
+		if (userId == null || !userId.matches("[0-9]+")) {
+			throw new IllegalArgumentException("X user id must be numeric.");
+		}
+		String path = "/2/users/" + userId + "/liked_tweets" + LIKES_FIELDS.formatted(maxResults);
+		if (paginationToken != null) {
+			path += "&pagination_token=" + URLEncoder.encode(paginationToken, StandardCharsets.UTF_8);
+		}
+		JsonNode response = get(path);
 		return normalize(response);
 	}
 
@@ -137,8 +153,11 @@ public class XApiClient {
 					optionalText(post, "text"), createdAt,
 					allPhotos ? XLikeStatus.PENDING : XLikeStatus.UNSUPPORTED, List.copyOf(directMedia)));
 		}
-		return new XLikePage(List.copyOf(candidates),
-				optionalText(response.path("meta"), "next_token") != null);
+		String nextToken = optionalText(response.path("meta"), "next_token");
+		if (nextToken != null && nextToken.isBlank()) {
+			nextToken = null;
+		}
+		return new XLikePage(List.copyOf(candidates), nextToken != null, nextToken);
 	}
 
 	private Map<String, JsonNode> byId(JsonNode nodes, String field) {
