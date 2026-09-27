@@ -160,6 +160,7 @@ class XLikeSyncServiceTest {
 		assertFalse(initial.stoppedByInvalidToken());
 		assertNull(memory.saved.get());
 
+		memory.repo.advance("history-page", 5);
 		stored.put("1", XLikeStatus.IMPORTED);
 		stored.put("2", XLikeStatus.SKIPPED);
 		XLikeSyncSummary repeated = service.syncRecent(5, 2);
@@ -167,7 +168,7 @@ class XLikeSyncServiceTest {
 		assertEquals(2, repeated.existingCount());
 		assertEquals(0, repeated.pendingCount());
 		assertFalse(repeated.hasMore());
-		assertNull(memory.saved.get());
+		assertEquals("history-page", memory.saved.get().nextToken());
 		assertEquals(Map.of("1", XLikeStatus.IMPORTED, "2", XLikeStatus.SKIPPED), stored);
 
 		XLikeSyncSummary withNewLike = service.syncRecent(5, 2);
@@ -177,7 +178,8 @@ class XLikeSyncServiceTest {
 		assertEquals(XLikeStatus.PENDING, stored.get("3"));
 		assertEquals(3, stored.size());
 		assertFalse(withNewLike.hasMore());
-		assertNull(memory.saved.get());
+		assertEquals("history-page", memory.saved.get().nextToken());
+		assertEquals(Set.of("history-page"), memory.seen);
 		verify(client, times(3)).fetchRecentLikes("999", 5, null);
 		verify(media).insert(1L, first.media().get(0));
 		verify(media).insert(2L, second.media().get(0));
@@ -235,6 +237,51 @@ class XLikeSyncServiceTest {
 	}
 
 	@Test
+	void latestStartsAtFirstPageAndPreservesSavedHistoryAfterPageCap() {
+		XApiClient client = mock(XApiClient.class);
+		XLikePersistenceService persistence = mock(XLikePersistenceService.class);
+		MemoryContinuation memory = new MemoryContinuation();
+		memory.repo.advance("saved-history", 5);
+		when(client.resolveUserId()).thenReturn("999");
+		XLikePage first = page(1, 5, "latest-page-2");
+		when(client.fetchRecentLikes("999", 6, null)).thenReturn(first);
+		when(persistence.savePage(first)).thenReturn(new XLikeSyncSummary(1, 5, 0, 5, 0, 0, true, false, false));
+
+		XLikeSyncSummary summary = service(client, persistence, memory.repo).syncRecent(6, 1);
+
+		assertEquals(1, summary.pagesFetched());
+		assertTrue(summary.stoppedByMaxPages());
+		assertEquals("saved-history", memory.saved.get().nextToken());
+		assertEquals(5, memory.saved.get().maxResults());
+		assertEquals(Set.of("saved-history"), memory.seen);
+		verify(client).fetchRecentLikes("999", 6, null);
+		verify(client).resolveUserId();
+		verifyNoMoreInteractions(client);
+	}
+
+	@Test
+	void continuationClearsStateWhenNaturalEndMatchesPageLimit() {
+		XApiClient client = mock(XApiClient.class);
+		XLikePersistenceService persistence = mock(XLikePersistenceService.class);
+		MemoryContinuation memory = new MemoryContinuation();
+		memory.repo.advance("saved-history", 5);
+		when(client.resolveUserId()).thenReturn("999");
+		XLikePage last = page(16, 17, null);
+		when(client.fetchRecentLikes("999", 5, "saved-history")).thenReturn(last);
+		when(persistence.savePage(last)).thenReturn(new XLikeSyncSummary(1, 2, 2, 0, 0, 2, false, false, false));
+
+		XLikeSyncSummary summary = service(client, persistence, memory.repo).syncContinuation(5, 1);
+
+		assertEquals(1, summary.pagesFetched());
+		assertFalse(summary.hasMore());
+		assertFalse(summary.stoppedByMaxPages());
+		assertFalse(summary.stoppedByInvalidToken());
+		assertNull(memory.saved.get());
+		assertTrue(memory.seen.isEmpty());
+		verify(client).fetchRecentLikes("999", 5, "saved-history");
+	}
+
+	@Test
 	void missingOrRepeatedTokenStopsWithoutLooping() {
 		for (String token : List.of("", "same")) {
 			XApiClient client = mock(XApiClient.class);
@@ -262,7 +309,7 @@ class XLikeSyncServiceTest {
 	}
 
 	@Test
-	void nextManualSyncContinuesBeyondFifteenAndCompletionRestartsAtLatest() {
+	void historyContinuationSavesMaxPagesTokenAndClearsAtNaturalEnd() {
 		XApiClient client = mock(XApiClient.class);
 		XLikePersistenceService persistence = mock(XLikePersistenceService.class);
 		MemoryContinuation memory = new MemoryContinuation();
@@ -282,13 +329,13 @@ class XLikeSyncServiceTest {
 			return new XLikeSyncSummary(1, count, count, 0, count, 0, page.hasMore(), false, false);
 		});
 
-		XLikeSyncSummary capped = service(client, persistence, memory.repo).syncRecent(5, 3);
+		XLikeSyncSummary capped = service(client, persistence, memory.repo).syncContinuation(5, 3);
 		assertEquals(3, capped.pagesFetched());
 		assertEquals(15, capped.newCount());
 		assertTrue(capped.stoppedByMaxPages());
 		assertEquals("page-4", memory.saved.get().nextToken());
 
-		XLikeSyncSummary resumed = service(client, persistence, memory.repo).syncRecent(5, 3);
+		XLikeSyncSummary resumed = service(client, persistence, memory.repo).syncContinuation(5, 3);
 		assertEquals(1, resumed.pagesFetched());
 		assertEquals(1, resumed.newCount());
 		assertFalse(resumed.hasMore());
@@ -313,11 +360,11 @@ class XLikeSyncServiceTest {
 		when(client.fetchRecentLikes("999", 5, "same")).thenReturn(repeated);
 		when(persistence.savePage(any(XLikePage.class))).thenReturn(new XLikeSyncSummary(1, 1, 1, 0, 1, 0, true, false, false));
 
-		service(client, persistence, memory.repo).syncRecent(5, 1);
-		XLikeSyncSummary invalid = service(client, persistence, memory.repo).syncRecent(5, 3);
+		service(client, persistence, memory.repo).syncContinuation(5, 1);
+		XLikeSyncSummary invalid = service(client, persistence, memory.repo).syncContinuation(5, 3);
 		assertTrue(invalid.stoppedByInvalidToken());
 		assertEquals("INVALID", memory.saved.get().status());
-		assertThrows(XApiException.class, () -> service(client, persistence, memory.repo).syncRecent(5, 3));
+		assertThrows(XApiException.class, () -> service(client, persistence, memory.repo).syncContinuation(5, 3));
 		verify(client, times(2)).resolveUserId();
 		service(client, persistence, memory.repo).resetInvalidContinuation();
 		assertNull(memory.saved.get());
@@ -331,11 +378,11 @@ class XLikeSyncServiceTest {
 		memory.repo.advance("saved", 5);
 
 		assertThrows(IllegalArgumentException.class,
-				() -> service(client, persistence, memory.repo).syncRecent(6, 3));
+				() -> service(client, persistence, memory.repo).syncContinuation(6, 3));
 		assertEquals("saved", memory.saved.get().nextToken());
 		memory.saved.set(new XLikeSyncStateRepository.State(null, 5, "ACTIVE"));
 		assertThrows(XApiException.class,
-				() -> service(client, persistence, memory.repo).syncRecent(5, 3));
+				() -> service(client, persistence, memory.repo).syncContinuation(5, 3));
 		assertEquals("INVALID", memory.saved.get().status());
 		verifyNoInteractions(client, persistence);
 	}
@@ -352,10 +399,10 @@ class XLikeSyncServiceTest {
 				.thenThrow(new XApiException("invalid token", 400));
 
 		assertEquals(429, assertThrows(XApiException.class,
-				() -> service(client, persistence, memory.repo).syncRecent(5, 3)).upstreamStatus());
+				() -> service(client, persistence, memory.repo).syncContinuation(5, 3)).upstreamStatus());
 		assertEquals("ACTIVE", memory.saved.get().status());
 		XApiException invalid = assertThrows(XApiException.class,
-				() -> service(client, persistence, memory.repo).syncRecent(5, 3));
+				() -> service(client, persistence, memory.repo).syncContinuation(5, 3));
 		assertEquals(400, invalid.upstreamStatus());
 		assertEquals("INVALID", memory.saved.get().status());
 		verifyNoInteractions(persistence);
@@ -373,7 +420,7 @@ class XLikeSyncServiceTest {
 		when(persistence.savePage(page)).thenThrow(new IllegalStateException("database failure"));
 
 		assertThrows(IllegalStateException.class,
-				() -> service(client, persistence, memory.repo).syncRecent(5, 3));
+				() -> service(client, persistence, memory.repo).syncContinuation(5, 3));
 		assertEquals("saved", memory.saved.get().nextToken());
 	}
 

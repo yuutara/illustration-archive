@@ -19,7 +19,7 @@ V0.2 的 Final Acceptance 已完成；其最终 commit、push 和 tag 是否执�
 - 新增 `x_like_item` / `x_like_media`，用唯一 `x_post_id` 防止重复候选；同一个 Post 再次出现时保留已有状态和媒体。
 - 只有直接 attachments 全为带 URL 的 photo 且至少一张时标记 `PENDING`；其余标记 `UNSUPPORTED`。
 - `GET /api/x-import/inbox` 仅返回 `PENDING`，按 Post 创建时间倒序并按媒体顺序返回。
-- `POST /api/x-import/sync/recent` 返回本次同步摘要。X Access Token 只从未跟踪的本地配置或环境变量读取；默认关闭。
+- `POST /api/x-import/sync/recent` 返回本次同步摘要；当前语义为从 Likes 第一页开始查找最新点赞。X Access Token 只从未跟踪的本地配置或环境变量读取；默认关闭。
 - V0.3-A 的自动测试使用模拟 X HTTP 响应，不访问真实 X API；该阶段不下载或归档 X 媒体。后续真实环境验收状态见 C2、C3、C4 和 D1。
 
 ### V0.3-C1 | X photo full-resolution download
@@ -47,7 +47,7 @@ V0.2 的 Final Acceptance 已完成；其最终 commit、push 和 tag 是否执�
 - 只在用户点击 Sync latest Likes 时请求 X Likes；逐页使用 `meta.next_token` 作为下一次请求的 `pagination_token`，每页复用原有幂等持久化逻辑。
 - `maxResults` 默认 5、范围 5..100；`maxPages` 默认 3、范围 1..10。远端无下一页、达到页数上限、游标缺失或重复时停止。
 - 摘要汇总请求页数、各状态数量、远端是否仍有下一页，以及是否因页数上限或异常游标停止。自动化测试通过；V5 migration 已在真实 MySQL 成功执行。D3-1 的跨轮 continuation 真实 X API 验收见下方记录。
-- D1 提交前修复：页数上限处把下一页 token 和 `maxResults` 保存到 `x_like_sync_state`，后续手动 Sync 从该位置继续；完整追完后清除 continuation，下次回到最新 Likes。`x_like_sync_seen_token` 记录 token 摘要，防止跨次同步循环。
+- D1 曾让后续手动 Sync 从保存的 token 继续；发布前语义修复已把此行为移到独立的 history continuation 入口（见下方），页面按钮始终同步最新 Likes。`x_like_sync_seen_token` 记录历史续扫的 token 摘要，防止跨次同步循环。
 - 游标缺失、重复或被 X 以 HTTP 400 拒绝时标记为 `INVALID` 并停止；429 等暂时错误保留 continuation。只有显式调用 `POST /api/x-import/sync/continuation/reset` 才清除无效状态；重置后可能存在未补齐的 Likes 缺口。一次同步只请求一次 `/2/users/me`。
 
 ### V0.3-D2 | X API authentication diagnostics
@@ -63,10 +63,16 @@ V0.2 的 Final Acceptance 已完成；其最终 commit、push 和 tag 是否执�
 
 ### V0.3-D3-2 | Sync End State & Idempotency
 
-- D3-2 已完成验收。真实 X API 已验证多页 Likes 分页正常；`maxPages` 截断后 continuation 持久化到 MySQL，下一轮 Sync 从保存的位置继续，而非重新从第一页开始。
+- D3-2 已完成当时的验收。真实 X API 已验证多页 Likes 分页正常；当时 `maxPages` 截断后 continuation 持久化到 MySQL，下一轮 Sync 从保存的位置继续。发布前已改为下方的两个独立入口。
 - 2026-09-28 验收记录：真实数据库已有 255 条 `x_like_item`；`x_like_sync_state` 为 `ACTIVE` 且保存 `next_token`，因为尚未主动遍历全部历史 Likes。D3-2 验收不要求耗尽真实历史 Likes。
 - 自动化回归测试覆盖自然末页（包括恰好达到 `maxPages` 时）返回 `hasMore=false`、两个停止标志为 `false`、清除 continuation，以及下次从最新 Likes 开始；还覆盖重复 `x_post_id` 计入 `existingCount`、不重复插入媒体、保持 `IMPORTED` / `SKIPPED` 状态和 `imported_illustration_id` 关联，以及后续新 Like 进入 `PENDING`。页数截断继续同步及无效 token 防护保留。
 - 自然追到真实 X API 末页、末页后重复同步及新 Like 后再次同步未在真实历史 Likes 上执行；这些边界以自动化测试作为本阶段验收依据。
+
+### V0.3 发布前修复 | Latest Likes 与 History continuation 分离
+
+- 页面上的 Sync latest Likes 仍调用 `POST /api/x-import/sync/recent`，每次都从第一页开始，最多抓取指定页数；不读取或修改 `x_like_sync_state` 和历史 token 摘要。达到 `maxPages` 时本次停止，下次点击仍从第一页开始。
+- `POST /api/x-import/sync/continuation` 是独立的后端历史回填入口，参数仍为可选的 `maxResults` 和 `maxPages`。已有 `ACTIVE` 状态时从保存的 `next_token` 继续，且 `maxResults` 必须与保存值相同；无保存状态时从第一页启动历史回填。达到页数上限时保存下一页 token，自然末页时清除状态与 token 摘要。`INVALID` 状态仍需显式调用 `/sync/continuation/reset` 重置。
+- 两个入口都复用 `x_post_id` 唯一键与按页幂等保存，已有 `IMPORTED` / `SKIPPED` 等状态不被覆盖。当前页面没有 history continuation 按钮；该入口只供显式后端调用。此修复仅做代码与自动化测试验证，尚未重新执行真实 X API、MySQL 或浏览器验收。
 
 ### V0.3-D4 | Pending Inbox Import Workflow
 

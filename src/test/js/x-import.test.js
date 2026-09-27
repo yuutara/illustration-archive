@@ -98,6 +98,25 @@ test("page initialization only reads local Inbox; one success links to Detail af
     assert.equal(resultRows(elements).length, 1);
 });
 
+test("Sync latest uses recent endpoint and explains that the next click restarts at latest", async () => {
+    const { elements, calls } = await page([
+        { url: "/api/x-import/inbox", body: [] },
+        { url: "/api/x-import/sync/recent?maxResults=5&maxPages=3", body: {
+            pagesFetched: 3, fetchedCount: 15, newCount: 2, existingCount: 13,
+            pendingCount: 2, stoppedByMaxPages: true, stoppedByInvalidToken: false
+        } },
+        { url: "/api/x-import/inbox", body: [] }
+    ]);
+
+    await elements.get("sync-button").dispatch("click");
+
+    assert.equal(calls[1].options.method, "POST");
+    assert.deepEqual(calls.map(call => call.url), [
+        "/api/x-import/inbox", "/api/x-import/sync/recent?maxResults=5&maxPages=3", "/api/x-import/inbox"
+    ]);
+    assert.match(elements.get("inbox-message").textContent, /下次点击仍从最新 Likes 开始/);
+});
+
 test("partial batch results stay paired with posts and failed items remain selectable", async () => {
     const { elements, calls } = await page([
         { url: "/api/x-import/inbox", body: [inboxItem(1), inboxItem(2), inboxItem(3)] },

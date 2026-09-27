@@ -183,7 +183,7 @@
             const response = await fetch("/api/x-import/sync/recent?maxResults=5&maxPages=3", { method: "POST", headers: { Accept: "application/json" } });
             const result = await response.json();
             if (!response.ok) throw new Error(result.message || `HTTP ${response.status}`);
-            setMessage(`同步完成：请求 ${result.pagesFetched} 页，读取 ${result.fetchedCount}，新增 ${result.newCount}，已有 ${result.existingCount}，待处理 ${result.pendingCount}。${result.stoppedByMaxPages ? "已达页数上限，下次点击将从未完成位置继续。" : ""}${result.stoppedByInvalidToken ? "分页游标异常，已停止；续扫状态需显式重置，可能存在未抓取项目。" : ""}`, false);
+            setMessage(`同步完成：请求 ${result.pagesFetched} 页，读取 ${result.fetchedCount}，新增 ${result.newCount}，已有 ${result.existingCount}，待处理 ${result.pendingCount}。${result.stoppedByMaxPages ? "已达页数上限，下次点击仍从最新 Likes 开始。" : ""}${result.stoppedByInvalidToken ? "分页游标异常，已停止。" : ""}`, false);
             await loadInbox();
         } catch (error) {
             setMessage(`同步失败：${error.message}`, true);

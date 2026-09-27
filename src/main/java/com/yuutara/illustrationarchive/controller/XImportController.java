@@ -35,6 +35,12 @@ public class XImportController {
 		return syncService.syncRecent(maxResults, maxPages);
 	}
 
+	@PostMapping("/sync/continuation")
+	public XLikeSyncSummary syncContinuation(@RequestParam(required = false) Integer maxResults,
+			@RequestParam(required = false) Integer maxPages) {
+		return syncService.syncContinuation(maxResults, maxPages);
+	}
+
 	@PostMapping("/sync/continuation/reset")
 	public ResponseEntity<Void> resetInvalidContinuation() {
 		syncService.resetInvalidContinuation();

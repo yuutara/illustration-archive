@@ -60,6 +60,19 @@ class XImportControllerTest {
 	}
 
 	@Test
+	void historyContinuationHasItsOwnEndpoint() throws Exception {
+		XLikeSyncService service = mock(XLikeSyncService.class);
+		when(service.syncContinuation(5, 2))
+				.thenReturn(new XLikeSyncSummary(2, 10, 8, 2, 8, 0, true, true, false));
+
+		mvc(service).perform(post("/api/x-import/sync/continuation?maxResults=5&maxPages=2"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.pagesFetched").value(2))
+				.andExpect(jsonPath("$.stoppedByMaxPages").value(true));
+		verify(service).syncContinuation(5, 2);
+	}
+
+	@Test
 	void invalidContinuationCanBeResetExplicitly() throws Exception {
 		XLikeSyncService service = mock(XLikeSyncService.class);
 

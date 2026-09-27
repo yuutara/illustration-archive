@@ -16,6 +16,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 @Service
@@ -42,6 +43,14 @@ public class XLikeSyncService {
 	}
 
 	public synchronized XLikeSyncSummary syncRecent(Integer maxResults, Integer maxPages) {
+		return syncPages(maxResults, maxPages, false);
+	}
+
+	public synchronized XLikeSyncSummary syncContinuation(Integer maxResults, Integer maxPages) {
+		return syncPages(maxResults, maxPages, true);
+	}
+
+	private XLikeSyncSummary syncPages(Integer maxResults, Integer maxPages, boolean continuationMode) {
 		int size = maxResults == null ? defaultPageSize : maxResults;
 		int limit = maxPages == null ? defaultMaxPages : maxPages;
 		if (size < 5 || size > 100) {
@@ -50,9 +59,9 @@ public class XLikeSyncService {
 		if (limit < 1 || limit > 10) {
 			throw new IllegalArgumentException("maxPages must be between 1 and 10.");
 		}
-		var continuation = syncState.load();
+		Optional<XLikeSyncStateRepository.State> continuation = continuationMode ? syncState.load() : Optional.empty();
 		if (continuation.isPresent() && "INVALID".equals(continuation.get().status())) {
-			throw new XApiException("X Likes continuation is invalid. Reset it explicitly before syncing latest Likes.", null);
+			throw new XApiException("X Likes continuation is invalid. Reset it explicitly before continuing history.", null);
 		}
 		if (continuation.isPresent() && continuation.get().maxResults() != size) {
 			throw new IllegalArgumentException("Finish the saved continuation with maxResults="
@@ -61,7 +70,7 @@ public class XLikeSyncService {
 		String token = continuation.map(XLikeSyncStateRepository.State::nextToken).orElse(null);
 		if (continuation.isPresent() && (token == null || token.isBlank())) {
 			syncState.markInvalid(size);
-			throw new XApiException("Saved X Likes continuation has no token. Reset it explicitly before syncing latest Likes.", null);
+			throw new XApiException("Saved X Likes continuation has no token. Reset it explicitly before continuing history.", null);
 		}
 		String userId = client.resolveUserId();
 		int pagesFetched = 0;
@@ -75,7 +84,7 @@ public class XLikeSyncService {
 		boolean stoppedByInvalidToken = false;
 		Set<String> seenTokens = new HashSet<>();
 		while (pagesFetched < limit) {
-			var page = fetchPage(userId, size, token);
+			var page = fetchPage(userId, size, token, continuationMode);
 			XLikeSyncSummary saved = persistence.savePage(page);
 			pagesFetched++;
 			fetched += saved.fetchedCount();
@@ -85,17 +94,17 @@ public class XLikeSyncService {
 			unsupported += saved.unsupportedCount();
 			hasMore = page.hasMore();
 			if (!hasMore) {
-				syncState.clear();
+				if (continuationMode) syncState.clear();
 				break;
 			}
 			String nextToken = page.nextToken();
 			if (nextToken == null || nextToken.isBlank() || !seenTokens.add(nextToken)
-					|| syncState.hasSeen(nextToken)) {
-				syncState.markInvalid(size);
+					|| (continuationMode && syncState.hasSeen(nextToken))) {
+				if (continuationMode) syncState.markInvalid(size);
 				stoppedByInvalidToken = true;
 				break;
 			}
-			syncState.advance(nextToken, size);
+			if (continuationMode) syncState.advance(nextToken, size);
 			token = nextToken;
 			if (pagesFetched == limit) {
 				stoppedByMaxPages = true;
@@ -106,11 +115,11 @@ public class XLikeSyncService {
 				pending, unsupported, hasMore, stoppedByMaxPages, stoppedByInvalidToken);
 	}
 
-	private XLikePage fetchPage(String userId, int size, String token) {
+	private XLikePage fetchPage(String userId, int size, String token, boolean continuationMode) {
 		try {
 			return client.fetchRecentLikes(userId, size, token);
 		} catch (XApiException e) {
-			if (token != null && Integer.valueOf(400).equals(e.upstreamStatus())) {
+			if (continuationMode && token != null && Integer.valueOf(400).equals(e.upstreamStatus())) {
 				syncState.markInvalid(size);
 				throw new XApiException("X rejected the saved pagination token. Reset the continuation explicitly; the Likes gap may be incomplete.", 400);
 			}
