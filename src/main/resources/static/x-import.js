@@ -13,6 +13,9 @@
     const clearButton = document.getElementById("clear-button");
     const skipButton = document.getElementById("skip-button");
     const importButton = document.getElementById("import-button");
+    const importResults = document.getElementById("import-results");
+    const importResultsSummary = document.getElementById("import-results-summary");
+    const importResultsList = document.getElementById("import-results-list");
     let items = [];
     let busy = false;
     let loading = false;
@@ -115,6 +118,37 @@
         return card;
     }
 
+    function renderImportResults(result, selectedItems) {
+        importResultsSummary.textContent = `共 ${result.total} 项：成功 ${result.successCount}，重复 ${result.duplicateCount}，失败 ${result.failureCount}。`;
+        importResultsList.replaceChildren();
+        result.items.forEach(itemResult => {
+            const source = selectedItems.get(itemResult.itemId);
+            const name = source
+                ? `${source.authorDisplayName || source.authorUsername || "Unknown author"} · X Post ${source.xPostId}`
+                : `Inbox 项目 ${itemResult.itemId}`;
+            const row = document.createElement("li");
+            row.className = "inbox-result-item";
+            row.appendChild(paragraph("inbox-result-name", name));
+            if (itemResult.status === "SUCCESS") {
+                row.appendChild(paragraph("inbox-result-success", "导入成功"));
+                if (itemResult.illustrationId != null) {
+                    const link = document.createElement("a");
+                    link.href = `/detail.html?id=${encodeURIComponent(String(itemResult.illustrationId))}`;
+                    link.textContent = "查看 Illustration Detail";
+                    row.appendChild(link);
+                }
+            } else if (itemResult.status === "DUPLICATE") {
+                row.appendChild(paragraph("inbox-result-warning", "图片重复，未导入；仍在待处理列表中，可重新尝试或选择 Skip。"));
+                if (itemResult.reason) row.appendChild(paragraph("inbox-result-reason", itemResult.reason));
+            } else {
+                row.appendChild(paragraph("inbox-result-warning", "导入失败，仍在待处理列表中，可重新尝试或选择 Skip。"));
+                row.appendChild(paragraph("inbox-result-reason", itemResult.reason || "未提供失败原因。"));
+            }
+            importResultsList.appendChild(row);
+        });
+        importResults.hidden = false;
+    }
+
     async function loadInbox() {
         loading = true;
         items = [];
@@ -174,7 +208,7 @@
             });
             const result = await response.json();
             if (!response.ok) throw new Error(result.message || `HTTP ${response.status}`);
-            setMessage(`已跳过 ${result.skippedCount} / ${result.requestedCount} 个项目。`, false);
+            setMessage(`实际跳过 ${result.skippedCount} / ${result.requestedCount} 个项目。${result.skippedCount < result.requestedCount ? "其余项目已处理或不存在。" : ""}`, false);
             await loadInbox();
         } catch (error) {
             setMessage(`跳过失败：${error.message}`, true);
@@ -188,6 +222,7 @@
         if (busy) return;
         const ids = selectedIds();
         if (ids.length === 0) return;
+        const selectedItems = new Map(items.filter(item => ids.includes(item.id)).map(item => [item.id, item]));
         busy = true;
         updateActions();
         setMessage("正在导入选中的项目…", false);
@@ -199,8 +234,9 @@
             });
             const result = await response.json();
             if (!response.ok) throw new Error(result.message || `HTTP ${response.status}`);
+            renderImportResults(result, selectedItems);
             await loadInbox();
-            setMessage(`导入完成：成功 ${result.successCount}，重复 ${result.duplicateCount}，失败 ${result.failureCount}。`, false);
+            setMessage("本次导入已处理，逐项结果如下。", false);
         } catch (error) {
             setMessage(`导入失败：${error.message}`, true);
         } finally {

@@ -912,6 +912,46 @@ h2 {
     margin-top: 22px;
 }
 
+.inbox-results {
+    margin-top: 20px;
+    padding: 20px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--surface);
+}
+
+.inbox-results h2 {
+    margin: 0 0 10px;
+}
+
+.inbox-results ol {
+    display: grid;
+    gap: 10px;
+    margin: 16px 0;
+    padding-left: 24px;
+}
+
+.inbox-result-item {
+    padding: 10px 0;
+    overflow-wrap: anywhere;
+}
+
+.inbox-result-item p {
+    margin: 0 0 6px;
+}
+
+.inbox-result-name {
+    font-weight: 700;
+}
+
+.inbox-result-success {
+    color: #487258;
+}
+
+.inbox-result-warning {
+    color: #a34c4c;
+}
+
 .inbox-card {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);

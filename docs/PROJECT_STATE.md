@@ -9,7 +9,7 @@ V0.3 - X Likes Import Inbox
 
 Current development stage:
 
-**V0.3-D3-2 Sync End State & Idempotency 已完成验收：真实 X API 多页分页、`maxPages` 截断及跨轮 continuation 已验证；自然末页和重复同步的边界语义由自动化回归测试覆盖。当前未遍历完全部真实历史 Likes，C2、C3、C4 的真实环境验收已完成。**
+**V0.3-D4 Pending Inbox Import Workflow 已完成真实环境人工验收。V0.3 下一步为 Final Acceptance / Release；尚未宣告 V0.3 整体完成。**
 
 V0.2 的 Final Acceptance 已完成；其最终 commit、push 和 tag 是否执行由项目维护者决定。
 
@@ -67,6 +67,13 @@ V0.2 的 Final Acceptance 已完成；其最终 commit、push 和 tag 是否执�
 - 2026-09-28 验收记录：真实数据库已有 255 条 `x_like_item`；`x_like_sync_state` 为 `ACTIVE` 且保存 `next_token`，因为尚未主动遍历全部历史 Likes。D3-2 验收不要求耗尽真实历史 Likes。
 - 自动化回归测试覆盖自然末页（包括恰好达到 `maxPages` 时）返回 `hasMore=false`、两个停止标志为 `false`、清除 continuation，以及下次从最新 Likes 开始；还覆盖重复 `x_post_id` 计入 `existingCount`、不重复插入媒体、保持 `IMPORTED` / `SKIPPED` 状态和 `imported_illustration_id` 关联，以及后续新 Like 进入 `PENDING`。页数截断继续同步及无效 token 防护保留。
 - 自然追到真实 X API 末页、末页后重复同步及新 Like 后再次同步未在真实历史 Likes 上执行；这些边界以自动化测试作为本阶段验收依据。
+
+### V0.3-D4 | Pending Inbox Import Workflow
+
+- D4 已完成真实环境人工验收：X Import Inbox 的单项/批量处理页面工作正常。
+- 真实浏览器中批量选择 3 个 `PENDING` 项执行 Import Selected，结果为 `SUCCESS 3`、`DUPLICATE 0`、`FAILED 0`；Inbox 的 pending 数量相应减少，每个成功项均返回 Illustration Detail 链接。
+- MySQL 核验这 3 条 `x_like_item` 均变为 `IMPORTED`，`imported_illustration_id` 分别为 `30`、`31`、`32`，均非 `NULL`。
+- 真实归档文件及 Gallery/Detail 链路正常；相关自动化测试此前已通过。
 
 ---
 
@@ -335,4 +342,4 @@ README 已按 V0.2 最终能力收尾。V0.2 已完成 Final Acceptance；尚未
 
 ### Current next step
 
-V0.3-D3-2 已完成验收：真实 X API 多页同步、截断后 MySQL continuation 与跨轮继续已验证；自然末页、重复同步和 `IMPORTED` 关联保护由自动化回归测试覆盖。无需为了本阶段验收耗尽全部真实历史 Likes。V0.3 尚未宣告完成，后续阶段由项目维护者决定。
+V0.3-D4 已完成真实环境人工验收。下一步是 V0.3 Final Acceptance / Release；V0.3 整体完成与发布仍待最终验收决定。
