@@ -106,6 +106,9 @@ class XLikePersistenceServiceTest {
 		assertEquals(1, summary.existingCount());
 		assertEquals(0, summary.pendingCount());
 		assertEquals(0, summary.unsupportedCount());
+		verify(items).insertIfAbsent(candidate);
+		verify(items).findStatusByPostId("12");
+		verifyNoMoreInteractions(items);
 		verifyNoMoreInteractions(media);
 	}
 

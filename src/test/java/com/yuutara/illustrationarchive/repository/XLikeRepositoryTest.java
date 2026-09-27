@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -28,6 +29,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 class XLikeRepositoryTest {
@@ -57,7 +59,7 @@ class XLikeRepositoryTest {
 	}
 
 	@Test
-	void duplicatePostDoesNotOverwriteStoredStatus() {
+	void duplicateImportedPostDoesNotOverwriteStoredStatusOrIllustrationLink() throws Exception {
 		JdbcTemplate jdbc = mock(JdbcTemplate.class);
 		when(jdbc.update(any(PreparedStatementCreator.class), any(KeyHolder.class)))
 				.thenThrow(new DuplicateKeyException("duplicate"));
@@ -65,6 +67,18 @@ class XLikeRepositoryTest {
 				null, XLikeStatus.PENDING, List.of());
 
 		assertNull(new XLikeRepository(jdbc).insertIfAbsent(candidate));
+		ArgumentCaptor<PreparedStatementCreator> insert = ArgumentCaptor.forClass(PreparedStatementCreator.class);
+		verify(jdbc).update(insert.capture(), any(KeyHolder.class));
+		verifyNoMoreInteractions(jdbc);
+		Connection connection = mock(Connection.class);
+		when(connection.prepareStatement(anyString(), eq(Statement.RETURN_GENERATED_KEYS)))
+				.thenReturn(mock(PreparedStatement.class));
+		insert.getValue().createPreparedStatement(connection);
+		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+		verify(connection).prepareStatement(sql.capture(), eq(Statement.RETURN_GENERATED_KEYS));
+		assertTrue(sql.getValue().startsWith("INSERT INTO x_like_item"));
+		assertFalse(sql.getValue().contains("imported_illustration_id"));
+		assertFalse(sql.getValue().contains("ON DUPLICATE KEY UPDATE"));
 	}
 
 	@Test

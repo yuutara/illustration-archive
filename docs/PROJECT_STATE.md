@@ -9,7 +9,7 @@ V0.3 - X Likes Import Inbox
 
 Current development stage:
 
-**V0.3-D2 X API authentication diagnostics 已实现；D1 自动化测试通过、V5 migration 已在真实 MySQL 成功执行，真实 X API 增量分页与跨轮 continuation 尚未验收。C2、C3、C4 的真实环境验收已完成。**
+**V0.3-D3-2 Sync End State & Idempotency 已完成验收：真实 X API 多页分页、`maxPages` 截断及跨轮 continuation 已验证；自然末页和重复同步的边界语义由自动化回归测试覆盖。当前未遍历完全部真实历史 Likes，C2、C3、C4 的真实环境验收已完成。**
 
 V0.2 的 Final Acceptance 已完成；其最终 commit、push 和 tag 是否执行由项目维护者决定。
 
@@ -46,7 +46,7 @@ V0.2 的 Final Acceptance 已完成；其最终 commit、push 和 tag 是否执�
 
 - 只在用户点击 Sync latest Likes 时请求 X Likes；逐页使用 `meta.next_token` 作为下一次请求的 `pagination_token`，每页复用原有幂等持久化逻辑。
 - `maxResults` 默认 5、范围 5..100；`maxPages` 默认 3、范围 1..10。远端无下一页、达到页数上限、游标缺失或重复时停止。
-- 摘要汇总请求页数、各状态数量、远端是否仍有下一页，以及是否因页数上限或异常游标停止。自动化测试通过；V5 migration 已在真实 MySQL 成功执行。真实 X API 的增量分页与跨轮 continuation 行为尚未验收。
+- 摘要汇总请求页数、各状态数量、远端是否仍有下一页，以及是否因页数上限或异常游标停止。自动化测试通过；V5 migration 已在真实 MySQL 成功执行。D3-1 的跨轮 continuation 真实 X API 验收见下方记录。
 - D1 提交前修复：页数上限处把下一页 token 和 `maxResults` 保存到 `x_like_sync_state`，后续手动 Sync 从该位置继续；完整追完后清除 continuation，下次回到最新 Likes。`x_like_sync_seen_token` 记录 token 摘要，防止跨次同步循环。
 - 游标缺失、重复或被 X 以 HTTP 400 拒绝时标记为 `INVALID` 并停止；429 等暂时错误保留 continuation。只有显式调用 `POST /api/x-import/sync/continuation/reset` 才清除无效状态；重置后可能存在未补齐的 Likes 缺口。一次同步只请求一次 `/2/users/me`。
 
@@ -55,6 +55,18 @@ V0.2 的 Final Acceptance 已完成；其最终 commit、push 和 tag 是否执�
 - 对上游 HTTP 401 返回 `X_CREDENTIAL_REJECTED`，提示检查本地凭据并重启；对 403 返回 `X_ACCESS_DENIED`，提示凭据无效或不适用于当前接口、App/User 权限不足等可能原因，不据此判断凭据已被识别。响应不包含 Access Token 或 Authorization header，其他 X API 错误映射保持原有行为。
 - D2 真实 X API 验收中，将本地 Access Token 改为无效测试值并重启后，X 实际返回 403；此观察仅验证该错误路径，不代表 401 或其他认证场景已完成真实验收。
 - 当前仍使用本地手动配置的 X Access Token；修改 `X_API_ACCESS_TOKEN` 后必须重启 Spring Boot。未实现 OAuth token lifecycle、refresh token、callback、PKCE 或 token persistence。
+
+### V0.3-D3-1 | Continuation persistence
+
+- 已通过真实 X API 验收：`maxResults=5`、`maxPages=1` 时，每轮后的 `x_like_sync_state.next_token` 推进，Spring Boot 重启后继续使用保存的 token，`x_like_item` 总数随每轮增加，`stoppedByInvalidToken=false`。
+- 该验收覆盖截断与重启后继续；未覆盖自然追到末页及完成后再次从最新 Likes 同步。
+
+### V0.3-D3-2 | Sync End State & Idempotency
+
+- D3-2 已完成验收。真实 X API 已验证多页 Likes 分页正常；`maxPages` 截断后 continuation 持久化到 MySQL，下一轮 Sync 从保存的位置继续，而非重新从第一页开始。
+- 2026-09-28 验收记录：真实数据库已有 255 条 `x_like_item`；`x_like_sync_state` 为 `ACTIVE` 且保存 `next_token`，因为尚未主动遍历全部历史 Likes。D3-2 验收不要求耗尽真实历史 Likes。
+- 自动化回归测试覆盖自然末页（包括恰好达到 `maxPages` 时）返回 `hasMore=false`、两个停止标志为 `false`、清除 continuation，以及下次从最新 Likes 开始；还覆盖重复 `x_post_id` 计入 `existingCount`、不重复插入媒体、保持 `IMPORTED` / `SKIPPED` 状态和 `imported_illustration_id` 关联，以及后续新 Like 进入 `PENDING`。页数截断继续同步及无效 token 防护保留。
+- 自然追到真实 X API 末页、末页后重复同步及新 Like 后再次同步未在真实历史 Likes 上执行；这些边界以自动化测试作为本阶段验收依据。
 
 ---
 
@@ -323,4 +335,4 @@ README 已按 V0.2 最终能力收尾。V0.2 已完成 Final Acceptance；尚未
 
 ### Current next step
 
-V0.3-D2 已实现 X API authentication diagnostics。D1 已完成自动化测试，V5 migration 已在真实 MySQL 成功执行；真实 X API 的增量分页与跨轮 continuation 验收仍待执行。C2 真实 MySQL migration、文件系统、HTTP 和浏览器验收，C3 真实多 Asset Detail 浏览器验收，以及 C4 真实 Gallery 多 Asset 左右循环切换浏览器验收均已完成。
+V0.3-D3-2 已完成验收：真实 X API 多页同步、截断后 MySQL continuation 与跨轮继续已验证；自然末页、重复同步和 `IMPORTED` 关联保护由自动化回归测试覆盖。无需为了本阶段验收耗尽全部真实历史 Likes。V0.3 尚未宣告完成，后续阶段由项目维护者决定。

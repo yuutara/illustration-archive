@@ -12,8 +12,10 @@ import com.yuutara.illustrationarchive.repository.XLikeSyncStateRepository;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
-import java.util.List;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
@@ -96,6 +98,8 @@ class XLikeSyncServiceTest {
 	void twoPagesAggregateCountsAndUseReturnedToken() {
 		XApiClient client = mock(XApiClient.class);
 		XLikePersistenceService persistence = mock(XLikePersistenceService.class);
+		MemoryContinuation memory = new MemoryContinuation();
+		when(client.resolveUserId()).thenReturn("999");
 		XLikePage first = new XLikePage(List.of(), true, "second");
 		XLikePage second = new XLikePage(List.of(), false, null);
 		when(client.fetchRecentLikes("999", 5, null)).thenReturn(first);
@@ -103,7 +107,7 @@ class XLikeSyncServiceTest {
 		when(persistence.savePage(first)).thenReturn(new XLikeSyncSummary(1, 3, 2, 1, 2, 1, true, false, false));
 		when(persistence.savePage(second)).thenReturn(new XLikeSyncSummary(1, 2, 1, 1, 1, 0, false, false, false));
 
-		XLikeSyncSummary summary = service(client, persistence).syncRecent(5, 3);
+		XLikeSyncSummary summary = service(client, persistence, memory.repo).syncRecent(5, 2);
 
 		assertEquals(2, summary.pagesFetched());
 		assertEquals(5, summary.fetchedCount());
@@ -112,7 +116,73 @@ class XLikeSyncServiceTest {
 		assertEquals(3, summary.pendingCount());
 		assertEquals(1, summary.unsupportedCount());
 		assertFalse(summary.hasMore());
+		assertFalse(summary.stoppedByMaxPages());
+		assertFalse(summary.stoppedByInvalidToken());
+		assertNull(memory.saved.get());
+		assertTrue(memory.seen.isEmpty());
 		verify(client).fetchRecentLikes("999", 5, "second");
+	}
+
+	@Test
+	void completedSyncChecksLatestAgainWithoutDuplicatesAndFindsLaterLike() {
+		XApiClient client = mock(XApiClient.class);
+		XLikeRepository items = mock(XLikeRepository.class);
+		XLikeMediaRepository media = mock(XLikeMediaRepository.class);
+		MemoryContinuation memory = new MemoryContinuation();
+		Map<String, XLikeStatus> stored = new HashMap<>();
+		when(items.insertIfAbsent(any(XLikeCandidate.class))).thenAnswer(call -> {
+			XLikeCandidate candidate = call.getArgument(0);
+			if (stored.containsKey(candidate.xPostId())) {
+				return null;
+			}
+			stored.put(candidate.xPostId(), candidate.status());
+			return (long) stored.size();
+		});
+		when(items.findStatusByPostId(anyString())).thenAnswer(call -> stored.get(call.getArgument(0)));
+		when(client.resolveUserId()).thenReturn("999");
+		XLikeCandidate first = photoCandidate("1");
+		XLikeCandidate second = photoCandidate("2");
+		XLikeCandidate later = photoCandidate("3");
+		when(client.fetchRecentLikes("999", 5, null)).thenReturn(
+				new XLikePage(List.of(first), true, "last-page"),
+				new XLikePage(List.of(first, second), false, null),
+				new XLikePage(List.of(later, first), false, null));
+		when(client.fetchRecentLikes("999", 5, "last-page"))
+				.thenReturn(new XLikePage(List.of(second), false, null));
+		XLikeSyncService service = new XLikeSyncService(client,
+				new XLikePersistenceService(items, media), items, media, memory.repo, 5, 3);
+
+		XLikeSyncSummary initial = service.syncRecent(5, 2);
+		assertEquals(2, initial.newCount());
+		assertEquals(0, initial.existingCount());
+		assertFalse(initial.hasMore());
+		assertFalse(initial.stoppedByMaxPages());
+		assertFalse(initial.stoppedByInvalidToken());
+		assertNull(memory.saved.get());
+
+		stored.put("1", XLikeStatus.IMPORTED);
+		stored.put("2", XLikeStatus.SKIPPED);
+		XLikeSyncSummary repeated = service.syncRecent(5, 2);
+		assertEquals(0, repeated.newCount());
+		assertEquals(2, repeated.existingCount());
+		assertEquals(0, repeated.pendingCount());
+		assertFalse(repeated.hasMore());
+		assertNull(memory.saved.get());
+		assertEquals(Map.of("1", XLikeStatus.IMPORTED, "2", XLikeStatus.SKIPPED), stored);
+
+		XLikeSyncSummary withNewLike = service.syncRecent(5, 2);
+		assertEquals(1, withNewLike.newCount());
+		assertEquals(1, withNewLike.existingCount());
+		assertEquals(1, withNewLike.pendingCount());
+		assertEquals(XLikeStatus.PENDING, stored.get("3"));
+		assertEquals(3, stored.size());
+		assertFalse(withNewLike.hasMore());
+		assertNull(memory.saved.get());
+		verify(client, times(3)).fetchRecentLikes("999", 5, null);
+		verify(media).insert(1L, first.media().get(0));
+		verify(media).insert(2L, second.media().get(0));
+		verify(media).insert(3L, later.media().get(0));
+		verifyNoMoreInteractions(media);
 	}
 
 	@Test
@@ -312,6 +382,12 @@ class XLikeSyncServiceTest {
 				.mapToObj(id -> new XLikeCandidate(String.valueOf(id), "a", "artist", "Artist", null,
 						null, XLikeStatus.UNSUPPORTED, List.of())).toList();
 		return new XLikePage(candidates, nextToken != null, nextToken);
+	}
+
+	private XLikeCandidate photoCandidate(String id) {
+		return new XLikeCandidate(id, "author", "artist", "Artist", null, null,
+				XLikeStatus.PENDING,
+				List.of(new XLikeMedia("photo-" + id, 0, "photo", "https://img/" + id, 1, 1)));
 	}
 
 	private static class MemoryContinuation {
