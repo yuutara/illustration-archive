@@ -92,8 +92,11 @@ public class XApiClient {
 		try {
 			HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 			int status = response.statusCode();
-			if (status == 401 || status == 403) {
-				throw new XApiException("X API rejected the access token or its permissions.", status);
+			if (status == 401) {
+				throw new XApiException("X rejected the current access credential. Check the credential in X Developer, update the local configuration, restart the application, and retry.", status);
+			}
+			if (status == 403) {
+				throw new XApiException("X denied this request. Possible causes include an invalid credential, a credential not valid for this endpoint, insufficient app or user permissions, or other access conditions. Check the credential and app/user permissions in X Developer.", status);
 			}
 			if (status == 429) {
 				throw new XApiException("X API rate limit reached; retry manually later.", status);

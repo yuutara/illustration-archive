@@ -9,7 +9,7 @@ V0.3 - X Likes Import Inbox
 
 Current development stage:
 
-**V0.3-D1 X Likes Incremental Sync & Pagination 已实现，自动化测试通过，V5 migration 已在真实 MySQL 成功执行；真实 X API 增量分页与跨轮 continuation 尚未验收。C2、C3、C4 的真实环境验收已完成。**
+**V0.3-D2 X API authentication diagnostics 已实现；D1 自动化测试通过、V5 migration 已在真实 MySQL 成功执行，真实 X API 增量分页与跨轮 continuation 尚未验收。C2、C3、C4 的真实环境验收已完成。**
 
 V0.2 的 Final Acceptance 已完成；其最终 commit、push 和 tag 是否执行由项目维护者决定。
 
@@ -49,6 +49,12 @@ V0.2 的 Final Acceptance 已完成；其最终 commit、push 和 tag 是否执�
 - 摘要汇总请求页数、各状态数量、远端是否仍有下一页，以及是否因页数上限或异常游标停止。自动化测试通过；V5 migration 已在真实 MySQL 成功执行。真实 X API 的增量分页与跨轮 continuation 行为尚未验收。
 - D1 提交前修复：页数上限处把下一页 token 和 `maxResults` 保存到 `x_like_sync_state`，后续手动 Sync 从该位置继续；完整追完后清除 continuation，下次回到最新 Likes。`x_like_sync_seen_token` 记录 token 摘要，防止跨次同步循环。
 - 游标缺失、重复或被 X 以 HTTP 400 拒绝时标记为 `INVALID` 并停止；429 等暂时错误保留 continuation。只有显式调用 `POST /api/x-import/sync/continuation/reset` 才清除无效状态；重置后可能存在未补齐的 Likes 缺口。一次同步只请求一次 `/2/users/me`。
+
+### V0.3-D2 | X API authentication diagnostics
+
+- 对上游 HTTP 401 返回 `X_CREDENTIAL_REJECTED`，提示检查本地凭据并重启；对 403 返回 `X_ACCESS_DENIED`，提示凭据无效或不适用于当前接口、App/User 权限不足等可能原因，不据此判断凭据已被识别。响应不包含 Access Token 或 Authorization header，其他 X API 错误映射保持原有行为。
+- D2 真实 X API 验收中，将本地 Access Token 改为无效测试值并重启后，X 实际返回 403；此观察仅验证该错误路径，不代表 401 或其他认证场景已完成真实验收。
+- 当前仍使用本地手动配置的 X Access Token；修改 `X_API_ACCESS_TOKEN` 后必须重启 Spring Boot。未实现 OAuth token lifecycle、refresh token、callback、PKCE 或 token persistence。
 
 ---
 
@@ -317,4 +323,4 @@ README 已按 V0.2 最终能力收尾。V0.2 已完成 Final Acceptance；尚未
 
 ### Current next step
 
-V0.3-D1 已完成实现和自动化测试，V5 migration 已在真实 MySQL 成功执行；下一步是进行真实 X API 的增量分页与跨轮 continuation 验收。C2 真实 MySQL migration、文件系统、HTTP 和浏览器验收，C3 真实多 Asset Detail 浏览器验收，以及 C4 真实 Gallery 多 Asset 左右循环切换浏览器验收均已完成。
+V0.3-D2 已实现 X API authentication diagnostics。D1 已完成自动化测试，V5 migration 已在真实 MySQL 成功执行；真实 X API 的增量分页与跨轮 continuation 验收仍待执行。C2 真实 MySQL migration、文件系统、HTTP 和浏览器验收，C3 真实多 Asset Detail 浏览器验收，以及 C4 真实 Gallery 多 Asset 左右循环切换浏览器验收均已完成。

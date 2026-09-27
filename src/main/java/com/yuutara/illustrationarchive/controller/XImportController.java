@@ -63,10 +63,16 @@ public class XImportController {
 
 	@ExceptionHandler(XApiException.class)
 	public ResponseEntity<ApiError> xApiFailure(XApiException exception) {
-		HttpStatus status = exception.upstreamStatus() != null && exception.upstreamStatus() == 429
+		Integer upstreamStatus = exception.upstreamStatus();
+		HttpStatus status = Integer.valueOf(429).equals(upstreamStatus)
 				? HttpStatus.TOO_MANY_REQUESTS : HttpStatus.BAD_GATEWAY;
+		String code = switch (upstreamStatus == null ? 0 : upstreamStatus) {
+			case 401 -> "X_CREDENTIAL_REJECTED";
+			case 403 -> "X_ACCESS_DENIED";
+			default -> "X_API_ERROR";
+		};
 		return ResponseEntity.status(status)
-				.body(new ApiError("X_API_ERROR", exception.upstreamStatus(), exception.getMessage()));
+				.body(new ApiError(code, upstreamStatus, exception.getMessage()));
 	}
 
 	public record ApiError(String code, Integer upstreamStatus, String message) {

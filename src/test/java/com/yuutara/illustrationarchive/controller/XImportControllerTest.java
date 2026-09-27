@@ -13,6 +13,8 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import java.time.Instant;
 import java.util.List;
 
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -20,6 +22,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class XImportControllerTest {
@@ -90,10 +93,14 @@ class XImportControllerTest {
 	void mapsValidationAndUpstreamErrorsWithoutSecret() throws Exception {
 		XLikeSyncService service = mock(XLikeSyncService.class);
 		MockMvc mvc = mvc(service);
+		String unauthorized = "X rejected the current access credential. Check the credential in X Developer, update the local configuration, restart the application, and retry.";
+		String forbidden = "X denied this request. Possible causes include an invalid credential, a credential not valid for this endpoint, insufficient app or user permissions, or other access conditions. Check the credential and app/user permissions in X Developer.";
 		when(service.syncRecent(4, null)).thenThrow(new IllegalArgumentException("maxResults must be between 5 and 100."));
 		when(service.syncRecent(5, 0)).thenThrow(new IllegalArgumentException("maxPages must be between 1 and 10."));
-		when(service.syncRecent(5, null)).thenThrow(new XApiException("X API rejected the access token or its permissions.", 401));
+		when(service.syncRecent(5, null)).thenThrow(new XApiException(unauthorized, 401));
 		when(service.syncRecent(6, null)).thenThrow(new XApiException("X API rate limit reached; retry manually later.", 429));
+		when(service.syncRecent(7, null)).thenThrow(new XApiException(forbidden, 403));
+		when(service.syncRecent(8, null)).thenThrow(new XApiException("X API request failed with HTTP 500.", 500));
 
 		mvc.perform(post("/api/x-import/sync/recent?maxResults=4"))
 				.andExpect(status().isBadRequest())
@@ -103,11 +110,26 @@ class XImportControllerTest {
 				.andExpect(jsonPath("$.message").value("maxPages must be between 1 and 10."));
 		mvc.perform(post("/api/x-import/sync/recent?maxResults=5"))
 				.andExpect(status().isBadGateway())
+				.andExpect(jsonPath("$.code").value("X_CREDENTIAL_REJECTED"))
 				.andExpect(jsonPath("$.upstreamStatus").value(401))
-				.andExpect(jsonPath("$.message").value("X API rejected the access token or its permissions."));
+				.andExpect(jsonPath("$.message").value(unauthorized))
+				.andExpect(content().string(not(containsString("test-secret"))))
+				.andExpect(content().string(not(containsString("Authorization"))));
+		mvc.perform(post("/api/x-import/sync/recent?maxResults=7"))
+				.andExpect(status().isBadGateway())
+				.andExpect(jsonPath("$.code").value("X_ACCESS_DENIED"))
+				.andExpect(jsonPath("$.upstreamStatus").value(403))
+				.andExpect(jsonPath("$.message").value(forbidden))
+				.andExpect(content().string(not(containsString("test-secret"))))
+				.andExpect(content().string(not(containsString("Authorization"))));
 		mvc.perform(post("/api/x-import/sync/recent?maxResults=6"))
 				.andExpect(status().isTooManyRequests())
+				.andExpect(jsonPath("$.code").value("X_API_ERROR"))
 				.andExpect(jsonPath("$.upstreamStatus").value(429));
+		mvc.perform(post("/api/x-import/sync/recent?maxResults=8"))
+				.andExpect(status().isBadGateway())
+				.andExpect(jsonPath("$.code").value("X_API_ERROR"))
+				.andExpect(jsonPath("$.upstreamStatus").value(500));
 	}
 
 	@Test

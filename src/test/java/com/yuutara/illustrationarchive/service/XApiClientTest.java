@@ -93,6 +93,37 @@ class XApiClientTest {
 			assertEquals(status, error.upstreamStatus());
 			assertFalse(error.getMessage().contains("test-secret"));
 			assertFalse(error.getMessage().contains("secret-from-response"));
+			assertFalse(error.getMessage().contains("Authorization"));
+			if (status == 401) {
+				assertTrue(error.getMessage().contains("current access credential"));
+				assertTrue(error.getMessage().contains("restart the application"));
+				assertFalse(error.getMessage().contains("expired"));
+			} else if (status == 403) {
+				assertTrue(error.getMessage().contains("invalid credential"));
+				assertTrue(error.getMessage().contains("not valid for this endpoint"));
+				assertTrue(error.getMessage().contains("app or user permissions"));
+				assertFalse(error.getMessage().contains("recognized"));
+			} else if (status == 429) {
+				assertEquals("X API rate limit reached; retry manually later.", error.getMessage());
+			} else {
+				assertEquals("X API request failed with HTTP " + status + ".", error.getMessage());
+			}
+		}
+	}
+
+	@Test
+	void authenticationDiagnosticsAlsoApplyToLikedTweetsRequest() throws Exception {
+		for (int status : List.of(401, 403)) {
+			XApiClient client = client(new ArrayList<>(), response(200, ME),
+					response(status, "secret-from-response"));
+			String userId = client.resolveUserId();
+
+			XApiException error = assertThrows(XApiException.class,
+					() -> client.fetchRecentLikes(userId, 5, null));
+
+			assertEquals(status, error.upstreamStatus());
+			assertFalse(error.getMessage().contains("test-secret"));
+			assertFalse(error.getMessage().contains("secret-from-response"));
 		}
 	}
 
