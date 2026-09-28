@@ -35,28 +35,27 @@ public class XApiClient {
 	private final ObjectMapper objectMapper;
 	private final boolean enabled;
 	private final String baseUrl;
-	private final String accessToken;
+	private final XTokenManager tokens;
 
 	@Autowired
-	public XApiClient(ObjectMapper objectMapper,
+	public XApiClient(ObjectMapper objectMapper, XTokenManager tokens,
 			@Value("${x.api.enabled:false}") boolean enabled,
-			@Value("${x.api.base-url:https://api.x.com}") String baseUrl,
-			@Value("${x.api.access-token:}") String accessToken) {
-		this(HttpClient.newHttpClient(), objectMapper, enabled, baseUrl, accessToken);
+			@Value("${x.api.base-url:https://api.x.com}") String baseUrl) {
+		this(HttpClient.newHttpClient(), objectMapper, enabled, baseUrl, tokens);
 	}
 
 	XApiClient(HttpClient httpClient, ObjectMapper objectMapper, boolean enabled,
-			String baseUrl, String accessToken) {
+			String baseUrl, XTokenManager tokens) {
 		this.httpClient = httpClient;
 		this.objectMapper = objectMapper;
 		this.enabled = enabled;
 		this.baseUrl = baseUrl.replaceAll("/+$", "");
-		this.accessToken = accessToken;
+		this.tokens = tokens;
 	}
 
 	public String resolveUserId() {
-		if (!enabled || accessToken == null || accessToken.isBlank()) {
-			throw new XApiException("X API sync is disabled or its access token is missing.", null);
+		if (!enabled) {
+			throw new XApiException("X API sync is disabled.", null);
 		}
 		String userId = requiredText(get("/2/users/me").path("data"), "id");
 		if (!userId.matches("[0-9]+")) {
@@ -69,8 +68,8 @@ public class XApiClient {
 		if (maxResults < 5 || maxResults > 100) {
 			throw new IllegalArgumentException("maxResults must be between 5 and 100.");
 		}
-		if (!enabled || accessToken == null || accessToken.isBlank()) {
-			throw new XApiException("X API sync is disabled or its access token is missing.", null);
+		if (!enabled) {
+			throw new XApiException("X API sync is disabled.", null);
 		}
 		if (userId == null || !userId.matches("[0-9]+")) {
 			throw new IllegalArgumentException("X user id must be numeric.");
@@ -84,27 +83,39 @@ public class XApiClient {
 	}
 
 	private JsonNode get(String path) {
+		String accessToken = tokens.currentAccessToken();
+		HttpResponse<String> response = send(path, accessToken);
+		if (response.statusCode() == 401) {
+			response = send(path, tokens.refreshAfterRejection(accessToken));
+		}
+		int status = response.statusCode();
+		if (status == 401) {
+			throw new XApiException("X rejected the current access credential after one refresh attempt. Check X OAuth credentials and retry.", status);
+		}
+		if (status == 403) {
+			throw new XApiException("X denied this request. Possible causes include an invalid credential, a credential not valid for this endpoint, insufficient app or user permissions, or other access conditions. Check the credential and app/user permissions in X Developer.", status);
+		}
+		if (status == 429) {
+			throw new XApiException("X API rate limit reached; retry manually later.", status);
+		}
+		if (status < 200 || status >= 300) {
+			throw new XApiException("X API request failed with HTTP " + status + ".", status);
+		}
+		try {
+			return objectMapper.readTree(response.body());
+		} catch (RuntimeException e) {
+			throw new XApiException("X API network or response error.", null);
+		}
+	}
+
+	private HttpResponse<String> send(String path, String accessToken) {
 		HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path))
 				.timeout(Duration.ofSeconds(20))
 				.header("Authorization", "Bearer " + accessToken)
 				.header("Accept", "application/json")
 				.GET().build();
 		try {
-			HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-			int status = response.statusCode();
-			if (status == 401) {
-				throw new XApiException("X rejected the current access credential. Check the credential in X Developer, update the local configuration, restart the application, and retry.", status);
-			}
-			if (status == 403) {
-				throw new XApiException("X denied this request. Possible causes include an invalid credential, a credential not valid for this endpoint, insufficient app or user permissions, or other access conditions. Check the credential and app/user permissions in X Developer.", status);
-			}
-			if (status == 429) {
-				throw new XApiException("X API rate limit reached; retry manually later.", status);
-			}
-			if (status < 200 || status >= 300) {
-				throw new XApiException("X API request failed with HTTP " + status + ".", status);
-			}
-			return objectMapper.readTree(response.body());
+			return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 		} catch (IOException e) {
 			throw new XApiException("X API network or response error.", null);
 		} catch (InterruptedException e) {

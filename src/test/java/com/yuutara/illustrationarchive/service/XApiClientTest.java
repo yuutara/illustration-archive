@@ -17,6 +17,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -95,8 +97,7 @@ class XApiClientTest {
 			assertFalse(error.getMessage().contains("secret-from-response"));
 			assertFalse(error.getMessage().contains("Authorization"));
 			if (status == 401) {
-				assertTrue(error.getMessage().contains("current access credential"));
-				assertTrue(error.getMessage().contains("restart the application"));
+				assertTrue(error.getMessage().contains("after one refresh attempt"));
 				assertFalse(error.getMessage().contains("expired"));
 			} else if (status == 403) {
 				assertTrue(error.getMessage().contains("invalid credential"));
@@ -130,12 +131,39 @@ class XApiClientTest {
 	@Test
 	void disabledClientAndInvalidSizeNeverCallHttp() {
 		HttpClient http = mock(HttpClient.class);
-		XApiClient disabled = new XApiClient(http, new ObjectMapper(), false, "https://api.x.com", "test-secret");
+		XTokenManager tokens = mock(XTokenManager.class);
+		XApiClient disabled = new XApiClient(http, new ObjectMapper(), false, "https://api.x.com", tokens);
 		assertThrows(XApiException.class, disabled::resolveUserId);
-		XApiClient enabled = new XApiClient(http, new ObjectMapper(), true, "https://api.x.com", "test-secret");
+		XApiClient enabled = new XApiClient(http, new ObjectMapper(), true, "https://api.x.com", tokens);
 		assertThrows(IllegalArgumentException.class, () -> enabled.fetchRecentLikes("999", 4, null));
 		assertThrows(IllegalArgumentException.class, () -> enabled.fetchRecentLikes("999", 101, null));
 		verifyNoInteractions(http);
+		verifyNoInteractions(tokens);
+	}
+
+	@Test
+	void retriesOnceWithRefreshedTokenOn401() throws Exception {
+		List<HttpRequest> requests = new ArrayList<>();
+		XTokenManager tokens = mock(XTokenManager.class);
+		when(tokens.currentAccessToken()).thenReturn("old-access");
+		when(tokens.refreshAfterRejection("old-access")).thenReturn("new-access");
+		XApiClient client = client(requests, tokens, response(401, "secret-from-response"), response(200, ME));
+
+		assertEquals("999999999999999999999999999999", client.resolveUserId());
+		assertEquals(2, requests.size());
+		assertEquals("Bearer old-access", requests.get(0).headers().firstValue("Authorization").orElseThrow());
+		assertEquals("Bearer new-access", requests.get(1).headers().firstValue("Authorization").orElseThrow());
+		verify(tokens).refreshAfterRejection("old-access");
+	}
+
+	@Test
+	void doesNotRefreshOn403() throws Exception {
+		XTokenManager tokens = mock(XTokenManager.class);
+		when(tokens.currentAccessToken()).thenReturn("test-secret");
+		XApiClient client = client(new ArrayList<>(), tokens, response(403, "secret-from-response"));
+
+		assertThrows(XApiException.class, client::resolveUserId);
+		verify(tokens, never()).refreshAfterRejection(any());
 	}
 
 	@Test
@@ -172,13 +200,22 @@ class XApiClientTest {
 
 	@SuppressWarnings("unchecked")
 	private XApiClient client(List<HttpRequest> requests, HttpResponse<String>... responses) throws Exception {
+		XTokenManager tokens = mock(XTokenManager.class);
+		when(tokens.currentAccessToken()).thenReturn("test-secret");
+		when(tokens.refreshAfterRejection("test-secret")).thenReturn("new-secret");
+		return client(requests, tokens, responses);
+	}
+
+	@SuppressWarnings("unchecked")
+	private XApiClient client(List<HttpRequest> requests, XTokenManager tokens,
+			HttpResponse<String>... responses) throws Exception {
 		HttpClient http = mock(HttpClient.class);
 		int[] index = {0};
 		when(http.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenAnswer(invocation -> {
 			requests.add(invocation.getArgument(0));
-			return responses[index[0]++];
+			return responses[Math.min(index[0]++, responses.length - 1)];
 		});
-		return new XApiClient(http, new ObjectMapper(), true, "https://api.x.com", "test-secret");
+		return new XApiClient(http, new ObjectMapper(), true, "https://api.x.com", tokens);
 	}
 
 	@SuppressWarnings("unchecked")

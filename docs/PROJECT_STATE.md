@@ -23,6 +23,10 @@ V0.4-B1 Storage Abstraction 已实现。`FileStorage` 以文件名和 `InputStre
 
 V0.4-B3 S3-compatible Storage Validation 已完成。默认 `storage.type=local`，原有 Local implementations 继续使用；显式设为 `s3` 时注入 `S3FileStorage` 与 `S3ThumbnailStorage`，只新增 AWS SDK for Java 2.x 的 S3 模块。S3 client 的 endpoint、region、凭据、bucket 和 path-style 均由 runtime configuration 提供。原图 object key 沿用相对 `storage_key`，thumbnail object key 为 `thumbnails/<storage_key>`；Schema、REST API、导入及补偿顺序未改变。SDK 的 GET 返回一次性流，adapter 通过 `HEAD` 获得长度并包装为可重新打开流的 `Resource`，因此现有 `FileStorage` / `ThumbnailStorage` contract 无须演化。上传和 ImageIO 编码使用受控临时文件并在操作结束后清理，最终对象均位于 S3。
 
+V0.4-C1 X OAuth Token Lifecycle 已实现，真实 X 人工验收已通过。当前 App 的 Client ID / Client Secret 由本机运行时配置提供；App owner 在 Developer Console 一次性生成初始 access token + refresh token，手工放入 Git 忽略的 `config/x-oauth-tokens.properties`。应用在 access token 即将到期或到期时间未知时通过 confidential-client Basic Authentication 向 X token endpoint 刷新；收到 401 后最多再刷新重试一次，403 不触发刷新。新 token 使用串行化、临时文件加原子替换写回；响应未返回新 refresh token 时保留旧值；写盘失败会显式报错，并在当前进程内保留新凭据以供重试。未增加浏览器 OAuth callback、数据库 Schema、scheduler，未改 Inbox UI、latest/history、分页及导入业务语义。实现阶段自动化验证：Java 276 tests、0 failures、0 errors、1 skipped（需外部 LocalStack）；现有 JS 11/11 通过，本次文档更新未重跑测试。
+
+C1 用户本机真实验收：初始 credential file 的 `expires_at` 留空，启动应用后点击 `Sync latest Likes`，应用自动刷新 OAuth token 并成功完成真实 X Likes 同步。随后用户重新 Like 一条旧 X Post，重启 Spring Boot，没有重新生成 token，再次点击 Sync，成功新增 1 条记录；这验证了本机 token 持久化、跨重启读取及后续 X API 调用。该新 Like 在 Inbox 中显示于原帖日期附近，因为当前列表按 `post_created_at DESC` 排序；同步本身成功。此展示顺序与新 Like 的可发现性问题列为后续 D1 Inbox usability 待处理项，本轮不修改排序。
+
 B3 验证：完整 Java 测试 266/266（含显式启用的真实 LocalStack adapter 测试）、JS 11/11 通过；独立 Compose project 成功构建镜像，MySQL/Flyway 和 `storage.type=s3` 应用启动。独立数据库中导入 PNG 后，`asset.storage_key` 为相对 key，bucket 中原图与 thumbnail 均存在；原图与缩略图 HTTP 200，原图字节与测试源文件一致，浏览器 Gallery 与 Detail 均显示图片。重复导入返回 409，bucket key 集合不增加；删除 Illustration 返回 204，Illustration/Asset 行及两个对象均消失。此前在同一独立 project 的 Local 模式导入的测试 PNG，在停止 LocalStack 并切回 Local 后，原图与缩略图仍可读取，浏览器 Gallery 正常。测试没有访问或迁移真实图库。固定的 LocalStack Community 镜像只作临时实验；实测重启后 bucket 状态丢失，不能将其与保留的 MySQL volume 作为持久图库使用。
 
 V0.2 的 Final Acceptance 已完成，代码已 push，并已创建 `v0.2.0` tag。
@@ -382,4 +386,4 @@ README 已按 V0.2 最终能力收尾。V0.2 已完成 Final Acceptance，代码
 
 ### Current version status
 
-V0.3 已正式封存，`v0.3.0` tag 已创建并 push。当前处于 V0.4 工程化阶段；A1 与 A2 已完成，A2 已通过上述真实 Docker 人工验收；A3 已通过 GitHub Actions Linux runner 远程验收。B1 Storage Abstraction 已实现；B3 已用独立 Docker/MySQL/LocalStack 环境按上述范围完成真实验收。未开始后续工作包。
+V0.3 已正式封存，`v0.3.0` tag 已创建并 push。当前处于 V0.4 工程化阶段；A1 与 A2 已完成，A2 已通过上述真实 Docker 人工验收；A3 已通过 GitHub Actions Linux runner 远程验收。B1 Storage Abstraction 已实现；B3 已用独立 Docker/MySQL/LocalStack 环境按上述范围完成真实验收。C1 Token Lifecycle 已通过自动化验证及用户本机真实 X 人工验收。后续 D1 Inbox usability 的旧帖重新 Like 排序问题待处理；未开始下一工作包。

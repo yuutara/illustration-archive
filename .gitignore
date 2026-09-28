@@ -6,6 +6,7 @@ target/
 
 ### Local application configuration and secrets ###
 /config/application-local.properties
+/config/x-oauth-tokens.properties
 /.env
 /.env.*
 !/.env.example

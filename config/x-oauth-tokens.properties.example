@@ -1,0 +1,6 @@
+# Copy to config/x-oauth-tokens.properties, which Git ignores.
+# Fill these values only on your computer. Never paste them into Git, logs, or screenshots.
+# Keep expires_at blank when the Developer Console does not show an exact expiration instant.
+access_token=
+refresh_token=
+expires_at=

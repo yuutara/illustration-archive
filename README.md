@@ -251,7 +251,7 @@ Tag ID 会先校验存在性，并去除重复 ID，然后在同一数据库事�
 | `PATCH` | `/api/x-import/inbox/skip` | 跳过请求体 `itemIds` 中仍为 `PENDING` 的项 |
 | `POST` | `/api/x-import/inbox/import` | 导入请求体 `itemIds` 中的项，逐项返回 `SUCCESS`、`DUPLICATE` 或 `FAILED` |
 
-浏览器页面由静态资源提供：`/` 打开图库，`/detail.html?id={illustrationId}` 打开详情，`/x-import.html` 打开 Inbox。X API 默认关闭；Access Token 从本地忽略的配置文件或环境变量读取，变更后需重启应用。
+浏览器页面由静态资源提供：`/` 打开图库，`/detail.html?id={illustrationId}` 打开详情，`/x-import.html` 打开 Inbox。X API 默认关闭；启用后使用本地 OAuth 凭据文件中的用户 Token，应用按需刷新。
 
 ## 项目结构
 
@@ -331,7 +331,15 @@ Tag ID 会先校验存在性，并去除重复 ID，然后在同一数据库事�
    - `ILLUSTRATION_ARCHIVE_DB_PASSWORD`
    - `ILLUSTRATION_ARCHIVE_STORAGE_ROOT`
 
-   存储根目录应是应用进程可读写的本地目录，建议放在 Git 仓库之外。该文件已被 `.gitignore` 忽略，不要提交真实密码或其他敏感配置。X API 不使用时保持 `X_API_ENABLED=false`、`X_API_ACCESS_TOKEN` 为空；需要手动同步时，在本地填入 Token 并显式开启，修改后重启应用。
+   存储根目录应是应用进程可读写的本地目录，建议放在 Git 仓库之外。该文件已被 `.gitignore` 忽略，不要提交真实密码或其他敏感配置。X API 不使用时保持 `X_API_ENABLED=false`。启用 X 同步的首次凭据准备见下文。
+
+### 首次准备 X OAuth 凭据（单用户本地应用）
+
+1. 在当前 X Developer App 的 OAuth 2.0 Access Token 区域，由 App owner 点击 **Generate**，取得该账号的初始 access token 和 refresh token。确认授权包含 `tweet.read`、`users.read`、`like.read` 和 `offline.access`。本项目不提供浏览器 OAuth 回调。
+2. 将 `config/x-oauth-tokens.properties.example` 复制为 `config/x-oauth-tokens.properties`。只在本机填入 `access_token` 和 `refresh_token`。若 Console 明确给出 access token 的到期时刻，将其写为 UTC ISO-8601 格式的 `expires_at`（例如 `2026-09-29T12:00:00Z`）；否则留空，应用会在首次请求前刷新。该文件应仅允许当前操作系统用户读取，并且只运行一个使用此文件的应用实例。
+3. 在被 Git 忽略的 `config/application-local.properties` 或进程环境变量中设置 `X_OAUTH_CLIENT_ID`、`X_OAUTH_CLIENT_SECRET` 和 `X_API_ENABLED=true`，重启应用。之后日常使用为：打开 VPN、启动项目、点击 Inbox 的 **Sync latest Likes**。应用在 token 即将到期或到期时刻未知时提前刷新；若已知有效期内的请求仍收到 401，最多再刷新并重试一次。403 不会自动当作过期处理。
+
+应用将新 access token、到期时刻以及响应中可能轮换的新 refresh token 原子替换写回凭据文件。刷新失败会显示安全的错误提示；若 refresh token 已失效，由本人在 Console 重新 Generate 并更新本机文件后重启。若刷新成功但写盘失败，应用会明确报错并在当前进程内保留新 Token，修复文件权限后再次点击可重试保存；此时不要先退出应用，否则可能需要在 Console 重新 Generate。不要把 Client Secret 或 Token 提交 Git，也不要粘贴到日志、截图、聊天或问题报告中。旧的 `X_API_ACCESS_TOKEN` 配置不再使用。
 
 ### 启动应用
 
@@ -402,9 +410,11 @@ Compose 用现有 A1 环境变量向应用注入 `jdbc:mysql://db:3306/illustrat
 | `ILLUSTRATION_ARCHIVE_STORAGE_ROOT` | Local 模式必需：图片本地存储根目录；数据库只保存相对 `storage_key` |
 | `ILLUSTRATION_ARCHIVE_STORAGE_TYPE` | 可选：`local`（默认）或实验用 `s3` |
 | `ILLUSTRATION_ARCHIVE_S3_ENDPOINT`、`ILLUSTRATION_ARCHIVE_S3_REGION`、`ILLUSTRATION_ARCHIVE_S3_ACCESS_KEY`、`ILLUSTRATION_ARCHIVE_S3_SECRET_KEY`、`ILLUSTRATION_ARCHIVE_S3_BUCKET`、`ILLUSTRATION_ARCHIVE_S3_PATH_STYLE` | 仅 S3 模式使用；region、credentials、bucket 必填；endpoint 可留空使用 SDK 默认端点；LocalStack 需自定义 endpoint 与 path-style |
-| `X_API_ENABLED`、`X_API_ACCESS_TOKEN` | 可选：默认关闭；只有显式开启并提供 Token 才能手动同步 X Likes |
+| `X_API_ENABLED` | 可选：默认关闭；显式开启后使用本地 OAuth 凭据文件同步 X Likes |
 | `X_API_BASE_URL` | 可选：默认 `https://api.x.com` |
 | `X_API_DEFAULT_PAGE_SIZE`、`X_API_DEFAULT_MAX_PAGES` | 可选：X Likes 默认页大小 5、最多页数 3 |
+| `X_OAUTH_CLIENT_ID`、`X_OAUTH_CLIENT_SECRET` | 启用 X 同步时必需：当前 App 的 OAuth 2.0 confidential-client 凭据，只放在本机 secret 配置中 |
+| `X_OAUTH_CREDENTIAL_FILE` | 可选：动态用户凭据文件；默认 `./config/x-oauth-tokens.properties`，该默认路径已被 Git 忽略 |
 
 `spring.application.name`、MySQL 驱动类、`spring.servlet.multipart.max-file-size=60MB` 和 `spring.servlet.multipart.max-request-size=500MB` 保留固定默认值；它们不包含机器路径或 secret。历史回填的 `illustration.maintenance.sha256-backfill` 与 `illustration.maintenance.thumbnail-backfill` 均默认关闭，只在显式设置为 `true` 的启动中运行；不要作为日常启动配置保留。
 
@@ -452,13 +462,14 @@ macOS/Linux：
 
 `v0.1.0`、`v0.2.0` 和 `v0.3.0` tag 均已创建并 push。V0.3 已正式封存，具备 X Likes 手动同步、Inbox 照片归档和多 Asset 浏览能力。当前为 V0.4 工程化阶段，A1 运行时配置外置化与 A2 Docker & Docker Compose 均已完成；A3 GitHub Actions CI 已通过 GitHub Actions Linux runner 远程验收。A2 的镜像构建、MySQL/Flyway、应用启动、图片导入及容器重建后持久化已通过真实人工验收，具体边界见 `docs/PROJECT_STATE.md`。
 
-当前默认仍为单机、本地文件系统存储；V0.4-B3 提供可选的 S3-compatible 本地验证模式，不包含历史数据迁移或云端部署。没有 OAuth、Token 自动刷新、后台自动同步或用户认证。
+当前默认仍为单机、本地文件系统存储；V0.4-B3 提供可选的 S3-compatible 本地验证模式，不包含历史数据迁移或云端部署。V0.4-C1 使用 Developer Console 手工生成的初始 OAuth 2.0 Token 并在本机按需刷新，已通过用户本机真实 X 人工验收：初始 `expires_at` 留空时自动刷新并同步成功；重启后未重新生成 token，再次同步一条重新 Like 的旧 Post，新增 1 条记录。没有浏览器授权回调、后台自动同步或用户认证。验收细节见 `docs/PROJECT_STATE.md`。
 
 ## Roadmap
 
 - X GIF/视频等非静态图片媒体导入，以及导入来源信息的进一步整理。
 - Inbox 紧凑网格、缩放与列数调整、选择体验、hover 动画、筛选，以及 history continuation 页面入口。
-- OAuth 与 Token 自动刷新。
+- 后续 D1 Inbox usability：重新 Like 的旧 Post 目前仍按 `post_created_at DESC` 显示在原帖日期附近，需改善新 Like 的可发现性。
+- 完整的浏览器 OAuth 授权流程（当前单用户本地应用不需要）。
 - 感知哈希重复检测与合并策略。
 - 孤儿文件扫描、诊断和人工确认后的修复工具。
 - 更丰富的图库搜索、筛选、排序和批量整理能力。
