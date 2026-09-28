@@ -1,7 +1,7 @@
 package com.yuutara.illustrationarchive.service;
 
-import com.yuutara.illustrationarchive.storage.FileStorageService;
-import com.yuutara.illustrationarchive.storage.ThumbnailService;
+import com.yuutara.illustrationarchive.storage.FileStorage;
+import com.yuutara.illustrationarchive.storage.ThumbnailStorage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -14,13 +14,13 @@ public class IllustrationDeleteService {
 	private static final Logger log = LoggerFactory.getLogger(IllustrationDeleteService.class);
 
 	private final IllustrationDatabaseDeleteService databaseDeleteService;
-	private final FileStorageService fileStorageService;
-	private final ThumbnailService thumbnailService;
+	private final FileStorage fileStorageService;
+	private final ThumbnailStorage thumbnailService;
 
 	public IllustrationDeleteService(
 			IllustrationDatabaseDeleteService databaseDeleteService,
-			FileStorageService fileStorageService,
-			ThumbnailService thumbnailService
+			FileStorage fileStorageService,
+			ThumbnailStorage thumbnailService
 	) {
 		this.databaseDeleteService = databaseDeleteService;
 		this.fileStorageService = fileStorageService;

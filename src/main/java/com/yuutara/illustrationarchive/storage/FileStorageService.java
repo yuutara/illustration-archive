@@ -4,7 +4,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
-import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -20,8 +19,9 @@ import java.util.HexFormat;
 import java.util.Locale;
 import java.util.UUID;
 
+/** Local filesystem implementation of the original-media storage contract. */
 @Service
-public class FileStorageService {
+public class FileStorageService implements FileStorage {
 
 	private static final long MAX_FILE_SIZE = 50L * 1024 * 1024;
 	private static final int SIGNATURE_LENGTH = 8;
@@ -32,19 +32,6 @@ public class FileStorageService {
 
 	public FileStorageService(@Value("${illustration-archive.storage.root-dir}") String storageRootDir) {
 		this.storageRoot = Path.of(storageRootDir).toAbsolutePath().normalize();
-	}
-
-	public StoredFile store(MultipartFile file) {
-		validateFile(file);
-
-		String originalFilename = file.getOriginalFilename();
-		// Preserve extension validation before opening the MultipartFile stream.
-		extractExtension(originalFilename);
-		try {
-			return store(originalFilename, file.getInputStream());
-		} catch (IOException exception) {
-			throw new FileStorageException("Failed to store uploaded file.", exception);
-		}
 	}
 
 	public StoredFile store(String originalFilename, InputStream source) {
@@ -125,16 +112,6 @@ public class FileStorageService {
 			return formatSha256(sha256Digest);
 		} catch (IOException exception) {
 			throw new FileStorageException("Failed to read stored file.", exception);
-		}
-	}
-
-	private void validateFile(MultipartFile file) {
-		if (file == null || file.isEmpty()) {
-			throw new FileStorageValidationException("Uploaded file must not be empty.");
-		}
-		validateFilename(file.getOriginalFilename());
-		if (file.getSize() > MAX_FILE_SIZE) {
-			throw new FileStorageValidationException("Uploaded file must not exceed 50 MB.");
 		}
 	}
 

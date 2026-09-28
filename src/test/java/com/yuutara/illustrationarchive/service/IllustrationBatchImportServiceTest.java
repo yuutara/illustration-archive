@@ -2,11 +2,14 @@ package com.yuutara.illustrationarchive.service;
 
 import com.yuutara.illustrationarchive.storage.FileStorageException;
 import com.yuutara.illustrationarchive.storage.FileStorageValidationException;
-import com.yuutara.illustrationarchive.storage.FileStorageService;
+import com.yuutara.illustrationarchive.storage.FileStorage;
 import com.yuutara.illustrationarchive.storage.StoredFile;
 import com.yuutara.illustrationarchive.storage.ThumbnailService;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.web.multipart.MultipartFile;
+
+import java.io.InputStream;
 
 import java.util.List;
 
@@ -19,6 +22,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 
 import java.util.Optional;
 
@@ -26,7 +31,7 @@ class IllustrationBatchImportServiceTest {
 
 	@Test
 	void thumbnailFailureAfterPersistenceKeepsBatchItemSuccessful() {
-		FileStorageService fileStorageService = mock(FileStorageService.class);
+		FileStorage fileStorageService = mock(FileStorage.class);
 		IllustrationPersistenceService persistenceService = mock(IllustrationPersistenceService.class);
 		ThumbnailService thumbnailService = mock(ThumbnailService.class);
 		IllustrationImportService importService = new IllustrationImportService(
@@ -41,7 +46,7 @@ class IllustrationBatchImportServiceTest {
 		);
 		IllustrationImportResult persistedResult = new IllustrationImportResult(10L, 20L);
 
-		when(fileStorageService.store(file)).thenReturn(storedFile);
+		when(fileStorageService.store(eq(file.getOriginalFilename()), any(InputStream.class))).thenReturn(storedFile);
 		when(persistenceService.findIllustrationIdBySha256(storedFile.sha256())).thenReturn(Optional.empty());
 		when(persistenceService.persist(storedFile)).thenReturn(persistedResult);
 		doThrow(new IllegalStateException("thumbnail decode failure"))
@@ -258,8 +263,7 @@ class IllustrationBatchImportServiceTest {
 	}
 
 	private MultipartFile file(String filename) {
-		MultipartFile file = mock(MultipartFile.class);
-		when(file.getOriginalFilename()).thenReturn(filename);
-		return file;
+		return new MockMultipartFile("file", filename, "application/octet-stream",
+				new byte[]{(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 0x00});
 	}
 }

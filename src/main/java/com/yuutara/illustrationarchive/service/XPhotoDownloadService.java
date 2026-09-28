@@ -1,7 +1,7 @@
 package com.yuutara.illustrationarchive.service;
 
 import com.yuutara.illustrationarchive.dto.XLikeMedia;
-import com.yuutara.illustrationarchive.storage.FileStorageService;
+import com.yuutara.illustrationarchive.storage.FileStorage;
 import com.yuutara.illustrationarchive.storage.StoredFile;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,14 +29,14 @@ public class XPhotoDownloadService {
 	private static final String CDN_HOST = "pbs.twimg.com";
 
 	private final HttpClient httpClient;
-	private final FileStorageService fileStorageService;
+	private final FileStorage fileStorageService;
 
 	@Autowired
-	public XPhotoDownloadService(FileStorageService fileStorageService) {
+	public XPhotoDownloadService(FileStorage fileStorageService) {
 		this(HttpClient.newHttpClient(), fileStorageService);
 	}
 
-	XPhotoDownloadService(HttpClient httpClient, FileStorageService fileStorageService) {
+	XPhotoDownloadService(HttpClient httpClient, FileStorage fileStorageService) {
 		this.httpClient = httpClient;
 		this.fileStorageService = fileStorageService;
 	}

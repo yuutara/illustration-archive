@@ -3,7 +3,7 @@ package com.yuutara.illustrationarchive.service;
 import com.yuutara.illustrationarchive.repository.AssetRepository;
 import com.yuutara.illustrationarchive.repository.AssetSha256BackfillCandidate;
 import com.yuutara.illustrationarchive.storage.FileStorageException;
-import com.yuutara.illustrationarchive.storage.FileStorageService;
+import com.yuutara.illustrationarchive.storage.FileStorage;
 import com.yuutara.illustrationarchive.storage.FileStorageValidationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,11 +20,11 @@ public class Sha256BackfillService {
 	private static final Logger log = LoggerFactory.getLogger(Sha256BackfillService.class);
 
 	private final AssetRepository assetRepository;
-	private final FileStorageService fileStorageService;
+	private final FileStorage fileStorageService;
 
 	public Sha256BackfillService(
 			AssetRepository assetRepository,
-			FileStorageService fileStorageService
+			FileStorage fileStorageService
 	) {
 		this.assetRepository = assetRepository;
 		this.fileStorageService = fileStorageService;

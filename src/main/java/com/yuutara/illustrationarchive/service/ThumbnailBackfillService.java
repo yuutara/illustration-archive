@@ -2,7 +2,7 @@ package com.yuutara.illustrationarchive.service;
 
 import com.yuutara.illustrationarchive.repository.AssetRepository;
 import com.yuutara.illustrationarchive.repository.AssetThumbnailBackfillCandidate;
-import com.yuutara.illustrationarchive.storage.ThumbnailService;
+import com.yuutara.illustrationarchive.storage.ThumbnailStorage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -16,9 +16,9 @@ public class ThumbnailBackfillService {
 	private static final Logger log = LoggerFactory.getLogger(ThumbnailBackfillService.class);
 
 	private final AssetRepository assetRepository;
-	private final ThumbnailService thumbnailService;
+	private final ThumbnailStorage thumbnailService;
 
-	public ThumbnailBackfillService(AssetRepository assetRepository, ThumbnailService thumbnailService) {
+	public ThumbnailBackfillService(AssetRepository assetRepository, ThumbnailStorage thumbnailService) {
 		this.assetRepository = assetRepository;
 		this.thumbnailService = thumbnailService;
 	}

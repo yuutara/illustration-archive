@@ -4,8 +4,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.core.io.Resource;
-import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.web.multipart.MultipartFile;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -23,10 +21,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 class FileStorageServiceTest {
 
@@ -50,7 +44,7 @@ class FileStorageServiceTest {
 
 	@Test
 	void storesValidJpegAndPreservesOriginalFilename() throws IOException {
-		StoredFile storedFile = fileStorageService.store(file("spring.PNG.JPG", JPEG_BYTES));
+		StoredFile storedFile = store("spring.PNG.JPG", JPEG_BYTES);
 
 		assertEquals("spring.PNG.JPG", storedFile.originalFilename());
 		assertEquals("image/jpeg", storedFile.mimeType());
@@ -61,7 +55,7 @@ class FileStorageServiceTest {
 
 	@Test
 	void storesValidPng() {
-		StoredFile storedFile = fileStorageService.store(file("drawing.PNG", PNG_BYTES));
+		StoredFile storedFile = store("drawing.PNG", PNG_BYTES);
 
 		assertEquals("image/png", storedFile.mimeType());
 		assertTrue(storedFile.storageKey().endsWith(".png"));
@@ -69,7 +63,7 @@ class FileStorageServiceTest {
 
 	@Test
 	void storesValidGif() throws Exception {
-		StoredFile storedFile = fileStorageService.store(file("animation.gif", GIF_BYTES));
+		StoredFile storedFile = store("animation.gif", GIF_BYTES);
 		MessageDigest digest = MessageDigest.getInstance("SHA-256");
 		String expectedSha256 = HexFormat.of().formatHex(digest.digest(GIF_BYTES));
 
@@ -83,7 +77,7 @@ class FileStorageServiceTest {
 
 	@Test
 	void calculatesSha256ForCompleteFileIncludingMagicNumber() {
-		StoredFile storedFile = fileStorageService.store(file("hash.jpg", JPEG_WITH_BODY_BYTES));
+		StoredFile storedFile = store("hash.jpg", JPEG_WITH_BODY_BYTES);
 
 		assertEquals(
 				"b3eea2ea6200fe4a401f2541343a9143b35bf6b10e908182a5b3ce86a8192d2d",
@@ -150,19 +144,19 @@ class FileStorageServiceTest {
 
 	@Test
 	void calculatesSameSha256ForSameContentWithDifferentFilenames() {
-		StoredFile first = fileStorageService.store(file("first.jpg", JPEG_WITH_BODY_BYTES));
-		StoredFile second = fileStorageService.store(file("second.jpg", JPEG_WITH_BODY_BYTES));
+		StoredFile first = store("first.jpg", JPEG_WITH_BODY_BYTES);
+		StoredFile second = store("second.jpg", JPEG_WITH_BODY_BYTES);
 
 		assertEquals(first.sha256(), second.sha256());
 	}
 
 	@Test
 	void calculatesDifferentSha256ForDifferentContent() {
-		StoredFile first = fileStorageService.store(file("first.jpg", JPEG_WITH_BODY_BYTES));
-		StoredFile second = fileStorageService.store(file("second.jpg", new byte[] {
+		StoredFile first = store("first.jpg", JPEG_WITH_BODY_BYTES);
+		StoredFile second = store("second.jpg", new byte[] {
 				(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 0x00,
 				0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x09
-		}));
+		});
 
 		assertNotEquals(first.sha256(), second.sha256());
 	}
@@ -197,47 +191,20 @@ class FileStorageServiceTest {
 	}
 
 	@Test
-	void rejectsFileLargerThan50MegabytesBeforeOpeningItsStream() {
-		MultipartFile oversizedFile = mock(MultipartFile.class);
-		when(oversizedFile.isEmpty()).thenReturn(false);
-		when(oversizedFile.getOriginalFilename()).thenReturn("large.jpg");
-		when(oversizedFile.getSize()).thenReturn(50L * 1024 * 1024 + 1);
-
-		assertThrows(FileStorageValidationException.class, () -> fileStorageService.store(oversizedFile));
-	}
-
-	@Test
-	void rejectsEmptyFile() {
-		MockMultipartFile emptyFile = new MockMultipartFile("file", "empty.jpg", "image/jpeg", new byte[0]);
-
-		assertThrows(FileStorageValidationException.class, () -> fileStorageService.store(emptyFile));
-	}
-
-	@Test
 	void rejectsUnsupportedExtension() {
 		assertThrows(FileStorageValidationException.class,
-				() -> fileStorageService.store(file("not-supported.webp", JPEG_BYTES)));
-	}
-
-	@Test
-	void rejectsUnsupportedMultipartExtensionBeforeOpeningStream() throws IOException {
-		MultipartFile file = mock(MultipartFile.class);
-		when(file.isEmpty()).thenReturn(false);
-		when(file.getOriginalFilename()).thenReturn("not-supported.webp");
-
-		assertThrows(FileStorageValidationException.class, () -> fileStorageService.store(file));
-		verify(file, never()).getInputStream();
+				() -> store("not-supported.webp", JPEG_BYTES));
 	}
 
 	@Test
 	void rejectsExtensionThatDoesNotMatchContent() {
 		assertThrows(FileStorageValidationException.class,
-				() -> fileStorageService.store(file("actually-jpeg.png", JPEG_BYTES)));
+				() -> store("actually-jpeg.png", JPEG_BYTES));
 	}
 
 	@Test
 	void deletesStoredFile() {
-		StoredFile storedFile = fileStorageService.store(file("delete-me.jpeg", JPEG_BYTES));
+		StoredFile storedFile = store("delete-me.jpeg", JPEG_BYTES);
 		Path storedPath = temporaryStorageRoot.resolve(storedFile.storageKey());
 
 		fileStorageService.delete(storedFile.storageKey());
@@ -299,7 +266,7 @@ class FileStorageServiceTest {
 				() -> fileStorageService.calculateSha256("2026-09/missing.jpg"));
 	}
 
-	private MockMultipartFile file(String filename, byte[] content) {
-		return new MockMultipartFile("file", filename, "application/octet-stream", content);
+	private StoredFile store(String filename, byte[] content) {
+		return fileStorageService.store(filename, new ByteArrayInputStream(content));
 	}
 }

@@ -23,8 +23,9 @@ import java.nio.file.StandardCopyOption;
 import java.util.Iterator;
 import java.util.Locale;
 
+/** Local filesystem implementation of the thumbnail storage contract. */
 @Service
-public class ThumbnailService {
+public class ThumbnailService implements ThumbnailStorage {
 
 	private static final int MAX_DIMENSION = 600;
 	private static final float JPEG_QUALITY = 0.85f;

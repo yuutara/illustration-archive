@@ -2,10 +2,10 @@ package com.yuutara.illustrationarchive.service;
 
 import com.yuutara.illustrationarchive.dto.AssetContentInfo;
 import com.yuutara.illustrationarchive.repository.AssetRepository;
-import com.yuutara.illustrationarchive.storage.FileStorageService;
+import com.yuutara.illustrationarchive.storage.FileStorage;
 import com.yuutara.illustrationarchive.storage.FileStorageException;
 import com.yuutara.illustrationarchive.storage.ThumbnailNotFoundException;
-import com.yuutara.illustrationarchive.storage.ThumbnailService;
+import com.yuutara.illustrationarchive.storage.ThumbnailStorage;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 
@@ -15,11 +15,11 @@ import java.io.IOException;
 public class AssetContentService {
 
 	private final AssetRepository assetRepository;
-	private final FileStorageService fileStorageService;
-	private final ThumbnailService thumbnailService;
+	private final FileStorage fileStorageService;
+	private final ThumbnailStorage thumbnailService;
 
-	public AssetContentService(AssetRepository assetRepository, FileStorageService fileStorageService,
-			ThumbnailService thumbnailService) {
+	public AssetContentService(AssetRepository assetRepository, FileStorage fileStorageService,
+			ThumbnailStorage thumbnailService) {
 		this.assetRepository = assetRepository;
 		this.fileStorageService = fileStorageService;
 		this.thumbnailService = thumbnailService;

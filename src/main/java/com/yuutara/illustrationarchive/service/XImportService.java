@@ -5,9 +5,9 @@ import com.yuutara.illustrationarchive.dto.XLikeStatus;
 import com.yuutara.illustrationarchive.repository.AssetRepository;
 import com.yuutara.illustrationarchive.repository.XLikeMediaRepository;
 import com.yuutara.illustrationarchive.repository.XLikeRepository;
-import com.yuutara.illustrationarchive.storage.FileStorageService;
+import com.yuutara.illustrationarchive.storage.FileStorage;
 import com.yuutara.illustrationarchive.storage.StoredFile;
-import com.yuutara.illustrationarchive.storage.ThumbnailService;
+import com.yuutara.illustrationarchive.storage.ThumbnailStorage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
@@ -24,12 +24,12 @@ public class XImportService {
 	private final XPhotoDownloadService downloader;
 	private final XPostPersistenceService persistence;
 	private final AssetRepository assets;
-	private final FileStorageService storage;
-	private final ThumbnailService thumbnails;
+	private final FileStorage storage;
+	private final ThumbnailStorage thumbnails;
 
 	public XImportService(XLikeRepository items, XLikeMediaRepository mediaRepository,
 			XPhotoDownloadService downloader, XPostPersistenceService persistence,
-			AssetRepository assets, FileStorageService storage, ThumbnailService thumbnails) {
+			AssetRepository assets, FileStorage storage, ThumbnailStorage thumbnails) {
 		this.items = items;
 		this.mediaRepository = mediaRepository;
 		this.downloader = downloader;

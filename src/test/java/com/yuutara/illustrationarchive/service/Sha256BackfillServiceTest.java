@@ -7,7 +7,8 @@ import com.yuutara.illustrationarchive.storage.FileStorageService;
 import com.yuutara.illustrationarchive.storage.FileStorageValidationException;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DuplicateKeyException;
-import org.springframework.web.multipart.MultipartFile;
+
+import java.io.InputStream;
 
 import java.util.List;
 import java.util.Optional;
@@ -54,7 +55,7 @@ class Sha256BackfillServiceTest {
 		inOrder.verify(fileStorageService).calculateSha256(second.storageKey());
 		verify(assetRepository).updateSha256(first.assetId(), firstSha256);
 		verify(assetRepository).updateSha256(second.assetId(), secondSha256);
-		verify(fileStorageService, never()).store(any(MultipartFile.class));
+		verify(fileStorageService, never()).store(anyString(), any(InputStream.class));
 	}
 
 	@Test
