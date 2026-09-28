@@ -5,7 +5,7 @@
 
 ## Current Version
 
-V0.4 - 工程化（Runtime Configuration Externalization、Docker Compose）
+V0.4 - 工程化（Runtime Configuration Externalization、Docker Compose、GitHub Actions CI）
 
 Release status:
 
@@ -15,7 +15,9 @@ V0.4-A1 Runtime Configuration Externalization 已完成。数据库连接、存�
 
 V0.4-A2 Docker & Docker Compose 已完成真实人工验收。已添加多阶段 Dockerfile、application + MySQL Compose、数据库及图片命名 volume 和启动说明。实现阶段完整 Java 测试 259/259、现有 JS 测试 11/11 通过，本地 Maven 跳过测试打包成功；之后实际 Docker image build 与 `docker compose up -d` 成功。MySQL 8.4.11 Container 通过 healthcheck，Spring Boot application Container 成功启动并通过 Compose 网络连接 `db:3306`，Flyway 在全新 Docker MySQL 的 empty schema 上成功执行 V1-V5。Gallery / Detail 可访问，实际导入一张图片成功。
 
-持久化人工验收中，`docker compose down` 删除 app/db Containers 与 network，保留两个 volume；再次 `docker compose up -d` 创建新 Containers 后，数据库中的 Illustration 记录仍存在，Gallery 图片与缩略图仍正常加载。本次记录未确认重建后 Detail 原图的读取结果。存储抽象和其他 V0.4 工作包尚未开始。
+持久化人工验收中，`docker compose down` 删除 app/db Containers 与 network，保留两个 volume；再次 `docker compose up -d` 创建新 Containers 后，数据库中的 Illustration 记录仍存在，Gallery 图片与缩略图仍正常加载。本次记录未确认重建后 Detail 原图的读取结果。存储抽象等后续工作包尚未开始。
+
+V0.4-A3 GitHub Actions CI 已实现，正式验收待代码 push / 创建 Pull Request 后查看 GitHub Actions 的实际运行结果。单一 Linux job 使用 Java 17 和项目 Maven Wrapper 执行 `verify`（含完整 Java 测试），运行现有 3 个 JS 测试文件，并在两类测试成功后执行 Docker image build。CI 不启动 Compose/MySQL 或应用，不要求真实 X Token、本地配置、存储目录或 GitHub Secrets；X API 保持默认关闭。本地 `verify` 通过 259/259 个 Java 测试，Node 通过 11/11 个 JS 测试；本地 Windows 首次运行遇到临时目录访问限制，改用仓库内测试临时目录后通过。本地 Docker daemon 未能连接，因此本轮 Docker build 结果需由 GitHub runner 验证。
 
 V0.2 的 Final Acceptance 已完成，代码已 push，并已创建 `v0.2.0` tag。
 
@@ -374,4 +376,4 @@ README 已按 V0.2 最终能力收尾。V0.2 已完成 Final Acceptance，代码
 
 ### Current version status
 
-V0.3 已正式封存，`v0.3.0` tag 已创建并 push。当前进入 V0.4 工程化阶段，A1 Runtime Configuration Externalization 与 A2 Docker & Docker Compose 均已完成；A2 已通过上述真实 Docker 人工验收。其他工作包尚未开始。
+V0.3 已正式封存，`v0.3.0` tag 已创建并 push。当前进入 V0.4 工程化阶段，A1 Runtime Configuration Externalization 与 A2 Docker & Docker Compose 均已完成；A2 已通过上述真实 Docker 人工验收。A3 GitHub Actions CI 已实现，待 GitHub runner 验收。Storage abstraction 等后续工作包尚未开始。

@@ -424,9 +424,13 @@ macOS/Linux：
 
 测试覆盖 Controller 的 standalone MockMvc、Service 业务流程、Repository SQL/映射以及 FileStorageService 的校验和路径行为；当前测试使用 Mockito、模拟的 `JdbcTemplate` 和临时目录，不需要连接真实 MySQL。
 
+### GitHub Actions CI
+
+每次 push 和 Pull Request 都会在 GitHub Actions 的 Linux runner 上运行 CI：使用 Java 17 构建并执行完整 Java 测试，使用 Node 24 执行现有 JS 测试，最后构建 Docker image。可在 GitHub 仓库的 **Actions** 页面打开 **CI** workflow 查看每次运行的结果和各步骤日志。CI 不启动应用或 MySQL，也不调用真实 X API；无需本地配置文件或 GitHub Secrets。
+
 ## 版本状态
 
-`v0.1.0`、`v0.2.0` 和 `v0.3.0` tag 均已创建并 push。V0.3 已正式封存，具备 X Likes 手动同步、Inbox 照片归档和多 Asset 浏览能力。当前为 V0.4 工程化阶段，A1 运行时配置外置化与 A2 Docker & Docker Compose 均已完成；A2 的镜像构建、MySQL/Flyway、应用启动、图片导入及容器重建后持久化已通过真实人工验收，具体边界见 `docs/PROJECT_STATE.md`。
+`v0.1.0`、`v0.2.0` 和 `v0.3.0` tag 均已创建并 push。V0.3 已正式封存，具备 X Likes 手动同步、Inbox 照片归档和多 Asset 浏览能力。当前为 V0.4 工程化阶段，A1 运行时配置外置化与 A2 Docker & Docker Compose 均已完成；A3 GitHub Actions CI 已在仓库中实现，待 push 后验证 GitHub runner。A2 的镜像构建、MySQL/Flyway、应用启动、图片导入及容器重建后持久化已通过真实人工验收，具体边界见 `docs/PROJECT_STATE.md`。
 
 当前版本仍然是单机、本地文件系统存储；没有 OAuth、Token 自动刷新、后台自动同步、用户认证或云对象存储。
 
