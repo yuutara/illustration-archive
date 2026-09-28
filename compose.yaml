@@ -1,0 +1,36 @@
+services:
+  app:
+    build: .
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      ILLUSTRATION_ARCHIVE_DB_URL: jdbc:mysql://db:3306/illustration_archive?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+      ILLUSTRATION_ARCHIVE_DB_USERNAME: illustration_archive
+      ILLUSTRATION_ARCHIVE_DB_PASSWORD: ${ILLUSTRATION_ARCHIVE_DB_PASSWORD:?Set ILLUSTRATION_ARCHIVE_DB_PASSWORD in .env}
+      ILLUSTRATION_ARCHIVE_STORAGE_ROOT: /data/storage
+      X_API_ENABLED: "false"
+    volumes:
+      - archive_storage:/data/storage
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: mysql:8.4.11
+    environment:
+      MYSQL_DATABASE: illustration_archive
+      MYSQL_USER: illustration_archive
+      MYSQL_PASSWORD: ${ILLUSTRATION_ARCHIVE_DB_PASSWORD:?Set ILLUSTRATION_ARCHIVE_DB_PASSWORD in .env}
+      MYSQL_RANDOM_ROOT_PASSWORD: "yes"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$${MYSQL_PASSWORD}\" mysql --protocol=TCP -h 127.0.0.1 -u \"$${MYSQL_USER}\" \"$${MYSQL_DATABASE}\" -e 'SELECT 1' >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+volumes:
+  mysql_data:
+  archive_storage:

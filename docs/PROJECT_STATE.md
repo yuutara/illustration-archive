@@ -5,13 +5,17 @@
 
 ## Current Version
 
-V0.4 - 工程化（Runtime Configuration Externalization）
+V0.4 - 工程化（Runtime Configuration Externalization、Docker Compose）
 
 Release status:
 
 **V0.3 已正式封存，`v0.3.0` tag 已创建并 push。**现有代码实现 X Likes 手动同步、Import Inbox、受支持照片的单图/多图归档，以及 Gallery/Detail 多 Asset 浏览。下方阶段记录保留各自的自动化测试与真实环境验收边界；正式封存不表示所有边界都经过真实 X API 验收。
 
-V0.4 的 Runtime Configuration Externalization 工作包已完成。数据库连接、存储根目录及 X Token 原本已通过 Spring Boot 配置占位符从环境变量或忽略的本地文件注入；本工作包核对配置并完善本地启动说明，没有改变业务、Schema、事务或文件归档语义。完整 Java 测试 259/259、现有 JS 测试 11/11 通过。Codex 实现后，人工真实验收已通过：IDEA 启动、MySQL/Flyway、Gallery、Inbox、Detail、原图和缩略图读取正常，并成功执行一次真实 X recent sync。Docker、存储抽象和其他 V0.4 工作包尚未开始。
+V0.4-A1 Runtime Configuration Externalization 已完成。数据库连接、存储根目录及 X Token 原本已通过 Spring Boot 配置占位符从环境变量或忽略的本地文件注入；A1 核对配置并完善本地启动说明，没有改变业务、Schema、事务或文件归档语义。完整 Java 测试 259/259、现有 JS 测试 11/11 通过。Codex 实现后，人工真实验收已通过：IDEA 启动、MySQL/Flyway、Gallery、Inbox、Detail、原图和缩略图读取正常，并成功执行一次真实 X recent sync。
+
+V0.4-A2 Docker & Docker Compose 已完成真实人工验收。已添加多阶段 Dockerfile、application + MySQL Compose、数据库及图片命名 volume 和启动说明。实现阶段完整 Java 测试 259/259、现有 JS 测试 11/11 通过，本地 Maven 跳过测试打包成功；之后实际 Docker image build 与 `docker compose up -d` 成功。MySQL 8.4.11 Container 通过 healthcheck，Spring Boot application Container 成功启动并通过 Compose 网络连接 `db:3306`，Flyway 在全新 Docker MySQL 的 empty schema 上成功执行 V1-V5。Gallery / Detail 可访问，实际导入一张图片成功。
+
+持久化人工验收中，`docker compose down` 删除 app/db Containers 与 network，保留两个 volume；再次 `docker compose up -d` 创建新 Containers 后，数据库中的 Illustration 记录仍存在，Gallery 图片与缩略图仍正常加载。本次记录未确认重建后 Detail 原图的读取结果。存储抽象和其他 V0.4 工作包尚未开始。
 
 V0.2 的 Final Acceptance 已完成，代码已 push，并已创建 `v0.2.0` tag。
 
@@ -370,4 +374,4 @@ README 已按 V0.2 最终能力收尾。V0.2 已完成 Final Acceptance，代码
 
 ### Current version status
 
-V0.3 已正式封存，`v0.3.0` tag 已创建并 push。当前进入 V0.4 工程化阶段，Runtime Configuration Externalization 工作包已完成，其余工作包尚未开始。
+V0.3 已正式封存，`v0.3.0` tag 已创建并 push。当前进入 V0.4 工程化阶段，A1 Runtime Configuration Externalization 与 A2 Docker & Docker Compose 均已完成；A2 已通过上述真实 Docker 人工验收。其他工作包尚未开始。

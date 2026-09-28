@@ -287,6 +287,10 @@ Tag ID 会先校验存在性，并去除重复 ID，然后在同一数据库事�
 │  └─ test/js/                 # Inbox、Gallery、Detail 页面行为测试
 ├─ mvnw
 ├─ mvnw.cmd
+├─ Dockerfile
+├─ compose.yaml
+├─ .dockerignore
+├─ .env.example
 └─ pom.xml
 ```
 
@@ -349,6 +353,27 @@ Flyway 会在启动时执行 `src/main/resources/db/migration/` 中尚未应用�
 
 在 IDEA 中直接运行 `IllustrationArchiveApplication` 时，将 Run Configuration 的 Working directory 设为项目根目录，并在启动前完成上述本地配置。`./config/application-local.properties` 相对于进程工作目录读取；若使用其他工作目录，可通过 Spring Boot 的 `spring.config.additional-location` 指向本地配置文件。确认启动日志显示应用已启动、Flyway 正常完成，并在浏览器打开首页；要验证真实导入与读取，还需使用本地 MySQL 和可写的存储根目录实际操作。
 
+## Docker Compose 运行
+
+安装 Docker 与 Docker Compose 后，在项目根目录复制密码示例并填写非空的本地开发密码：
+
+```powershell
+Copy-Item .env.example .env
+# 编辑 .env 中的 ILLUSTRATION_ARCHIVE_DB_PASSWORD
+docker compose up --build -d
+docker compose logs -f app
+```
+
+macOS/Linux 可用 `cp .env.example .env`，其余 Compose 命令相同。首次启动会下载镜像、构建应用，并初始化 MySQL 数据库。Compose 等待 MySQL 的应用用户能执行查询后再启动 Spring Boot；Spring Boot 启动时按原有配置执行 Flyway migration。确认应用日志显示 Flyway 和 Spring Boot 启动成功，再访问 [Gallery](http://localhost:8080/)、[Inbox](http://localhost:8080/x-import.html)；从 Gallery 中的插画可进入 Detail。空数据库上的 Gallery 和 Inbox 起初为空。
+
+```powershell
+docker compose down
+```
+
+`down` 停止并移除容器，但保留 `mysql_data` 和 `archive_storage` 两个命名 volume；下次 `docker compose up -d` 会重新使用它们。前者挂载到 MySQL 的 `/var/lib/mysql`，后者挂载到应用的 `/data/storage`，保存原图和缩略图。**不要使用 `docker compose down -v` 停止日常开发环境**，该命令会删除这两个 volume 及其中的数据。MySQL 用户只在空数据目录首次启动时初始化；保留已有数据库 volume 时，不要仅修改 `.env` 密码而不同时修改数据库用户密码。Compose 数据与上文 IDEA 本地配置的数据库、存储目录相互独立；不会自动迁移已有归档。
+
+Compose 用现有 A1 环境变量向应用注入 `jdbc:mysql://db:3306/illustration_archive`、应用数据库用户名、`.env` 中的密码以及 `/data/storage`；`db` 是 Compose 网络中的 MySQL service 名称，MySQL 端口只在该网络中使用。应用只在本机 `127.0.0.1:8080` 暴露。`.env` 已由 `.gitignore` 和 `.dockerignore` 排除；Dockerfile 只复制 `pom.xml` 和 `src/main`，不会把本地配置或密码放进镜像。不要将真实密码或 X Token 写入 Compose 文件或提交到 Git。容器中明确设置 `X_API_ENABLED=false`，不注入 X Token。IDEA 非 Docker 启动仍使用上文的本地配置方式。
+
 ## 配置说明
 
 `src/main/resources/application.properties` 会导入可选的 `./config/application-local.properties`。下表中的大写名称可放在该文件中，也可作为进程环境变量提供；环境变量优先。无需把本地配置文件复制到 `src/main/resources`。Spring Boot 自带的外部配置机制也允许在启动参数中覆盖属性。
@@ -401,7 +426,7 @@ macOS/Linux：
 
 ## 版本状态
 
-`v0.1.0`、`v0.2.0` 和 `v0.3.0` tag 均已创建并 push。V0.3 已正式封存，具备 X Likes 手动同步、Inbox 照片归档和多 Asset 浏览能力。当前为 V0.4 工程化阶段，本工作包只核对和说明运行时配置外置化。
+`v0.1.0`、`v0.2.0` 和 `v0.3.0` tag 均已创建并 push。V0.3 已正式封存，具备 X Likes 手动同步、Inbox 照片归档和多 Asset 浏览能力。当前为 V0.4 工程化阶段，A1 运行时配置外置化与 A2 Docker & Docker Compose 均已完成；A2 的镜像构建、MySQL/Flyway、应用启动、图片导入及容器重建后持久化已通过真实人工验收，具体边界见 `docs/PROJECT_STATE.md`。
 
 当前版本仍然是单机、本地文件系统存储；没有 OAuth、Token 自动刷新、后台自动同步、用户认证或云对象存储。
 
