@@ -21,6 +21,10 @@ V0.4-A3 GitHub Actions CI 已完成，并已通过 GitHub Actions Linux runner �
 
 V0.4-B1 Storage Abstraction 已实现。`FileStorage` 以文件名和 `InputStream` 保存原图，并提供按 `storage_key` 读取/删除及历史 SHA-256 计算；HTTP `MultipartFile` 由 `IllustrationImportService` 在存储边界前适配。`ThumbnailStorage` 提供现有 thumbnail 生成/读取/删除能力。业务服务仅依赖接口；现有 `FileStorageService`、`ThumbnailService` 仍为 Local filesystem 实现。`Path`、临时文件及 move 保留在 Local 实现内部；`storage_key`、数据库 Schema、REST API、导入与补偿顺序均未改动。本轮自动化验证为完整 Java 测试 263/263、现有 JS 测试 11/11，以及 `git diff --check`；Docker Compose 配置通过只读解析。尚未以真实 MySQL、HTTP 或浏览器重新验收本轮重构，也未实现 MinIO。
 
+V0.4-B3 S3-compatible Storage Validation 已完成。默认 `storage.type=local`，原有 Local implementations 继续使用；显式设为 `s3` 时注入 `S3FileStorage` 与 `S3ThumbnailStorage`，只新增 AWS SDK for Java 2.x 的 S3 模块。S3 client 的 endpoint、region、凭据、bucket 和 path-style 均由 runtime configuration 提供。原图 object key 沿用相对 `storage_key`，thumbnail object key 为 `thumbnails/<storage_key>`；Schema、REST API、导入及补偿顺序未改变。SDK 的 GET 返回一次性流，adapter 通过 `HEAD` 获得长度并包装为可重新打开流的 `Resource`，因此现有 `FileStorage` / `ThumbnailStorage` contract 无须演化。上传和 ImageIO 编码使用受控临时文件并在操作结束后清理，最终对象均位于 S3。
+
+B3 验证：完整 Java 测试 266/266（含显式启用的真实 LocalStack adapter 测试）、JS 11/11 通过；独立 Compose project 成功构建镜像，MySQL/Flyway 和 `storage.type=s3` 应用启动。独立数据库中导入 PNG 后，`asset.storage_key` 为相对 key，bucket 中原图与 thumbnail 均存在；原图与缩略图 HTTP 200，原图字节与测试源文件一致，浏览器 Gallery 与 Detail 均显示图片。重复导入返回 409，bucket key 集合不增加；删除 Illustration 返回 204，Illustration/Asset 行及两个对象均消失。此前在同一独立 project 的 Local 模式导入的测试 PNG，在停止 LocalStack 并切回 Local 后，原图与缩略图仍可读取，浏览器 Gallery 正常。测试没有访问或迁移真实图库。固定的 LocalStack Community 镜像只作临时实验；实测重启后 bucket 状态丢失，不能将其与保留的 MySQL volume 作为持久图库使用。
+
 V0.2 的 Final Acceptance 已完成，代码已 push，并已创建 `v0.2.0` tag。
 
 ### V0.3-A | X Likes → Import Inbox backend
@@ -378,4 +382,4 @@ README 已按 V0.2 最终能力收尾。V0.2 已完成 Final Acceptance，代码
 
 ### Current version status
 
-V0.3 已正式封存，`v0.3.0` tag 已创建并 push。当前处于 V0.4 工程化阶段；A1 与 A2 已完成，A2 已通过上述真实 Docker 人工验收；A3 已通过 GitHub Actions Linux runner 远程验收。B1 Storage Abstraction 已实现并通过上述自动化验证，真实环境重新验收未在本轮执行。
+V0.3 已正式封存，`v0.3.0` tag 已创建并 push。当前处于 V0.4 工程化阶段；A1 与 A2 已完成，A2 已通过上述真实 Docker 人工验收；A3 已通过 GitHub Actions Linux runner 远程验收。B1 Storage Abstraction 已实现；B3 已用独立 Docker/MySQL/LocalStack 环境按上述范围完成真实验收。未开始后续工作包。

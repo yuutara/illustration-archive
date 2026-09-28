@@ -15,8 +15,14 @@
 	<description>Personal illustration collection and archive platform.</description>
 	<properties>
 		<java.version>17</java.version>
+		<aws.sdk.version>2.55.6</aws.sdk.version>
 	</properties>
 	<dependencies>
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>s3</artifactId>
+			<version>${aws.sdk.version}</version>
+		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-jdbc</artifactId>

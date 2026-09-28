@@ -8,6 +8,13 @@ services:
       ILLUSTRATION_ARCHIVE_DB_USERNAME: illustration_archive
       ILLUSTRATION_ARCHIVE_DB_PASSWORD: ${ILLUSTRATION_ARCHIVE_DB_PASSWORD:?Set ILLUSTRATION_ARCHIVE_DB_PASSWORD in .env}
       ILLUSTRATION_ARCHIVE_STORAGE_ROOT: /data/storage
+      ILLUSTRATION_ARCHIVE_STORAGE_TYPE: ${ILLUSTRATION_ARCHIVE_STORAGE_TYPE:-local}
+      ILLUSTRATION_ARCHIVE_S3_ENDPOINT: ${ILLUSTRATION_ARCHIVE_S3_ENDPOINT:-http://localstack:4566}
+      ILLUSTRATION_ARCHIVE_S3_REGION: ${ILLUSTRATION_ARCHIVE_S3_REGION:-us-east-1}
+      ILLUSTRATION_ARCHIVE_S3_ACCESS_KEY: ${ILLUSTRATION_ARCHIVE_S3_ACCESS_KEY:-test}
+      ILLUSTRATION_ARCHIVE_S3_SECRET_KEY: ${ILLUSTRATION_ARCHIVE_S3_SECRET_KEY:-test}
+      ILLUSTRATION_ARCHIVE_S3_BUCKET: ${ILLUSTRATION_ARCHIVE_S3_BUCKET:-illustration-archive}
+      ILLUSTRATION_ARCHIVE_S3_PATH_STYLE: ${ILLUSTRATION_ARCHIVE_S3_PATH_STYLE:-true}
       X_API_ENABLED: "false"
     volumes:
       - archive_storage:/data/storage
@@ -30,6 +37,17 @@ services:
       timeout: 5s
       retries: 20
       start_period: 30s
+
+  localstack:
+    image: localstack/localstack:4.14.0
+    profiles: [s3]
+    ports:
+      - "127.0.0.1:4566:4566"
+    environment:
+      SERVICES: s3
+      S3_BUCKET: ${ILLUSTRATION_ARCHIVE_S3_BUCKET:-illustration-archive}
+    volumes:
+      - ./docker/localstack/init-bucket.sh:/etc/localstack/init/ready.d/init-bucket.sh:ro
 
 volumes:
   mysql_data:

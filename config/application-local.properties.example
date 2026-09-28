@@ -9,6 +9,15 @@ ILLUSTRATION_ARCHIVE_DB_PASSWORD=replace_with_your_mysql_password
 # Use a writable directory outside this Git repository. An absolute path is allowed here.
 ILLUSTRATION_ARCHIVE_STORAGE_ROOT=replace_with_your_local_storage_root
 
+# Optional S3-compatible experiment. Omit these for normal Local Storage.
+# ILLUSTRATION_ARCHIVE_STORAGE_TYPE=s3
+# ILLUSTRATION_ARCHIVE_S3_ENDPOINT=http://localhost:4566
+# ILLUSTRATION_ARCHIVE_S3_REGION=us-east-1
+# ILLUSTRATION_ARCHIVE_S3_ACCESS_KEY=test
+# ILLUSTRATION_ARCHIVE_S3_SECRET_KEY=test
+# ILLUSTRATION_ARCHIVE_S3_BUCKET=illustration-archive
+# ILLUSTRATION_ARCHIVE_S3_PATH_STYLE=true
+
 # Optional X Likes inbox sync. Keep the real token only in the ignored local copy.
 # After changing X_API_ACCESS_TOKEN, restart Spring Boot before retrying sync.
 X_API_ENABLED=false

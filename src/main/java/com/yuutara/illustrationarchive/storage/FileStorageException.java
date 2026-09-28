@@ -1,7 +1,7 @@
 package com.yuutara.illustrationarchive.storage;
 
 /**
- * Indicates that the local file system could not complete a storage operation.
+ * Indicates that the selected storage backend could not complete an operation.
  */
 public class FileStorageException extends RuntimeException {
 

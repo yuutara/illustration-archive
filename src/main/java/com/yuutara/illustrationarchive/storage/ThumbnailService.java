@@ -1,6 +1,7 @@
 package com.yuutara.illustrationarchive.storage;
 
 import org.springframework.stereotype.Service;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.io.Resource;
 
 import javax.imageio.IIOImage;
@@ -25,6 +26,7 @@ import java.util.Locale;
 
 /** Local filesystem implementation of the thumbnail storage contract. */
 @Service
+@ConditionalOnProperty(name = "storage.type", havingValue = "local", matchIfMissing = true)
 public class ThumbnailService implements ThumbnailStorage {
 
 	private static final int MAX_DIMENSION = 600;

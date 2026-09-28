@@ -372,6 +372,22 @@ docker compose down
 
 `down` 停止并移除容器，但保留 `mysql_data` 和 `archive_storage` 两个命名 volume；下次 `docker compose up -d` 会重新使用它们。前者挂载到 MySQL 的 `/var/lib/mysql`，后者挂载到应用的 `/data/storage`，保存原图和缩略图。**不要使用 `docker compose down -v` 停止日常开发环境**，该命令会删除这两个 volume 及其中的数据。MySQL 用户只在空数据目录首次启动时初始化；保留已有数据库 volume 时，不要仅修改 `.env` 密码而不同时修改数据库用户密码。Compose 数据与上文 IDEA 本地配置的数据库、存储目录相互独立；不会自动迁移已有归档。
 
+### 可选 S3-compatible 本地实验
+
+默认 `storage.type=local`，普通 IDEA 或 Compose 启动都不需要 LocalStack。S3 实验使用 AWS SDK for Java 2.x 的标准 S3 API；LocalStack 只提供本地测试 endpoint。请使用独立的 Compose project 或空测试数据库，不要在已有真实图库数据库上直接切换 backend：数据库里的相对 `storage_key` 不标记 backend，也不会自动迁移对象。
+
+在忽略的 `.env` 中设置 `ILLUSTRATION_ARCHIVE_STORAGE_TYPE=s3`（仍需配置本地数据库密码），先停掉占用本机 8080 端口的其他应用实例，然后以独立 Compose project 运行：
+
+```powershell
+docker compose -p illustration-archive-s3 --profile s3 up -d localstack
+docker compose -p illustration-archive-s3 --profile s3 logs localstack # 等待 Ready 和 bucket 初始化成功
+docker compose -p illustration-archive-s3 --profile s3 up --build -d app
+```
+
+LocalStack 的 ready hook 会幂等创建 `illustration-archive` 测试 bucket。此 Community 镜像作为临时验收环境使用，容器重启后对象状态可能丢失；请使用独立测试数据库，不要把它当作持久化图库。Compose 为应用注入 `http://localstack:4566`、`us-east-1`、测试用 `test/test` 凭据及 path-style addressing；这些值均可通过同名 `ILLUSTRATION_ARCHIVE_S3_*` 环境变量覆盖。若 bucket 名称改变，hook 和应用读取同一个变量。停止实验时使用相同 project 名和 profile 的 `docker compose -p illustration-archive-s3 --profile s3 down`；重做实验前应清理这个测试 project 的数据库 volume，避免留有已丢失对象的记录。不要在真实数据 project 运行 `down -v`。
+
+IDEA 中测试 S3 可在被 Git 忽略的 `config/application-local.properties` 设置 `ILLUSTRATION_ARCHIVE_STORAGE_TYPE=s3`、`ILLUSTRATION_ARCHIVE_S3_ENDPOINT=http://localhost:4566`、region、access key、secret key、bucket 和 `ILLUSTRATION_ARCHIVE_S3_PATH_STYLE=true`。S3 模式不需要本地存储根目录；LocalStack bucket 需要先启动并初始化。恢复默认 Local 模式时删除 S3 type 设置或设为 `local`。S3 原图 object key 等于现有 `storage_key`；缩略图 key 为 `thumbnails/<storage_key>`。临时文件只用于已知长度上传和 ImageIO 编码，处理后清理，最终图片均保存在 S3。
+
 Compose 用现有 A1 环境变量向应用注入 `jdbc:mysql://db:3306/illustration_archive`、应用数据库用户名、`.env` 中的密码以及 `/data/storage`；`db` 是 Compose 网络中的 MySQL service 名称，MySQL 端口只在该网络中使用。应用只在本机 `127.0.0.1:8080` 暴露。`.env` 已由 `.gitignore` 和 `.dockerignore` 排除；Dockerfile 只复制 `pom.xml` 和 `src/main`，不会把本地配置或密码放进镜像。不要将真实密码或 X Token 写入 Compose 文件或提交到 Git。容器中明确设置 `X_API_ENABLED=false`，不注入 X Token。IDEA 非 Docker 启动仍使用上文的本地配置方式。
 
 ## 配置说明
@@ -383,7 +399,9 @@ Compose 用现有 A1 环境变量向应用注入 `jdbc:mysql://db:3306/illustrat
 | `ILLUSTRATION_ARCHIVE_DB_URL` | 必需：MySQL JDBC URL；示例指向本机 `illustration_archive` 数据库 |
 | `ILLUSTRATION_ARCHIVE_DB_USERNAME` | 必需：MySQL 用户名 |
 | `ILLUSTRATION_ARCHIVE_DB_PASSWORD` | 必需：MySQL 密码；本地开发也需显式提供，允许数据库用户使用空密码时值为空 |
-| `ILLUSTRATION_ARCHIVE_STORAGE_ROOT` | 必需：图片本地存储根目录；数据库只保存相对 `storage_key` |
+| `ILLUSTRATION_ARCHIVE_STORAGE_ROOT` | Local 模式必需：图片本地存储根目录；数据库只保存相对 `storage_key` |
+| `ILLUSTRATION_ARCHIVE_STORAGE_TYPE` | 可选：`local`（默认）或实验用 `s3` |
+| `ILLUSTRATION_ARCHIVE_S3_ENDPOINT`、`ILLUSTRATION_ARCHIVE_S3_REGION`、`ILLUSTRATION_ARCHIVE_S3_ACCESS_KEY`、`ILLUSTRATION_ARCHIVE_S3_SECRET_KEY`、`ILLUSTRATION_ARCHIVE_S3_BUCKET`、`ILLUSTRATION_ARCHIVE_S3_PATH_STYLE` | 仅 S3 模式使用；region、credentials、bucket 必填；endpoint 可留空使用 SDK 默认端点；LocalStack 需自定义 endpoint 与 path-style |
 | `X_API_ENABLED`、`X_API_ACCESS_TOKEN` | 可选：默认关闭；只有显式开启并提供 Token 才能手动同步 X Likes |
 | `X_API_BASE_URL` | 可选：默认 `https://api.x.com` |
 | `X_API_DEFAULT_PAGE_SIZE`、`X_API_DEFAULT_MAX_PAGES` | 可选：X Likes 默认页大小 5、最多页数 3 |
@@ -424,15 +442,17 @@ macOS/Linux：
 
 测试覆盖 Controller 的 standalone MockMvc、Service 业务流程、Repository SQL/映射以及 FileStorageService 的校验和路径行为；当前测试使用 Mockito、模拟的 `JdbcTemplate` 和临时目录，不需要连接真实 MySQL。
 
+`S3StorageLocalStackTest` 是显式启用的真实 S3 adapter 测试：先启动上述 LocalStack 和测试 bucket，再在测试进程设置 `S3_TEST_ENDPOINT=http://localhost:4566` 执行 `test`；未设置时该用例跳过。它直接访问本地 S3 API，不模拟 AWS SDK，也不连接真实 AWS。
+
 ### GitHub Actions CI
 
 每次 push 和 Pull Request 都会在 GitHub Actions 的 Linux runner 上运行 CI：使用 Java 17 构建并执行完整 Java 测试，使用 Node 24 执行现有 JS 测试，最后构建 Docker image。可在 GitHub 仓库的 **Actions** 页面打开 **CI** workflow 查看每次运行的结果和各步骤日志。CI 不启动应用或 MySQL，也不调用真实 X API；无需本地配置文件或 GitHub Secrets。
 
 ## 版本状态
 
-`v0.1.0`、`v0.2.0` 和 `v0.3.0` tag 均已创建并 push。V0.3 已正式封存，具备 X Likes 手动同步、Inbox 照片归档和多 Asset 浏览能力。当前为 V0.4 工程化阶段，A1 运行时配置外置化与 A2 Docker & Docker Compose 均已完成；A3 GitHub Actions CI 已在仓库中实现，待 push 后验证 GitHub runner。A2 的镜像构建、MySQL/Flyway、应用启动、图片导入及容器重建后持久化已通过真实人工验收，具体边界见 `docs/PROJECT_STATE.md`。
+`v0.1.0`、`v0.2.0` 和 `v0.3.0` tag 均已创建并 push。V0.3 已正式封存，具备 X Likes 手动同步、Inbox 照片归档和多 Asset 浏览能力。当前为 V0.4 工程化阶段，A1 运行时配置外置化与 A2 Docker & Docker Compose 均已完成；A3 GitHub Actions CI 已通过 GitHub Actions Linux runner 远程验收。A2 的镜像构建、MySQL/Flyway、应用启动、图片导入及容器重建后持久化已通过真实人工验收，具体边界见 `docs/PROJECT_STATE.md`。
 
-当前版本仍然是单机、本地文件系统存储；没有 OAuth、Token 自动刷新、后台自动同步、用户认证或云对象存储。
+当前默认仍为单机、本地文件系统存储；V0.4-B3 提供可选的 S3-compatible 本地验证模式，不包含历史数据迁移或云端部署。没有 OAuth、Token 自动刷新、后台自动同步或用户认证。
 
 ## Roadmap
 
