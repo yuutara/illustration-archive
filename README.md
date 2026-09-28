@@ -8,7 +8,7 @@ Illustration Archive 解决的是“把散落在本地的插画文件整理成�
 
 项目采用 local-first 设计：图片文件留在配置的本地存储目录，数据库只保存插画、作者、标签以及文件元数据。浏览器端使用 Spring Boot 静态资源目录中的原生 HTML、CSS 和 JavaScript，不需要前端构建工具。
 
-V0.3 已完成收口，增加 X Likes 手动同步与多图归档；`v0.1.0` 和 `v0.2.0` 均已发布并打 tag。
+V0.3 已正式封存，增加 X Likes 手动同步与多图归档；当前进入 V0.4 工程化阶段。`v0.1.0`、`v0.2.0` 和 `v0.3.0` 均已创建并 push tag。
 
 ## 项目截图
 
@@ -320,14 +320,14 @@ Tag ID 会先校验存在性，并去除重复 ID，然后在同一数据库事�
    cp config/application-local.properties.example config/application-local.properties
    ```
 
-3. 编辑 `config/application-local.properties` 中的：
+3. 编辑 `config/application-local.properties` 中的必需项：
 
    - `ILLUSTRATION_ARCHIVE_DB_URL`
    - `ILLUSTRATION_ARCHIVE_DB_USERNAME`
    - `ILLUSTRATION_ARCHIVE_DB_PASSWORD`
    - `ILLUSTRATION_ARCHIVE_STORAGE_ROOT`
 
-   存储根目录应是应用进程可读写的本地目录，建议放在 Git 仓库之外。该文件已被 `.gitignore` 忽略，不要提交真实密码或其他敏感配置。
+   存储根目录应是应用进程可读写的本地目录，建议放在 Git 仓库之外。该文件已被 `.gitignore` 忽略，不要提交真实密码或其他敏感配置。X API 不使用时保持 `X_API_ENABLED=false`、`X_API_ACCESS_TOKEN` 为空；需要手动同步时，在本地填入 Token 并显式开启，修改后重启应用。
 
 ### 启动应用
 
@@ -347,20 +347,23 @@ Flyway 会在启动时执行 `src/main/resources/db/migration/` 中尚未应用�
 
 <http://localhost:8080/>
 
+在 IDEA 中直接运行 `IllustrationArchiveApplication` 时，将 Run Configuration 的 Working directory 设为项目根目录，并在启动前完成上述本地配置。`./config/application-local.properties` 相对于进程工作目录读取；若使用其他工作目录，可通过 Spring Boot 的 `spring.config.additional-location` 指向本地配置文件。确认启动日志显示应用已启动、Flyway 正常完成，并在浏览器打开首页；要验证真实导入与读取，还需使用本地 MySQL 和可写的存储根目录实际操作。
+
 ## 配置说明
 
-`src/main/resources/application.properties` 会导入可选的 `./config/application-local.properties`，同时也支持使用同名环境变量提供配置。
+`src/main/resources/application.properties` 会导入可选的 `./config/application-local.properties`。下表中的大写名称可放在该文件中，也可作为进程环境变量提供；环境变量优先。无需把本地配置文件复制到 `src/main/resources`。Spring Boot 自带的外部配置机制也允许在启动参数中覆盖属性。
 
-| 配置项 | 用途 |
+| 配置项 | 启动要求与用途 |
 | --- | --- |
-| `ILLUSTRATION_ARCHIVE_DB_URL` | MySQL JDBC URL；示例指向本机 `illustration_archive` 数据库 |
-| `ILLUSTRATION_ARCHIVE_DB_USERNAME` | MySQL 用户名 |
-| `ILLUSTRATION_ARCHIVE_DB_PASSWORD` | MySQL 密码 |
-| `ILLUSTRATION_ARCHIVE_STORAGE_ROOT` | 图片本地存储根目录；数据库只保存相对 `storage_key` |
-| `X_API_ENABLED`、`X_API_ACCESS_TOKEN` | X Likes 手动同步开关（默认关闭）与本地 Access Token |
-| `X_API_DEFAULT_PAGE_SIZE`、`X_API_DEFAULT_MAX_PAGES` | X Likes 每次请求的默认页大小与最多页数 |
-| `spring.servlet.multipart.max-file-size` | HTTP multipart 单文件上限，当前为 60MB |
-| `spring.servlet.multipart.max-request-size` | HTTP multipart 单次请求上限，当前为 500MB |
+| `ILLUSTRATION_ARCHIVE_DB_URL` | 必需：MySQL JDBC URL；示例指向本机 `illustration_archive` 数据库 |
+| `ILLUSTRATION_ARCHIVE_DB_USERNAME` | 必需：MySQL 用户名 |
+| `ILLUSTRATION_ARCHIVE_DB_PASSWORD` | 必需：MySQL 密码；本地开发也需显式提供，允许数据库用户使用空密码时值为空 |
+| `ILLUSTRATION_ARCHIVE_STORAGE_ROOT` | 必需：图片本地存储根目录；数据库只保存相对 `storage_key` |
+| `X_API_ENABLED`、`X_API_ACCESS_TOKEN` | 可选：默认关闭；只有显式开启并提供 Token 才能手动同步 X Likes |
+| `X_API_BASE_URL` | 可选：默认 `https://api.x.com` |
+| `X_API_DEFAULT_PAGE_SIZE`、`X_API_DEFAULT_MAX_PAGES` | 可选：X Likes 默认页大小 5、最多页数 3 |
+
+`spring.application.name`、MySQL 驱动类、`spring.servlet.multipart.max-file-size=60MB` 和 `spring.servlet.multipart.max-request-size=500MB` 保留固定默认值；它们不包含机器路径或 secret。历史回填的 `illustration.maintenance.sha256-backfill` 与 `illustration.maintenance.thumbnail-backfill` 均默认关闭，只在显式设置为 `true` 的启动中运行；不要作为日常启动配置保留。
 
 HTTP multipart 配置上限不等同于图片业务校验上限：`FileStorageService` 的单张图片业务限制仍是 50 MB。
 
@@ -398,7 +401,7 @@ macOS/Linux：
 
 ## 版本状态
 
-`v0.1.0` 和 `v0.2.0` 均已发布并打 tag。V0.3 已完成收口，具备 X Likes 手动同步、Inbox 照片归档和多 Asset 浏览能力；`v0.3.0` tag 尚未创建。
+`v0.1.0`、`v0.2.0` 和 `v0.3.0` tag 均已创建并 push。V0.3 已正式封存，具备 X Likes 手动同步、Inbox 照片归档和多 Asset 浏览能力。当前为 V0.4 工程化阶段，本工作包只核对和说明运行时配置外置化。
 
 当前版本仍然是单机、本地文件系统存储；没有 OAuth、Token 自动刷新、后台自动同步、用户认证或云对象存储。
 
