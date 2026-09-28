@@ -8,7 +8,7 @@ Illustration Archive 解决的是“把散落在本地的插画文件整理成�
 
 项目采用 local-first 设计：图片文件留在配置的本地存储目录，数据库只保存插画、作者、标签以及文件元数据。浏览器端使用 Spring Boot 静态资源目录中的原生 HTML、CSS 和 JavaScript，不需要前端构建工具。
 
-V0.2 已完成最终验收；`v0.1.0` 是已发布的第一个可用版本基线。
+V0.3 已完成收口，增加 X Likes 手动同步与多图归档；`v0.1.0` 和 `v0.2.0` 均已发布并打 tag。
 
 ## 项目截图
 
@@ -29,7 +29,10 @@ V0.2 已完成最终验收；`v0.1.0` 是已发布的第一个可用版本基线
 - 导入 JPG、JPEG、PNG、GIF 图片；按文件内容计算 SHA-256 去重。单张重复导入返回 `409 Conflict` 和已有插画 ID；批量导入逐项返回 `SUCCESS`、`DUPLICATE` 或 `FAILED`，支持部分成功。
 - 可按需对历史 Asset 执行 SHA-256 回填；新导入的 JPG/PNG 自动生成缩略图，也支持历史缩略图回填。
 - 首页图库分页浏览，默认每页 24 条。JPG/PNG 卡片使用缩略图，GIF 保持原始动画；卡片显示封面、标题和作者，并可进入详情页。
-- Artwork-first 详情页以保持原始比例的原图为主体，同时显示标题、作者、标签、备注和来源链接。
+- 多 Asset 卡片可左右循环预览；Artwork-first 详情页按顺序纵向展示全部原图，保持原始比例，并显示标题、作者、标签、备注和来源链接。
+- 手动同步 X Likes：Inbox 页的 Sync latest Likes 每次从第一页查最近点赞；独立的后端 history continuation 接口保存分页游标，可跨轮、跨重启继续。页面加载不会自动请求 X API，也没有 history continuation 按钮。
+- X Import Inbox 只展示 `PENDING` 候选，可单项或批量选择导入、跳过；逐项显示导入成功、重复或失败结果。无图、GIF、视频或混合媒体等不符合“全部直接附件为带 URL 的 photo”条件的 Post 标记为 `UNSUPPORTED`；跳过和成功导入分别变为 `SKIPPED`、`IMPORTED`。
+- 将受支持的 X Post 单图或多图归档为一个 Illustration 和有序 Asset，以 SHA-256 拒绝整条 Post 中的重复图片；批量导入允许部分成功，并记录 `imported_illustration_id`。本地文件导入仍支持 GIF，X GIF/视频导入尚不支持。
 - 编辑标题、来源链接、备注，并通过 PATCH 更新已有 Author 关联和 Tag 关联。
 - 搜索和创建 Author；搜索、创建、选择、移除 Tag。
 - 删除单个 Illustration，并在数据库删除事务提交后清理原图和缩略图。
@@ -79,7 +82,8 @@ erDiagram
     AUTHOR {
         BIGINT id PK
         VARCHAR display_name
-        VARCHAR x_username UK
+        VARCHAR x_user_id UK
+        VARCHAR x_username
     }
     ILLUSTRATION {
         BIGINT id PK
@@ -113,7 +117,8 @@ erDiagram
 - 一个 `Illustration` 可以有多个 `Asset`；删除 Illustration 时由外键级联删除 Asset 和 `illustration_tag` 关联行。
 - 一个 `Illustration` 可以不关联 Author，也可以关联一个 Author；一个 Author 可以关联零个或多个 Illustration。删除 Author 时，Illustration 的 `author_id` 由数据库置为 `NULL`。
 - `Illustration` 与 `Tag` 是多对多关系，通过 `illustration_tag` 连接；删除 Tag 会级联删除关联行，当前没有删除 Tag 的 HTTP API。
-- `asset.storage_key`、非空的 `asset.sha256`、Author 的 `x_username` 和 Tag 的 `name` 在数据库中有唯一约束。
+- `asset.storage_key`、非空的 `asset.sha256`、Author 的非空 `x_user_id` 和 Tag 的 `name` 在数据库中有唯一约束；`x_username` 只有普通索引。
+- X Likes 候选和附件分别保存在 `x_like_item`、`x_like_media`；`x_post_id` 唯一。历史续扫游标及已见游标摘要保存在 `x_like_sync_state`、`x_like_sync_seen_token`。
 
 ## 核心设计
 
@@ -171,7 +176,7 @@ Tag ID 会先校验存在性，并去除重复 ID，然后在同一数据库事�
 
 | Method | Path | Request | Response / 行为 |
 | --- | --- | --- | --- |
-| `GET` | `/api/illustrations?page=0&size=24` | Query 参数可省略，默认 `page=0`、`size=24`；后端校验 `page >= 0`，`size` 必须为 `1..100` | `IllustrationGalleryPage`：`page`、`size`、`totalElements`、`totalPages`、`items[]`。每个 item 包含 `id`、`title`、`author`、`coverAssetId`、`assetCount`、`createdAt` |
+| `GET` | `/api/illustrations?page=0&size=24` | Query 参数可省略，默认 `page=0`、`size=24`；后端校验 `page >= 0`，`size` 必须为 `1..100` | `IllustrationGalleryPage`：`page`、`size`、`totalElements`、`totalPages`、`items[]`。每个 item 包含封面、`assetCount`、有序 `assets[]` 等公开摘要 |
 | `GET` | `/api/illustrations/{id}` | Path variable `id` | `IllustrationDetail`：基础元数据、Author、`assets[]`、`tags[]`、创建/更新时间 |
 | `PATCH` | `/api/illustrations/{id}` | `application/json`；可包含 `title`、`sourceUrl`、`note`、`authorId`、`tagIds` | 按上文三态语义更新，成功返回 `204 No Content` |
 | `DELETE` | `/api/illustrations/{id}` | 无请求体 | 删除数据库记录并在事务提交后清理原图与缩略图，成功返回 `204 No Content` |
@@ -235,7 +240,18 @@ Tag ID 会先校验存在性，并去除重复 ID，然后在同一数据库事�
 | `POST` | `/api/tags` | `application/json`：`{ "name": "..." }` | `201 Created`，返回 `TagSummary` |
 | `GET` | `/api/tags?keyword=...` | 可选查询参数 `keyword`；空关键词返回空列表 | `TagSummary[]`，按 `name ASC, id ASC`，最多 20 条 |
 
-浏览器页面由静态资源提供：`/` 打开图库首页，详情页使用 `/detail.html?id={illustrationId}`。
+### X Import
+
+| Method | Path | 行为 |
+| --- | --- | --- |
+| `POST` | `/api/x-import/sync/recent` | 手动从第一页同步最新 Likes；可选 `maxResults`（默认 5，范围 5..100）和 `maxPages`（默认 3，范围 1..10） |
+| `POST` | `/api/x-import/sync/continuation` | 显式续扫历史 Likes；页数截断保存游标，自然末页清除游标 |
+| `POST` | `/api/x-import/sync/continuation/reset` | 仅在历史游标为 `INVALID` 时显式重置 |
+| `GET` | `/api/x-import/inbox` | 返回按 Post 时间倒序排列的 `PENDING` 候选及有序媒体 |
+| `PATCH` | `/api/x-import/inbox/skip` | 跳过请求体 `itemIds` 中仍为 `PENDING` 的项 |
+| `POST` | `/api/x-import/inbox/import` | 导入请求体 `itemIds` 中的项，逐项返回 `SUCCESS`、`DUPLICATE` 或 `FAILED` |
+
+浏览器页面由静态资源提供：`/` 打开图库，`/detail.html?id={illustrationId}` 打开详情，`/x-import.html` 打开 Inbox。X API 默认关闭；Access Token 从本地忽略的配置文件或环境变量读取，变更后需重启应用。
 
 ## 项目结构
 
@@ -254,15 +270,21 @@ Tag ID 会先校验存在性，并去除重复 ID，然后在同一数据库事�
 │  │  └─ resources/
 │  │     ├─ db/migration/
 │  │     │  ├─ V1__init_schema.sql
-│  │     │  └─ V2__add_asset_sha256.sql
+│  │     │  ├─ V2__add_asset_sha256.sql
+│  │     │  ├─ V3__add_x_like_inbox.sql
+│  │     │  ├─ V4__add_x_archive_links.sql
+│  │     │  └─ V5__add_x_like_sync_continuation.sql
 │  │     ├─ static/
 │  │     │  ├─ index.html
 │  │     │  ├─ app.js
 │  │     │  ├─ detail.html
 │  │     │  ├─ detail.js
+│  │     │  ├─ x-import.html
+│  │     │  ├─ x-import.js
 │  │     │  └─ style.css
 │  │     └─ application.properties
-│  └─ test/java/               # Controller、Service、Repository、Storage 测试
+│  ├─ test/java/               # Controller、Service、Repository、Storage 测试
+│  └─ test/js/                 # Inbox、Gallery、Detail 页面行为测试
 ├─ mvnw
 ├─ mvnw.cmd
 └─ pom.xml
@@ -335,6 +357,8 @@ Flyway 会在启动时执行 `src/main/resources/db/migration/` 中尚未应用�
 | `ILLUSTRATION_ARCHIVE_DB_USERNAME` | MySQL 用户名 |
 | `ILLUSTRATION_ARCHIVE_DB_PASSWORD` | MySQL 密码 |
 | `ILLUSTRATION_ARCHIVE_STORAGE_ROOT` | 图片本地存储根目录；数据库只保存相对 `storage_key` |
+| `X_API_ENABLED`、`X_API_ACCESS_TOKEN` | X Likes 手动同步开关（默认关闭）与本地 Access Token |
+| `X_API_DEFAULT_PAGE_SIZE`、`X_API_DEFAULT_MAX_PAGES` | X Likes 每次请求的默认页大小与最多页数 |
 | `spring.servlet.multipart.max-file-size` | HTTP multipart 单文件上限，当前为 60MB |
 | `spring.servlet.multipart.max-request-size` | HTTP multipart 单次请求上限，当前为 500MB |
 
@@ -374,16 +398,18 @@ macOS/Linux：
 
 ## 版本状态
 
-`v0.1.0` 已完成并打 tag。V0.2 已完成最终验收，增加内容去重、缩略图和更适合浏览的图库与详情布局；V0.2 的最终 commit、push 和 tag 尚待完成。
+`v0.1.0` 和 `v0.2.0` 均已发布并打 tag。V0.3 已完成收口，具备 X Likes 手动同步、Inbox 照片归档和多 Asset 浏览能力；`v0.3.0` tag 尚未创建。
 
-当前版本仍然是单机、本地文件系统存储，不包含用户认证、云对象存储或后台任务。
+当前版本仍然是单机、本地文件系统存储；没有 OAuth、Token 自动刷新、后台自动同步、用户认证或云对象存储。
 
 ## Roadmap
 
-- X 平台导入，以及导入来源信息的进一步整理。
+- X GIF/视频等非静态图片媒体导入，以及导入来源信息的进一步整理。
+- Inbox 紧凑网格、缩放与列数调整、选择体验、hover 动画、筛选，以及 history continuation 页面入口。
+- OAuth 与 Token 自动刷新。
 - 感知哈希重复检测与合并策略。
 - 孤儿文件扫描、诊断和人工确认后的修复工具。
 - 更丰富的图库搜索、筛选、排序和批量整理能力。
 - 在保持 `storage_key` 与数据库元数据解耦的前提下，继续整理可替换的存储实现。
 
-Roadmap 中的内容尚未作为 V0.2 功能实现。
+Roadmap 中的内容不属于 V0.3 已完成范围。

@@ -7,11 +7,11 @@
 
 V0.3 - X Likes Import Inbox
 
-Current development stage:
+Release status:
 
-**V0.3-D4 Pending Inbox Import Workflow 已完成真实环境人工验收。V0.3 下一步为 Final Acceptance / Release；尚未宣告 V0.3 整体完成。**
+**V0.3 已正式完成收口。**现有代码实现 X Likes 手动同步、Import Inbox、受支持照片的单图/多图归档，以及 Gallery/Detail 多 Asset 浏览。下方阶段记录保留各自的自动化测试与真实环境验收边界；正式收口不表示所有边界都经过真实 X API 验收，也不表示已创建发布 tag。
 
-V0.2 的 Final Acceptance 已完成；其最终 commit、push 和 tag 是否执行由项目维护者决定。
+V0.2 的 Final Acceptance 已完成，代码已 push，并已创建 `v0.2.0` tag。
 
 ### V0.3-A | X Likes → Import Inbox backend
 
@@ -44,11 +44,11 @@ V0.2 的 Final Acceptance 已完成；其最终 commit、push 和 tag 是否执�
 
 ### V0.3-D1 | X Likes Incremental Sync & Pagination
 
-- 只在用户点击 Sync latest Likes 时请求 X Likes；逐页使用 `meta.next_token` 作为下一次请求的 `pagination_token`，每页复用原有幂等持久化逻辑。
+- Inbox 页面只在用户点击 Sync latest Likes 时请求 X Likes；独立的 history continuation 后端入口也可显式请求。两种同步都逐页使用 `meta.next_token` 作为下一次请求的 `pagination_token`，每页复用原有幂等持久化逻辑。
 - `maxResults` 默认 5、范围 5..100；`maxPages` 默认 3、范围 1..10。远端无下一页、达到页数上限、游标缺失或重复时停止。
 - 摘要汇总请求页数、各状态数量、远端是否仍有下一页，以及是否因页数上限或异常游标停止。自动化测试通过；V5 migration 已在真实 MySQL 成功执行。D3-1 的跨轮 continuation 真实 X API 验收见下方记录。
 - D1 曾让后续手动 Sync 从保存的 token 继续；发布前语义修复已把此行为移到独立的 history continuation 入口（见下方），页面按钮始终同步最新 Likes。`x_like_sync_seen_token` 记录历史续扫的 token 摘要，防止跨次同步循环。
-- 游标缺失、重复或被 X 以 HTTP 400 拒绝时标记为 `INVALID` 并停止；429 等暂时错误保留 continuation。只有显式调用 `POST /api/x-import/sync/continuation/reset` 才清除无效状态；重置后可能存在未补齐的 Likes 缺口。一次同步只请求一次 `/2/users/me`。
+- 历史续扫的游标缺失、重复或被 X 以 HTTP 400 拒绝时标记为 `INVALID` 并停止；429 等暂时错误保留 continuation。只有显式调用 `POST /api/x-import/sync/continuation/reset` 才清除无效状态；重置后可能存在未补齐的 Likes 缺口。一次同步只请求一次 `/2/users/me`。
 
 ### V0.3-D2 | X API authentication diagnostics
 
@@ -80,6 +80,26 @@ V0.2 的 Final Acceptance 已完成；其最终 commit、push 和 tag 是否执�
 - 真实浏览器中批量选择 3 个 `PENDING` 项执行 Import Selected，结果为 `SUCCESS 3`、`DUPLICATE 0`、`FAILED 0`；Inbox 的 pending 数量相应减少，每个成功项均返回 Illustration Detail 链接。
 - MySQL 核验这 3 条 `x_like_item` 均变为 `IMPORTED`，`imported_illustration_id` 分别为 `30`、`31`、`32`，均非 `NULL`。
 - 真实归档文件及 Gallery/Detail 链路正常；相关自动化测试此前已通过。
+
+### V0.3 最终能力与验收边界
+
+- Inbox 页面只在用户点击 Sync latest Likes 时调用 `POST /api/x-import/sync/recent`；该入口每次从 Likes 第一页开始，不读写历史续扫状态。`POST /api/x-import/sync/continuation` 是独立的显式后端历史续扫入口，持久化游标以支持跨轮和重启后继续；页面没有此按钮。同步按页幂等保存，已处理的 Post 状态和 `imported_illustration_id` 不会因重复同步被覆盖。
+- `x_like_item` 的候选状态包括 `PENDING`、`UNSUPPORTED`、`SKIPPED`、`IMPORTED`。仅直接附件全部为带 URL 的 photo 且至少一张的 Post 可进入 Inbox；GIF、视频及混合媒体不进入 X 归档流程。本地文件导入对 GIF 的支持不变。
+- Inbox 支持查看待处理项、单项/批量选择、Import Selected 和 Skip Selected。每个成功导入的 X Post 形成一个 Illustration 及按顺序保存的一个或多个 Asset；SHA-256 重复会拒绝整条 Post，批量导入返回逐项结果并允许部分成功。数据库事务覆盖 Author、Illustration、Assets 和 Inbox 状态；文件失败清理采用显式补偿，不能由数据库事务保证回滚。
+- Gallery 卡片可循环预览多 Asset；Detail 按顺序纵向展示全部原图。JPEG/PNG Gallery 预览继续使用缩略图，GIF Gallery 预览继续使用原始 `/content`。
+- 当前 Java 测试源码有 259 个 `@Test`，JS 测试源码有 11 个 `test(...)`。仓库留存的、与现有 Java 测试类匹配的 Surefire 报告记录 259 tests、0 failures、0 errors、0 skipped；本次文档收口没有重跑测试。上方 C1–D4 的真实环境验收记录保持原样。latest/history 双入口修复后的真实 X API、MySQL、浏览器重新验收仍未执行；真实历史 Likes 的自然末页及其后重复/新增 Likes 场景以自动化测试为依据。
+- X Access Token 仍由本地配置或环境变量手动提供，X API 默认关闭；没有 OAuth、Token 自动刷新、后台自动同步或 X GIF/视频归档。
+
+以下事项明确属于**后续版本范围**，不是 V0.3 完成的阻塞项：
+
+1. Inbox 手机相册式紧凑网格。
+2. 缩放预览、调整列数。
+3. 更自然的 Select All / Deselect All 选择体验。
+4. hover 轻微放大及动画体验。
+5. Inbox 筛选。
+6. history continuation 页面按钮。
+7. X GIF、视频等非静态图片媒体导入。
+8. OAuth、Token 自动刷新。
 
 ---
 
@@ -335,7 +355,7 @@ README 根据最终效果进行必要更新            ✅
 
 根据上述验收、当前测试及 SHA-256 去重、导入失败文件补偿、缩略图生成和删除清理的现有设计，当前未发现已知的数据一致性严重问题。数据库事务不能回滚文件系统操作，相关清理失败会记录日志；这不是对所有故障情形的绝对保证。
 
-README 已按 V0.2 最终能力收尾。V0.2 已完成 Final Acceptance；尚未进行最终 commit、push 或 tag。
+README 已按 V0.2 最终能力收尾。V0.2 已完成 Final Acceptance，代码已 push，并已创建 `v0.2.0` tag。
 
 ### V0.2 Out of Scope
 
@@ -346,6 +366,6 @@ README 已按 V0.2 最终能力收尾。V0.2 已完成 Final Acceptance；尚未
 
 以上边界遵循 `AGENTS.md` 中的 scope 控制；若未来确有新需求，应先由用户确认范围变化。
 
-### Current next step
+### Current version status
 
-V0.3-D4 已完成真实环境人工验收。下一步是 V0.3 Final Acceptance / Release；V0.3 整体完成与发布仍待最终验收决定。
+V0.3 已正式完成收口。上方后续版本范围不属于 V0.3；`v0.3.0` tag 尚未创建。
