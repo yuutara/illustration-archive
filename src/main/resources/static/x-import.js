@@ -9,6 +9,9 @@
     const stateMessage = document.getElementById("inbox-state-message");
     const retryButton = document.getElementById("inbox-retry-button");
     const syncButton = document.getElementById("sync-button");
+    const previousButton = document.getElementById("inbox-previous");
+    const nextButton = document.getElementById("inbox-next");
+    const pageStatus = document.getElementById("inbox-page-status");
     const selectAllButton = document.getElementById("select-all-button");
     const clearButton = document.getElementById("clear-button");
     const skipButton = document.getElementById("skip-button");
@@ -19,6 +22,9 @@
     let items = [];
     let busy = false;
     let loading = false;
+    let page = 0;
+    let totalPages = 0;
+    const pageSize = 24;
 
     function setMessage(text, error) {
         message.textContent = text;
@@ -44,6 +50,8 @@
         clearButton.disabled = busy || loading || selectionCount === 0;
         skipButton.disabled = busy || loading || selectionCount === 0;
         importButton.disabled = busy || loading || selectionCount === 0;
+        previousButton.disabled = busy || loading || page === 0;
+        nextButton.disabled = busy || loading || page + 1 >= totalPages;
         list.querySelectorAll("input[type=checkbox]").forEach(input => { input.disabled = busy; });
     }
 
@@ -82,6 +90,12 @@
         }
         header.append(author, time);
         content.appendChild(header);
+        if (item.discoveredAt) {
+            const discovered = new Date(item.discoveredAt);
+            if (!Number.isNaN(discovered.getTime())) {
+                content.appendChild(paragraph("inbox-time", `进入 Inbox：${discovered.toLocaleString()}`));
+            }
+        }
         if (item.postText) {
             content.appendChild(paragraph("inbox-post-text", item.postText));
         }
@@ -157,15 +171,22 @@
         showState("正在加载…", "正在读取本地 Inbox。", false);
         updateActions();
         try {
-            const response = await fetch("/api/x-import/inbox", { headers: { Accept: "application/json" } });
+            const response = await fetch(`/api/x-import/inbox?page=${page}&size=${pageSize}`, { headers: { Accept: "application/json" } });
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const data = await response.json();
-            if (!Array.isArray(data)) throw new Error("Inbox response is invalid.");
-            items = data;
-            data.forEach(item => list.appendChild(renderItem(item)));
-            count.textContent = `${data.length} pending`;
-            statePanel.hidden = data.length > 0;
-            if (data.length === 0) showState("No pending X Likes", "可以手动同步最近的 Likes。", false);
+            if (!Array.isArray(data.items) || !Number.isInteger(data.totalPages)
+                    || !Number.isInteger(data.totalItems)) throw new Error("Inbox response is invalid.");
+            if (page > 0 && page >= data.totalPages) {
+                page = Math.max(0, data.totalPages - 1);
+                return await loadInbox();
+            }
+            items = data.items;
+            totalPages = data.totalPages;
+            items.forEach(item => list.appendChild(renderItem(item)));
+            count.textContent = `${data.totalItems} pending`;
+            pageStatus.textContent = `Page ${totalPages === 0 ? 0 : page + 1} / ${totalPages}`;
+            statePanel.hidden = items.length > 0;
+            if (items.length === 0) showState("No pending X Likes", "可以手动同步最近的 Likes。", false);
         } catch (error) {
             showState("加载失败", `无法读取 Inbox：${error.message}`, true);
         } finally {
@@ -184,6 +205,7 @@
             const result = await response.json();
             if (!response.ok) throw new Error(result.message || `HTTP ${response.status}`);
             setMessage(`同步完成：请求 ${result.pagesFetched} 页，读取 ${result.fetchedCount}，新增 ${result.newCount}，已有 ${result.existingCount}，待处理 ${result.pendingCount}。${result.stoppedByMaxPages ? "已达页数上限，下次点击仍从最新 Likes 开始。" : ""}${result.stoppedByInvalidToken ? "分页游标异常，已停止。" : ""}`, false);
+            page = 0;
             await loadInbox();
         } catch (error) {
             setMessage(`同步失败：${error.message}`, true);
@@ -248,6 +270,16 @@
     syncButton.addEventListener("click", syncLatest);
     skipButton.addEventListener("click", skipSelected);
     importButton.addEventListener("click", importSelected);
+    previousButton.addEventListener("click", async () => {
+        if (busy || loading || page === 0) return;
+        page--;
+        await loadInbox();
+    });
+    nextButton.addEventListener("click", async () => {
+        if (busy || loading || page + 1 >= totalPages) return;
+        page++;
+        await loadInbox();
+    });
     selectAllButton.addEventListener("click", () => {
         list.querySelectorAll("input[type=checkbox]").forEach(input => { input.checked = true; });
         updateActions();

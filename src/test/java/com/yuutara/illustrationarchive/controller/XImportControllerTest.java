@@ -1,6 +1,7 @@
 package com.yuutara.illustrationarchive.controller;
 
 import com.yuutara.illustrationarchive.dto.XLikeInboxItem;
+import com.yuutara.illustrationarchive.dto.XLikeInboxPage;
 import com.yuutara.illustrationarchive.dto.XLikeMedia;
 import com.yuutara.illustrationarchive.dto.XLikeSyncSummary;
 import com.yuutara.illustrationarchive.service.XApiException;
@@ -85,21 +86,45 @@ class XImportControllerTest {
 	void inboxReturnsOrderedMediaAndPostTime() throws Exception {
 		XLikeSyncService service = mock(XLikeSyncService.class);
 		MockMvc mvc = mvc(service);
-		when(service.inbox()).thenReturn(List.of(new XLikeInboxItem(7L, "11", "Artist", "artist",
-				"text", Instant.parse("2026-09-25T09:00:00Z"),
-				List.of(new XLikeMedia("p1", 0, "photo", "https://img/1", 100, 200)))));
+		when(service.inbox(null, null)).thenReturn(new XLikeInboxPage(List.of(new XLikeInboxItem(7L, "11", "Artist", "artist",
+				"text", Instant.parse("2026-09-25T09:00:00Z"), Instant.parse("2026-09-29T09:00:00Z"),
+				List.of(new XLikeMedia("p1", 0, "photo", "https://img/1", 100, 200)))), 0, 24, 25, 2));
 
 		mvc.perform(get("/api/x-import/inbox"))
 				.andExpect(status().isOk())
-				.andExpect(jsonPath("$[0].id").value(7))
-				.andExpect(jsonPath("$[0].xPostId").value("11"))
-				.andExpect(jsonPath("$[0].authorDisplayName").value("Artist"))
-				.andExpect(jsonPath("$[0].authorUsername").value("artist"))
-				.andExpect(jsonPath("$[0].postText").value("text"))
-				.andExpect(jsonPath("$[0].postCreatedAt").value("2026-09-25T09:00:00Z"))
-				.andExpect(jsonPath("$[0].media[0].sortOrder").value(0))
-				.andExpect(jsonPath("$[0].media[0].photoUrl").value("https://img/1"))
-				.andExpect(jsonPath("$[0].media[0].width").value(100));
+				.andExpect(jsonPath("$.page").value(0))
+				.andExpect(jsonPath("$.size").value(24))
+				.andExpect(jsonPath("$.totalItems").value(25))
+				.andExpect(jsonPath("$.totalPages").value(2))
+				.andExpect(jsonPath("$.items[0].id").value(7))
+				.andExpect(jsonPath("$.items[0].xPostId").value("11"))
+				.andExpect(jsonPath("$.items[0].authorDisplayName").value("Artist"))
+				.andExpect(jsonPath("$.items[0].authorUsername").value("artist"))
+				.andExpect(jsonPath("$.items[0].postText").value("text"))
+				.andExpect(jsonPath("$.items[0].postCreatedAt").value("2026-09-25T09:00:00Z"))
+				.andExpect(jsonPath("$.items[0].discoveredAt").value("2026-09-29T09:00:00Z"))
+				.andExpect(jsonPath("$.items[0].media[0].sortOrder").value(0))
+				.andExpect(jsonPath("$.items[0].media[0].photoUrl").value("https://img/1"))
+				.andExpect(jsonPath("$.items[0].media[0].width").value(100));
+		verify(service).inbox(null, null);
+	}
+
+	@Test
+	void inboxForwardsPageParametersAndRejectsInvalidValues() throws Exception {
+		XLikeSyncService service = mock(XLikeSyncService.class);
+		when(service.inbox(1, 24)).thenReturn(new XLikeInboxPage(List.of(), 1, 24, 24, 1));
+		when(service.inbox(-1, 24)).thenThrow(new IllegalArgumentException("page must be greater than or equal to 0."));
+		when(service.inbox(0, 101)).thenThrow(new IllegalArgumentException("size must be between 1 and 100."));
+		mvc(service).perform(get("/api/x-import/inbox?page=1&size=24"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.items").isEmpty())
+				.andExpect(jsonPath("$.page").value(1));
+		mvc(service).perform(get("/api/x-import/inbox?page=-1&size=24"))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+		mvc(service).perform(get("/api/x-import/inbox?page=0&size=101"))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
 	}
 
 	@Test

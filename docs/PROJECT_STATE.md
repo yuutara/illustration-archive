@@ -25,7 +25,11 @@ V0.4-B3 S3-compatible Storage Validation 已完成。默认 `storage.type=local`
 
 V0.4-C1 X OAuth Token Lifecycle 已实现，真实 X 人工验收已通过。当前 App 的 Client ID / Client Secret 由本机运行时配置提供；App owner 在 Developer Console 一次性生成初始 access token + refresh token，手工放入 Git 忽略的 `config/x-oauth-tokens.properties`。应用在 access token 即将到期或到期时间未知时通过 confidential-client Basic Authentication 向 X token endpoint 刷新；收到 401 后最多再刷新重试一次，403 不触发刷新。新 token 使用串行化、临时文件加原子替换写回；响应未返回新 refresh token 时保留旧值；写盘失败会显式报错，并在当前进程内保留新凭据以供重试。未增加浏览器 OAuth callback、数据库 Schema、scheduler，未改 Inbox UI、latest/history、分页及导入业务语义。实现阶段自动化验证：Java 276 tests、0 failures、0 errors、1 skipped（需外部 LocalStack）；现有 JS 11/11 通过，本次文档更新未重跑测试。
 
-C1 用户本机真实验收：初始 credential file 的 `expires_at` 留空，启动应用后点击 `Sync latest Likes`，应用自动刷新 OAuth token 并成功完成真实 X Likes 同步。随后用户重新 Like 一条旧 X Post，重启 Spring Boot，没有重新生成 token，再次点击 Sync，成功新增 1 条记录；这验证了本机 token 持久化、跨重启读取及后续 X API 调用。该新 Like 在 Inbox 中显示于原帖日期附近，因为当前列表按 `post_created_at DESC` 排序；同步本身成功。此展示顺序与新 Like 的可发现性问题列为后续 D1 Inbox usability 待处理项，本轮不修改排序。
+V0.4-D1 Inbox Large-Dataset Usability 已实现：`GET /api/x-import/inbox` 返回 0-based page DTO（默认 size 24，范围 1..100），仅计数和读取当页 `PENDING`，按 `discovered_at DESC, id DESC` 排序，并仅查询当页 item ID 对应的 media。V6 为新排序重建 Inbox 索引；`post_created_at` 和 `discovered_at` 均在卡片中展示。页面使用响应式紧凑 Grid、单图 `object-fit: contain`、多图 2 列预览；Select Page 只选择可见页，翻页清空选择，Sync latest 回第一页，Import/Skip 后重载当前页并在页码越界时回到最后有效页。逐项 import result 保留。实现阶段自动化验证：Java 278 tests、0 failures、0 errors、1 skipped（需外部 LocalStack）；JS 15/15；`git diff --check` 通过。
+
+D1 final review 与用户本机真实人工验收已通过：V6 经 Flyway 在真实本地 MySQL 成功应用；约 313 条 `PENDING` 的 Inbox 在真实浏览器中显示响应式 Grid 和 `Page 1 / 14`，Previous / Next、Select Page、翻页清空选择及 Skip 后刷新均正常。用户重新 Like 的一条 5 月旧 Post 在同步后因 `discovered_at DESC` 出现在第一页顶部。
+
+C1 用户本机真实验收：初始 credential file 的 `expires_at` 留空，启动应用后点击 `Sync latest Likes`，应用自动刷新 OAuth token 并成功完成真实 X Likes 同步。随后用户重新 Like 一条旧 X Post，重启 Spring Boot，没有重新生成 token，再次点击 Sync，成功新增 1 条记录；这验证了本机 token 持久化、跨重启读取及后续 X API 调用。当时该新 Like 因 Inbox 按原帖日期排序而显示在旧帖附近；此可发现性问题已在 V0.4-D1 改用 `discovered_at DESC, id DESC` 后解决，见上方 D1 真实验收。
 
 B3 验证：完整 Java 测试 266/266（含显式启用的真实 LocalStack adapter 测试）、JS 11/11 通过；独立 Compose project 成功构建镜像，MySQL/Flyway 和 `storage.type=s3` 应用启动。独立数据库中导入 PNG 后，`asset.storage_key` 为相对 key，bucket 中原图与 thumbnail 均存在；原图与缩略图 HTTP 200，原图字节与测试源文件一致，浏览器 Gallery 与 Detail 均显示图片。重复导入返回 409，bucket key 集合不增加；删除 Illustration 返回 204，Illustration/Asset 行及两个对象均消失。此前在同一独立 project 的 Local 模式导入的测试 PNG，在停止 LocalStack 并切回 Local 后，原图与缩略图仍可读取，浏览器 Gallery 正常。测试没有访问或迁移真实图库。固定的 LocalStack Community 镜像只作临时实验；实测重启后 bucket 状态丢失，不能将其与保留的 MySQL volume 作为持久图库使用。
 
@@ -386,4 +390,4 @@ README 已按 V0.2 最终能力收尾。V0.2 已完成 Final Acceptance，代码
 
 ### Current version status
 
-V0.3 已正式封存，`v0.3.0` tag 已创建并 push。当前处于 V0.4 工程化阶段；A1 与 A2 已完成，A2 已通过上述真实 Docker 人工验收；A3 已通过 GitHub Actions Linux runner 远程验收。B1 Storage Abstraction 已实现；B3 已用独立 Docker/MySQL/LocalStack 环境按上述范围完成真实验收。C1 Token Lifecycle 已通过自动化验证及用户本机真实 X 人工验收。后续 D1 Inbox usability 的旧帖重新 Like 排序问题待处理；未开始下一工作包。
+V0.3 已正式封存，`v0.3.0` tag 已创建并 push。当前处于 V0.4 工程化阶段；A1 与 A2 已完成，A2 已通过上述真实 Docker 人工验收；A3 已通过 GitHub Actions Linux runner 远程验收。B1 Storage Abstraction 已实现；B3 已用独立 Docker/MySQL/LocalStack 环境按上述范围完成真实验收。C1 Token Lifecycle 已通过自动化验证及用户本机真实 X 人工验收。D1 Inbox usability 已通过 final review、真实本地 MySQL migration 与约 313 条 `PENDING` 的浏览器人工验收；未开始下一工作包。

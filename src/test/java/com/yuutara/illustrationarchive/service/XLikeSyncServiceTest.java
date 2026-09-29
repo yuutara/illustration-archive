@@ -45,18 +45,48 @@ class XLikeSyncServiceTest {
 				mock(XLikePersistenceService.class), items, media, mock(XLikeSyncStateRepository.class), 5, 3);
 		Instant recent = Instant.parse("2026-09-25T09:00:00Z");
 		Instant older = Instant.parse("2026-09-24T09:00:00Z");
-		when(items.findPending()).thenReturn(List.of(
-				new XLikeInboxItem(2, "new", "New", "new", "recent", recent, List.of()),
-				new XLikeInboxItem(1, "old", "Old", "old", "older", older, List.of())));
-		when(media.findForPendingItems()).thenReturn(List.of(
+		when(items.countPending()).thenReturn(3L);
+		when(items.findPendingPage(2, 0L)).thenReturn(List.of(
+				new XLikeInboxItem(2, "new", "New", "new", "recent", older, recent, List.of()),
+				new XLikeInboxItem(1, "old", "Old", "old", "older", recent, older, List.of())));
+		when(media.findForItemIds(List.of(2L, 1L))).thenReturn(List.of(
 				new XLikeMediaRepository.PendingMedia(1, new XLikeMedia("old-photo", 0, "photo", "https://img/old", 1, 2)),
 				new XLikeMediaRepository.PendingMedia(2, new XLikeMedia("first", 0, "photo", "https://img/1", 3, 4)),
 				new XLikeMediaRepository.PendingMedia(2, new XLikeMedia("second", 1, "photo", "https://img/2", 5, 6))));
 
-		List<XLikeInboxItem> inbox = service.inbox();
+		var result = service.inbox(0, 2);
+		List<XLikeInboxItem> inbox = result.items();
 
 		assertEquals(List.of("new", "old"), inbox.stream().map(XLikeInboxItem::xPostId).toList());
 		assertEquals(List.of("first", "second"), inbox.get(0).media().stream().map(XLikeMedia::mediaKey).toList());
+		assertEquals(3, result.totalItems());
+		assertEquals(2, result.totalPages());
+		verify(media).findForItemIds(List.of(2L, 1L));
+	}
+
+	@Test
+	void inboxValidatesPaginationAndLeavesOutOfRangePageEmpty() {
+		XLikeRepository items = mock(XLikeRepository.class);
+		XLikeMediaRepository media = mock(XLikeMediaRepository.class);
+		XLikeSyncService service = new XLikeSyncService(mock(XApiClient.class),
+				mock(XLikePersistenceService.class), items, media, mock(XLikeSyncStateRepository.class), 5, 3);
+		assertThrows(IllegalArgumentException.class, () -> service.inbox(-1, 24));
+		assertThrows(IllegalArgumentException.class, () -> service.inbox(0, 0));
+		assertThrows(IllegalArgumentException.class, () -> service.inbox(0, 101));
+		verifyNoInteractions(items, media);
+		when(items.countPending()).thenReturn(25L);
+		when(items.findPendingPage(24, 24L)).thenReturn(List.of(
+				new XLikeInboxItem(25, "last", "Artist", "artist", null, null,
+						Instant.parse("2026-09-29T09:00:00Z"), List.of())));
+		when(media.findForItemIds(List.of(25L))).thenReturn(List.of(
+				new XLikeMediaRepository.PendingMedia(25, new XLikeMedia("last-photo", 0,
+						"photo", "https://img/last", 100, 100))));
+		assertEquals(2, service.inbox(1, 24).totalPages());
+		assertEquals("last-photo", service.inbox(1, 24).items().get(0).media().get(0).mediaKey());
+		verify(items, times(2)).findPendingPage(24, 24L);
+		assertTrue(service.inbox(2, 24).items().isEmpty());
+		verify(media, times(2)).findForItemIds(List.of(25L));
+		verifyNoMoreInteractions(media);
 	}
 
 	@Test

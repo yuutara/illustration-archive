@@ -17,18 +17,20 @@ import static org.mockito.Mockito.when;
 
 class XLikeMediaRepositoryTest {
 	@Test
-	void pendingMediaQueryFiltersAndOrdersBySortPosition() throws Exception {
+	void mediaQueryUsesOnlyCurrentPageIdsAndOrdersBySortPosition() throws Exception {
 		JdbcTemplate jdbc = mock(JdbcTemplate.class);
 		@SuppressWarnings({"rawtypes", "unchecked"})
 		ArgumentCaptor<RowMapper<XLikeMediaRepository.PendingMedia>> mapper =
 				(ArgumentCaptor) ArgumentCaptor.forClass(RowMapper.class);
-		when(jdbc.query(any(String.class), any(RowMapper.class))).thenReturn(List.of());
+		when(jdbc.query(any(String.class), any(RowMapper.class), org.mockito.ArgumentMatchers.eq(7L),
+				org.mockito.ArgumentMatchers.eq(9L))).thenReturn(List.of());
 
-		new XLikeMediaRepository(jdbc).findForPendingItems();
+		new XLikeMediaRepository(jdbc).findForItemIds(List.of(7L, 9L));
 
 		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
-		verify(jdbc).query(sql.capture(), mapper.capture());
-		assertTrue(sql.getValue().contains("WHERE i.status = 'PENDING'"));
+		verify(jdbc).query(sql.capture(), mapper.capture(), org.mockito.ArgumentMatchers.eq(7L),
+				org.mockito.ArgumentMatchers.eq(9L));
+		assertTrue(sql.getValue().contains("WHERE m.x_like_item_id IN (?, ?)"));
 		assertTrue(sql.getValue().contains("ORDER BY m.x_like_item_id, m.sort_order"));
 		ResultSet rs = mock(ResultSet.class);
 		when(rs.getLong("x_like_item_id")).thenReturn(7L);

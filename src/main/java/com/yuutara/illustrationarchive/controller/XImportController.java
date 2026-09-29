@@ -1,6 +1,6 @@
 package com.yuutara.illustrationarchive.controller;
 
-import com.yuutara.illustrationarchive.dto.XLikeInboxItem;
+import com.yuutara.illustrationarchive.dto.XLikeInboxPage;
 import com.yuutara.illustrationarchive.dto.XLikeSyncSummary;
 import com.yuutara.illustrationarchive.service.XApiException;
 import com.yuutara.illustrationarchive.service.XLikeSyncService;
@@ -48,8 +48,9 @@ public class XImportController {
 	}
 
 	@GetMapping("/inbox")
-	public List<XLikeInboxItem> inbox() {
-		return syncService.inbox();
+	public XLikeInboxPage inbox(@RequestParam(required = false) Integer page,
+			@RequestParam(required = false) Integer size) {
+		return syncService.inbox(page, size);
 	}
 
 	@PatchMapping("/inbox/skip")

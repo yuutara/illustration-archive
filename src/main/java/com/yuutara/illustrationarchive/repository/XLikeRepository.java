@@ -24,11 +24,12 @@ public class XLikeRepository {
 			    author_display_name, post_text, post_created_at, status, discovered_at, updated_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))
 			""";
-	private static final String FIND_PENDING = """
-			SELECT id, x_post_id, author_display_name, author_username, post_text, post_created_at
+	private static final String FIND_PENDING_PAGE = """
+			SELECT id, x_post_id, author_display_name, author_username, post_text, post_created_at, discovered_at
 			FROM x_like_item
 			WHERE status = 'PENDING'
-			ORDER BY post_created_at DESC, id DESC
+			ORDER BY discovered_at DESC, id DESC
+			LIMIT ? OFFSET ?
 			""";
 
 	private final JdbcTemplate jdbcTemplate;
@@ -101,13 +102,18 @@ public class XLikeRepository {
 		}
 	}
 
-	public List<XLikeInboxItem> findPending() {
-		return jdbcTemplate.query(FIND_PENDING, (rs, row) -> {
+	public long countPending() {
+		return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM x_like_item WHERE status = 'PENDING'", Long.class);
+	}
+
+	public List<XLikeInboxItem> findPendingPage(int size, long offset) {
+		return jdbcTemplate.query(FIND_PENDING_PAGE, (rs, row) -> {
 			LocalDateTime created = rs.getObject("post_created_at", LocalDateTime.class);
 			Instant createdAt = created == null ? null : created.toInstant(ZoneOffset.UTC);
+			Instant discoveredAt = rs.getObject("discovered_at", LocalDateTime.class).toInstant(ZoneOffset.UTC);
 			return new XLikeInboxItem(rs.getLong("id"), rs.getString("x_post_id"),
 					rs.getString("author_display_name"), rs.getString("author_username"),
-					rs.getString("post_text"), createdAt, List.of());
-		});
+					rs.getString("post_text"), createdAt, discoveredAt, List.of());
+		}, size, offset);
 	}
 }

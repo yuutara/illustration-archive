@@ -1,6 +1,7 @@
 package com.yuutara.illustrationarchive.service;
 
 import com.yuutara.illustrationarchive.dto.XLikeInboxItem;
+import com.yuutara.illustrationarchive.dto.XLikeInboxPage;
 import com.yuutara.illustrationarchive.dto.XLikeMedia;
 import com.yuutara.illustrationarchive.dto.XLikePage;
 import com.yuutara.illustrationarchive.dto.XLikeSyncSummary;
@@ -134,15 +135,26 @@ public class XLikeSyncService {
 		syncState.clear();
 	}
 
-	public List<XLikeInboxItem> inbox() {
-		List<XLikeInboxItem> pending = items.findPending();
+	public XLikeInboxPage inbox(Integer requestedPage, Integer requestedSize) {
+		int page = requestedPage == null ? 0 : requestedPage;
+		int size = requestedSize == null ? 24 : requestedSize;
+		if (page < 0) throw new IllegalArgumentException("page must be greater than or equal to 0.");
+		if (size < 1 || size > 100) throw new IllegalArgumentException("size must be between 1 and 100.");
+		long totalItems = items.countPending();
+		int totalPages = Math.toIntExact(totalItems == 0 ? 0 : (totalItems - 1) / size + 1);
+		List<XLikeInboxItem> pending = page >= totalPages ? List.of()
+				: items.findPendingPage(size, (long) page * size);
 		Map<Long, List<XLikeMedia>> byItem = new HashMap<>();
-		for (XLikeMediaRepository.PendingMedia row : media.findForPendingItems()) {
-			byItem.computeIfAbsent(row.itemId(), ignored -> new ArrayList<>()).add(row.media());
+		if (!pending.isEmpty()) {
+			for (XLikeMediaRepository.PendingMedia row : media.findForItemIds(pending.stream().map(XLikeInboxItem::id).toList())) {
+				byItem.computeIfAbsent(row.itemId(), ignored -> new ArrayList<>()).add(row.media());
+			}
 		}
-		return pending.stream().map(item -> new XLikeInboxItem(item.id(), item.xPostId(),
+		List<XLikeInboxItem> pageItems = pending.stream().map(item -> new XLikeInboxItem(item.id(), item.xPostId(),
 				item.authorDisplayName(), item.authorUsername(), item.postText(),
-				item.postCreatedAt(), List.copyOf(byItem.getOrDefault(item.id(), List.of())))).toList();
+				item.postCreatedAt(), item.discoveredAt(),
+				List.copyOf(byItem.getOrDefault(item.id(), List.of())))).toList();
+		return new XLikeInboxPage(pageItems, page, size, totalItems, totalPages);
 	}
 
 	@Transactional

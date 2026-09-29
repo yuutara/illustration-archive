@@ -908,8 +908,18 @@ h2 {
 
 .inbox-list {
     display: grid;
-    gap: 20px;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    align-items: start;
+    gap: 16px;
     margin-top: 22px;
+}
+
+.inbox-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    margin: 24px 0;
 }
 
 .inbox-results {
@@ -955,8 +965,8 @@ h2 {
 .inbox-card {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
-    gap: 16px;
-    padding: 22px;
+    gap: 10px;
+    padding: 14px;
     border: 1px solid var(--border);
     border-radius: 14px;
     background: var(--surface);
@@ -975,6 +985,9 @@ h2 {
     min-width: 0;
 }
 
+.inbox-card-header { align-items: start; }
+.inbox-card-header > div { min-width: 0; overflow-wrap: anywhere; }
+
 .inbox-author {
     margin-bottom: 2px;
     font-weight: 700;
@@ -989,17 +1002,22 @@ h2 {
 }
 
 .inbox-post-text {
-    margin: 20px 0;
-    line-height: 1.6;
+    margin: 10px 0;
+    line-height: 1.45;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    overflow: hidden;
 }
 
 .inbox-media {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
-    margin: 18px 0;
+    gap: 4px;
+    margin: 10px 0;
 }
 
 .inbox-media.single {
@@ -1009,22 +1027,17 @@ h2 {
 .inbox-media img {
     display: block;
     width: 100%;
-    height: auto;
-    max-height: 520px;
+    height: 112px;
     object-fit: contain;
     border-radius: 8px;
     background: var(--surface-muted);
 }
 
 .inbox-media.single img {
-    max-height: 700px;
+    height: 228px;
 }
 
 @media (max-width: 620px) {
-    .inbox-media {
-        grid-template-columns: 1fr;
-    }
-
     .inbox-card {
         padding: 16px;
         gap: 10px;

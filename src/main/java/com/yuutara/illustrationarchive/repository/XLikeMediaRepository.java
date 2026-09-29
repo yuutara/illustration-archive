@@ -23,18 +23,19 @@ public class XLikeMediaRepository {
 				media.photoUrl(), media.width(), media.height());
 	}
 
-	public List<PendingMedia> findForPendingItems() {
+	public List<PendingMedia> findForItemIds(List<Long> itemIds) {
+		if (itemIds.isEmpty()) return List.of();
+		String placeholders = String.join(", ", java.util.Collections.nCopies(itemIds.size(), "?"));
 		return jdbcTemplate.query("""
 				SELECT m.x_like_item_id, m.media_key, m.sort_order, m.media_type,
 				       m.source_url, m.width, m.height
 				FROM x_like_media m
-				JOIN x_like_item i ON i.id = m.x_like_item_id
-				WHERE i.status = 'PENDING'
+				WHERE m.x_like_item_id IN (%s)
 				ORDER BY m.x_like_item_id, m.sort_order
-				""", (rs, row) -> new PendingMedia(rs.getLong("x_like_item_id"),
+				""".formatted(placeholders), (rs, row) -> new PendingMedia(rs.getLong("x_like_item_id"),
 				new XLikeMedia(rs.getString("media_key"), rs.getInt("sort_order"),
 						rs.getString("media_type"), rs.getString("source_url"),
-						rs.getObject("width", Integer.class), rs.getObject("height", Integer.class))));
+						rs.getObject("width", Integer.class), rs.getObject("height", Integer.class))), itemIds.toArray());
 	}
 
 	public List<XLikeMedia> findByItemId(long itemId) {

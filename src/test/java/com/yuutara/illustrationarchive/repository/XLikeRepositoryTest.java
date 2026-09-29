@@ -82,26 +82,36 @@ class XLikeRepositoryTest {
 	}
 
 	@Test
-	void pendingQueryFiltersStatusAndOrdersNewestFirst() throws Exception {
+	void pendingCountAndPageQuerySortByDiscoveryAndApplyLimit() throws Exception {
 		JdbcTemplate jdbc = mock(JdbcTemplate.class);
 		XLikeRepository repository = new XLikeRepository(jdbc);
 		@SuppressWarnings({"rawtypes", "unchecked"})
 		ArgumentCaptor<RowMapper<XLikeInboxItem>> mapper = (ArgumentCaptor) ArgumentCaptor.forClass(RowMapper.class);
-		when(jdbc.query(anyString(), any(RowMapper.class))).thenReturn(List.of());
+		when(jdbc.query(anyString(), any(RowMapper.class), eq(2), eq(4L))).thenReturn(List.of());
+		when(jdbc.queryForObject(anyString(), eq(Long.class))).thenReturn(7L);
 
-		repository.findPending();
+		assertEquals(7L, repository.countPending());
+		repository.findPendingPage(2, 4L);
 
 		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
-		verify(jdbc).query(sql.capture(), mapper.capture());
+		verify(jdbc).query(sql.capture(), mapper.capture(), eq(2), eq(4L));
 		assertTrue(sql.getValue().contains("WHERE status = 'PENDING'"));
-		assertTrue(sql.getValue().contains("ORDER BY post_created_at DESC, id DESC"));
+		assertTrue(sql.getValue().contains("ORDER BY discovered_at DESC, id DESC"));
+		assertTrue(sql.getValue().contains("LIMIT ? OFFSET ?"));
+		ArgumentCaptor<String> countSql = ArgumentCaptor.forClass(String.class);
+		verify(jdbc).queryForObject(countSql.capture(), eq(Long.class));
+		assertTrue(countSql.getValue().contains("COUNT(*)"));
+		assertTrue(countSql.getValue().contains("status = 'PENDING'"));
 		ResultSet rs = mock(ResultSet.class);
 		when(rs.getLong("id")).thenReturn(7L);
 		when(rs.getString("x_post_id")).thenReturn("11");
 		when(rs.getObject("post_created_at", LocalDateTime.class))
 				.thenReturn(LocalDateTime.of(2026, 9, 25, 9, 0));
+		when(rs.getObject("discovered_at", LocalDateTime.class))
+				.thenReturn(LocalDateTime.of(2026, 9, 29, 9, 0));
 		XLikeInboxItem item = mapper.getValue().mapRow(rs, 0);
 		assertEquals(Instant.parse("2026-09-25T09:00:00Z"), item.postCreatedAt());
+		assertEquals(Instant.parse("2026-09-29T09:00:00Z"), item.discoveredAt());
 	}
 
 	@Test

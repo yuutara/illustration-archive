@@ -43,6 +43,10 @@ function inboxItem(id) {
         authorUsername: `artist${id}`, postText: "", media: [] };
 }
 
+function inboxPage(items, page = 0, totalItems = items.length, size = 24) {
+    return { items, page, size, totalItems, totalPages: Math.ceil(totalItems / size) };
+}
+
 async function page(responses) {
     const elements = new Map();
     const calls = [];
@@ -77,17 +81,17 @@ function resultRows(elements) {
 
 test("page initialization only reads local Inbox; one success links to Detail after refresh", async () => {
     const { elements, calls } = await page([
-        { url: "/api/x-import/inbox", body: [inboxItem(1)] },
+        { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([inboxItem(1)]) },
         { url: "/api/x-import/inbox/import", body: { total: 1, successCount: 1,
             duplicateCount: 0, failureCount: 0,
             items: [{ itemId: 1, status: "SUCCESS", illustrationId: 42, reason: null }] } },
-        { url: "/api/x-import/inbox", body: [] }
+        { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([]) }
     ]);
-    assert.deepEqual(calls.map(call => call.url), ["/api/x-import/inbox"]);
+    assert.deepEqual(calls.map(call => call.url), ["/api/x-import/inbox?page=0&size=24"]);
     select(elements, 1);
     await elements.get("import-button").dispatch("click");
     assert.deepEqual(calls.map(call => call.url), [
-        "/api/x-import/inbox", "/api/x-import/inbox/import", "/api/x-import/inbox"
+        "/api/x-import/inbox?page=0&size=24", "/api/x-import/inbox/import", "/api/x-import/inbox?page=0&size=24"
     ]);
     assert.deepEqual(JSON.parse(calls[1].options.body), { itemIds: [1] });
     assert.equal(elements.get("import-results").hidden, false);
@@ -100,38 +104,38 @@ test("page initialization only reads local Inbox; one success links to Detail af
 
 test("Sync latest uses recent endpoint and explains that the next click restarts at latest", async () => {
     const { elements, calls } = await page([
-        { url: "/api/x-import/inbox", body: [] },
+        { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([]) },
         { url: "/api/x-import/sync/recent?maxResults=5&maxPages=3", body: {
             pagesFetched: 3, fetchedCount: 15, newCount: 2, existingCount: 13,
             pendingCount: 2, stoppedByMaxPages: true, stoppedByInvalidToken: false
         } },
-        { url: "/api/x-import/inbox", body: [] }
+        { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([]) }
     ]);
 
     await elements.get("sync-button").dispatch("click");
 
     assert.equal(calls[1].options.method, "POST");
     assert.deepEqual(calls.map(call => call.url), [
-        "/api/x-import/inbox", "/api/x-import/sync/recent?maxResults=5&maxPages=3", "/api/x-import/inbox"
+        "/api/x-import/inbox?page=0&size=24", "/api/x-import/sync/recent?maxResults=5&maxPages=3", "/api/x-import/inbox?page=0&size=24"
     ]);
     assert.match(elements.get("inbox-message").textContent, /下次点击仍从最新 Likes 开始/);
 });
 
 test("partial batch results stay paired with posts and failed items remain selectable", async () => {
     const { elements, calls } = await page([
-        { url: "/api/x-import/inbox", body: [inboxItem(1), inboxItem(2), inboxItem(3)] },
+        { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([inboxItem(1), inboxItem(2), inboxItem(3)]) },
         { url: "/api/x-import/inbox/import", body: { total: 3, successCount: 1,
             duplicateCount: 1, failureCount: 1, items: [
                 { itemId: 3, status: "FAILED", illustrationId: null, reason: "download failed" },
                 { itemId: 1, status: "SUCCESS", illustrationId: 21, reason: null },
                 { itemId: 2, status: "DUPLICATE", illustrationId: null, reason: "same photo" }
             ] } },
-        { url: "/api/x-import/inbox", body: [inboxItem(2), inboxItem(3)] },
-        { url: "/api/x-import/inbox", body: [inboxItem(2), inboxItem(3)] },
+        { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([inboxItem(2), inboxItem(3)]) },
+        { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([inboxItem(2), inboxItem(3)]) },
         { url: "/api/x-import/inbox/import", body: { total: 1, successCount: 1,
             duplicateCount: 0, failureCount: 0,
             items: [{ itemId: 3, status: "SUCCESS", illustrationId: 33, reason: null }] } },
-        { url: "/api/x-import/inbox", body: [inboxItem(2)] }
+        { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([inboxItem(2)]) }
     ]);
     select(elements, 1, 2, 3);
     await elements.get("import-button").dispatch("click");
@@ -162,9 +166,9 @@ test("partial batch results stay paired with posts and failed items remain selec
 
 test("skip reports actual transition count and refreshes pending items", async () => {
     const { elements, calls } = await page([
-        { url: "/api/x-import/inbox", body: [inboxItem(1), inboxItem(2)] },
+        { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([inboxItem(1), inboxItem(2)]) },
         { url: "/api/x-import/inbox/skip", body: { requestedCount: 2, skippedCount: 1 } },
-        { url: "/api/x-import/inbox", body: [inboxItem(2)] }
+        { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([inboxItem(2)]) }
     ]);
     select(elements, 1, 2);
     await elements.get("skip-button").dispatch("click");
@@ -174,6 +178,79 @@ test("skip reports actual transition count and refreshes pending items", async (
     assert.match(elements.get("inbox-message").textContent, /其余项目已处理或不存在/);
     assert.equal(elements.get("inbox-list").children.length, 1);
     assert.equal(elements.get("inbox-list").querySelectorAll("input[type=checkbox]")[0].value, "2");
+});
+
+test("Previous and Next clear selection; Select Page submits only visible IDs", async () => {
+    const { elements, calls } = await page([
+        { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([inboxItem(1), inboxItem(2)], 0, 26) },
+        { url: "/api/x-import/inbox?page=1&size=24", body: inboxPage([inboxItem(25), inboxItem(26)], 1, 26) },
+        { url: "/api/x-import/inbox/skip", body: { requestedCount: 2, skippedCount: 0 } },
+        { url: "/api/x-import/inbox?page=1&size=24", body: inboxPage([inboxItem(25), inboxItem(26)], 1, 26) },
+        { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([inboxItem(1), inboxItem(2)], 0, 26) }
+    ]);
+    assert.equal(elements.get("inbox-page-status").textContent, "Page 1 / 2");
+    select(elements, 1);
+    await elements.get("inbox-next").dispatch("click");
+    assert.equal(elements.get("inbox-page-status").textContent, "Page 2 / 2");
+    assert.equal(elements.get("import-button").disabled, true);
+    assert.equal(elements.get("inbox-list").querySelectorAll("input[type=checkbox]:checked").length, 0);
+    await elements.get("select-all-button").dispatch("click");
+    await elements.get("skip-button").dispatch("click");
+    assert.deepEqual(JSON.parse(calls[2].options.body), { itemIds: [25, 26] });
+    await elements.get("inbox-previous").dispatch("click");
+    assert.equal(elements.get("inbox-page-status").textContent, "Page 1 / 2");
+    assert.equal(elements.get("skip-button").disabled, true);
+});
+
+test("Sync returns to first page and shows newly discovered item", async () => {
+    const { elements } = await page([
+        { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([inboxItem(1)], 0, 25) },
+        { url: "/api/x-import/inbox?page=1&size=24", body: inboxPage([inboxItem(25)], 1, 25) },
+        { url: "/api/x-import/sync/recent?maxResults=5&maxPages=3", body: {
+            pagesFetched: 1, fetchedCount: 1, newCount: 1, existingCount: 0,
+            pendingCount: 1, stoppedByMaxPages: false, stoppedByInvalidToken: false
+        } },
+        { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([inboxItem(99), inboxItem(1)], 0, 26) }
+    ]);
+    await elements.get("inbox-next").dispatch("click");
+    select(elements, 25);
+    await elements.get("sync-button").dispatch("click");
+    assert.equal(elements.get("inbox-page-status").textContent, "Page 1 / 2");
+    assert.equal(elements.get("inbox-list").querySelectorAll("input[type=checkbox]")[0].value, "99");
+    assert.equal(elements.get("import-button").disabled, true);
+});
+
+test("Import falls back from an emptied last page while preserving results", async () => {
+    const { elements, calls } = await page([
+        { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([inboxItem(1)], 0, 25) },
+        { url: "/api/x-import/inbox?page=1&size=24", body: inboxPage([inboxItem(25)], 1, 25) },
+        { url: "/api/x-import/inbox/import", body: { total: 1, successCount: 1,
+            duplicateCount: 0, failureCount: 0, items: [
+                { itemId: 25, status: "SUCCESS", illustrationId: 42, reason: null }
+            ] } },
+        { url: "/api/x-import/inbox?page=1&size=24", body: inboxPage([], 1, 24) },
+        { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([inboxItem(1)], 0, 24) }
+    ]);
+    await elements.get("inbox-next").dispatch("click");
+    select(elements, 25);
+    await elements.get("import-button").dispatch("click");
+    assert.equal(elements.get("inbox-page-status").textContent, "Page 1 / 1");
+    assert.equal(resultRows(elements)[0].children[2].href, "/detail.html?id=42");
+    assert.equal(calls[4].url, "/api/x-import/inbox?page=0&size=24");
+});
+
+test("Skip falls back from an emptied last page", async () => {
+    const { elements } = await page([
+        { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([inboxItem(1)], 0, 25) },
+        { url: "/api/x-import/inbox?page=1&size=24", body: inboxPage([inboxItem(26)], 1, 25) },
+        { url: "/api/x-import/inbox/skip", body: { requestedCount: 1, skippedCount: 1 } },
+        { url: "/api/x-import/inbox?page=1&size=24", body: inboxPage([], 1, 24) },
+        { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([inboxItem(1)], 0, 24) }
+    ]);
+    await elements.get("inbox-next").dispatch("click");
+    select(elements, 26);
+    await elements.get("skip-button").dispatch("click");
+    assert.equal(elements.get("inbox-page-status").textContent, "Page 1 / 1");
 });
 
 test("result region and Gallery link are present in the page", () => {
