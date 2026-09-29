@@ -5,7 +5,7 @@
 
 ## Current Version
 
-V0.4 - 工程化（Runtime Configuration Externalization、Docker Compose、GitHub Actions CI）
+V0.4 - 工程化（配置外置化、Docker Compose、CI、存储边界与可选 S3、X Token 生命周期、Inbox 可用性）
 
 Release status:
 
@@ -21,6 +21,8 @@ V0.4-A3 GitHub Actions CI 已完成，并已通过 GitHub Actions Linux runner �
 
 V0.4-B1 Storage Abstraction 已实现。`FileStorage` 以文件名和 `InputStream` 保存原图，并提供按 `storage_key` 读取/删除及历史 SHA-256 计算；HTTP `MultipartFile` 由 `IllustrationImportService` 在存储边界前适配。`ThumbnailStorage` 提供现有 thumbnail 生成/读取/删除能力。业务服务仅依赖接口；现有 `FileStorageService`、`ThumbnailService` 仍为 Local filesystem 实现。`Path`、临时文件及 move 保留在 Local 实现内部；`storage_key`、数据库 Schema、REST API、导入与补偿顺序均未改动。本轮自动化验证为完整 Java 测试 263/263、现有 JS 测试 11/11，以及 `git diff --check`；Docker Compose 配置通过只读解析。尚未以真实 MySQL、HTTP 或浏览器重新验收本轮重构，也未实现 MinIO。
 
+V0.4-B2 Object Storage / S3 学习评估已完成，属于技术评估，没有独立业务代码提交。结论是保留 Local Storage 默认实现，只在独立测试环境验证可选的 S3-compatible 第二实现；不迁移现有图库，也不把临时 LocalStack 环境作为持久存储。B3 的实现与真实验收记录如下。
+
 V0.4-B3 S3-compatible Storage Validation 已完成。默认 `storage.type=local`，原有 Local implementations 继续使用；显式设为 `s3` 时注入 `S3FileStorage` 与 `S3ThumbnailStorage`，只新增 AWS SDK for Java 2.x 的 S3 模块。S3 client 的 endpoint、region、凭据、bucket 和 path-style 均由 runtime configuration 提供。原图 object key 沿用相对 `storage_key`，thumbnail object key 为 `thumbnails/<storage_key>`；Schema、REST API、导入及补偿顺序未改变。SDK 的 GET 返回一次性流，adapter 通过 `HEAD` 获得长度并包装为可重新打开流的 `Resource`，因此现有 `FileStorage` / `ThumbnailStorage` contract 无须演化。上传和 ImageIO 编码使用受控临时文件并在操作结束后清理，最终对象均位于 S3。
 
 V0.4-C1 X OAuth Token Lifecycle 已实现，真实 X 人工验收已通过。当前 App 的 Client ID / Client Secret 由本机运行时配置提供；App owner 在 Developer Console 一次性生成初始 access token + refresh token，手工放入 Git 忽略的 `config/x-oauth-tokens.properties`。应用在 access token 即将到期或到期时间未知时通过 confidential-client Basic Authentication 向 X token endpoint 刷新；收到 401 后最多再刷新重试一次，403 不触发刷新。新 token 使用串行化、临时文件加原子替换写回；响应未返回新 refresh token 时保留旧值；写盘失败会显式报错，并在当前进程内保留新凭据以供重试。未增加浏览器 OAuth callback、数据库 Schema、scheduler，未改 Inbox UI、latest/history、分页及导入业务语义。实现阶段自动化验证：Java 276 tests、0 failures、0 errors、1 skipped（需外部 LocalStack）；现有 JS 11/11 通过，本次文档更新未重跑测试。
@@ -32,6 +34,8 @@ D1 final review 与用户本机真实人工验收已通过：V6 经 Flyway 在�
 C1 用户本机真实验收：初始 credential file 的 `expires_at` 留空，启动应用后点击 `Sync latest Likes`，应用自动刷新 OAuth token 并成功完成真实 X Likes 同步。随后用户重新 Like 一条旧 X Post，重启 Spring Boot，没有重新生成 token，再次点击 Sync，成功新增 1 条记录；这验证了本机 token 持久化、跨重启读取及后续 X API 调用。当时该新 Like 因 Inbox 按原帖日期排序而显示在旧帖附近；此可发现性问题已在 V0.4-D1 改用 `discovered_at DESC, id DESC` 后解决，见上方 D1 真实验收。
 
 B3 验证：完整 Java 测试 266/266（含显式启用的真实 LocalStack adapter 测试）、JS 11/11 通过；独立 Compose project 成功构建镜像，MySQL/Flyway 和 `storage.type=s3` 应用启动。独立数据库中导入 PNG 后，`asset.storage_key` 为相对 key，bucket 中原图与 thumbnail 均存在；原图与缩略图 HTTP 200，原图字节与测试源文件一致，浏览器 Gallery 与 Detail 均显示图片。重复导入返回 409，bucket key 集合不增加；删除 Illustration 返回 204，Illustration/Asset 行及两个对象均消失。此前在同一独立 project 的 Local 模式导入的测试 PNG，在停止 LocalStack 并切回 Local 后，原图与缩略图仍可读取，浏览器 Gallery 正常。测试没有访问或迁移真实图库。固定的 LocalStack Community 镜像只作临时实验；实测重启后 bucket 状态丢失，不能将其与保留的 MySQL volume 作为持久图库使用。
+
+V0.4 Final Acceptance（2026-09-29）已通过：当前 HEAD `3f7943b` 的完整 Java 测试为 278 tests、0 failures、0 errors、1 skipped（需外部 LocalStack），JS 测试 15/15，`git diff --check` 通过。使用独立 Compose project、独立测试数据库和默认 Local Storage 构建并启动应用及 MySQL 8.4；空库上 Flyway V1-V6 全部成功。浏览器中的 Gallery、Detail、空 Inbox 正常，测试 PNG 导入后原图与缩略图均可读取，原图 SHA-256 与源文件一致，数据库保存相对 `storage_key`。保留两个 volume 重建容器后，Illustration 记录、原图、缩略图及六条成功 migration 记录仍在；隔离测试容器、volume 与临时文件已清理。本机现有实例也通过 Gallery / Detail / Inbox 浏览器与 HTTP 基本核对，本地 MySQL 的 V1-V6 均为成功。GitHub Actions 最新 CI #5 对同一 HEAD 显示 Success；对当前跟踪文件、历史敏感路径及忽略规则的检查未发现真实凭据提交。此次没有重新调用真实 X API 或 LocalStack。`v0.4.0` 尚未创建；文档变更待用户确认后提交、push，并以新提交的 CI 结果作为打 tag 前的最终远端证据。
 
 V0.2 的 Final Acceptance 已完成，代码已 push，并已创建 `v0.2.0` tag。
 
@@ -76,7 +80,7 @@ V0.2 的 Final Acceptance 已完成，代码已 push，并已创建 `v0.2.0` tag
 
 - 对上游 HTTP 401 返回 `X_CREDENTIAL_REJECTED`，提示检查本地凭据并重启；对 403 返回 `X_ACCESS_DENIED`，提示凭据无效或不适用于当前接口、App/User 权限不足等可能原因，不据此判断凭据已被识别。响应不包含 Access Token 或 Authorization header，其他 X API 错误映射保持原有行为。
 - D2 真实 X API 验收中，将本地 Access Token 改为无效测试值并重启后，X 实际返回 403；此观察仅验证该错误路径，不代表 401 或其他认证场景已完成真实验收。
-- 当前仍使用本地手动配置的 X Access Token；修改 `X_API_ACCESS_TOKEN` 后必须重启 Spring Boot。未实现 OAuth token lifecycle、refresh token、callback、PKCE 或 token persistence。
+- V0.3-D2 当时仍使用本地手动配置的 X Access Token，修改 `X_API_ACCESS_TOKEN` 后需重启 Spring Boot；当时尚未实现 OAuth token lifecycle、refresh token、callback、PKCE 或 token persistence。后续 V0.4-C1 已实现本地 token refresh 与 persistence，见上方 C1 记录。
 
 ### V0.3-D3-1 | Continuation persistence
 
@@ -390,4 +394,4 @@ README 已按 V0.2 最终能力收尾。V0.2 已完成 Final Acceptance，代码
 
 ### Current version status
 
-V0.3 已正式封存，`v0.3.0` tag 已创建并 push。当前处于 V0.4 工程化阶段；A1 与 A2 已完成，A2 已通过上述真实 Docker 人工验收；A3 已通过 GitHub Actions Linux runner 远程验收。B1 Storage Abstraction 已实现；B3 已用独立 Docker/MySQL/LocalStack 环境按上述范围完成真实验收。C1 Token Lifecycle 已通过自动化验证及用户本机真实 X 人工验收。D1 Inbox usability 已通过 final review、真实本地 MySQL migration 与约 313 条 `PENDING` 的浏览器人工验收；未开始下一工作包。
+V0.3 已正式封存，`v0.3.0` tag 已创建并 push。V0.4 的 A1/A2/A3、B1/B2/B3、C1、D1 计划工作包与 Final Acceptance 已按上文范围完成，具备 `v0.4.0` 的技术发布条件。`v0.4.0` 尚未创建；本轮文档变更尚未 commit / push，发布 Git 操作由用户确认后执行。

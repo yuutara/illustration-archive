@@ -1,14 +1,14 @@
 # Illustration Archive
 
-一个面向个人使用的插画归档工具：用 Spring Boot 提供导入、图库、详情和元数据管理 API，用本地文件系统保存图片本体，用 MySQL 保存可查询的插画元数据。
+一个面向个人使用的插画归档工具：用 Spring Boot 提供导入、图库、详情和元数据管理 API，默认用本地文件系统保存图片本体，用 MySQL 保存可查询的插画元数据。另提供可选的 S3-compatible 存储实现供独立实验。
 
 ## 项目简介
 
 Illustration Archive 解决的是“把散落在本地的插画文件整理成可浏览、可追踪的个人图库”这一问题。
 
-项目采用 local-first 设计：图片文件留在配置的本地存储目录，数据库只保存插画、作者、标签以及文件元数据。浏览器端使用 Spring Boot 静态资源目录中的原生 HTML、CSS 和 JavaScript，不需要前端构建工具。
+项目采用 local-first 设计：默认将图片文件留在配置的本地存储目录，数据库只保存插画、作者、标签以及文件元数据。浏览器端使用 Spring Boot 静态资源目录中的原生 HTML、CSS 和 JavaScript，不需要前端构建工具。
 
-V0.3 已正式封存，增加 X Likes 手动同步与多图归档；当前进入 V0.4 工程化阶段。`v0.1.0`、`v0.2.0` 和 `v0.3.0` 均已创建并 push tag。
+V0.3 已正式封存，增加 X Likes 手动同步与多图归档；V0.4 计划工作包与 Final Acceptance 已完成，尚未发布 `v0.4.0`。`v0.1.0`、`v0.2.0` 和 `v0.3.0` 均已创建并 push tag。
 
 ## 项目截图
 
@@ -31,7 +31,7 @@ V0.3 已正式封存，增加 X Likes 手动同步与多图归档；当前进入
 - 首页图库分页浏览，默认每页 24 条。JPG/PNG 卡片使用缩略图，GIF 保持原始动画；卡片显示封面、标题和作者，并可进入详情页。
 - 多 Asset 卡片可左右循环预览；Artwork-first 详情页按顺序纵向展示全部原图，保持原始比例，并显示标题、作者、标签、备注和来源链接。
 - 手动同步 X Likes：Inbox 页的 Sync latest Likes 每次从第一页查最近点赞；独立的后端 history continuation 接口保存分页游标，可跨轮、跨重启继续。页面加载不会自动请求 X API，也没有 history continuation 按钮。
-- X Import Inbox 只展示 `PENDING` 候选，可单项或批量选择导入、跳过；逐项显示导入成功、重复或失败结果。无图、GIF、视频或混合媒体等不符合“全部直接附件为带 URL 的 photo”条件的 Post 标记为 `UNSUPPORTED`；跳过和成功导入分别变为 `SKIPPED`、`IMPORTED`。
+- X Import Inbox 分页展示 `PENDING` 候选，按最近发现时间排序；紧凑 Grid 中仅选择当前页，可单项或批量导入、跳过，逐项显示成功、重复或失败结果。无图、GIF、视频或混合媒体等不符合“全部直接附件为带 URL 的 photo”条件的 Post 标记为 `UNSUPPORTED`；跳过和成功导入分别变为 `SKIPPED`、`IMPORTED`。
 - 将受支持的 X Post 单图或多图归档为一个 Illustration 和有序 Asset，以 SHA-256 拒绝整条 Post 中的重复图片；批量导入允许部分成功，并记录 `imported_illustration_id`。本地文件导入仍支持 GIF，X GIF/视频导入尚不支持。
 - 编辑标题、来源链接、备注，并通过 PATCH 更新已有 Author 关联和 Tag 关联。
 - 搜索和创建 Author；搜索、创建、选择、移除 Tag。
@@ -61,13 +61,15 @@ flowchart LR
     Controller --> Service["Service<br/>业务规则与事务边界"]
     Service --> Repository["Repository<br/>JdbcTemplate + SQL"]
     Repository --> MySQL[(MySQL)]
-    Service --> Storage["FileStorageService<br/>本地文件系统"]
+    Service --> Storage["FileStorage / ThumbnailStorage"]
+    Storage --> Local["Local 文件系统（默认）"]
+    Storage --> S3["S3-compatible（可选实验）"]
 ```
 
 - `Controller` 只负责 HTTP 映射、参数接收和响应状态。
 - `Service` 负责导入、编辑、删除、分页等业务流程，以及需要事务的数据库操作。
 - `Repository` 集中保存 SQL 和结果映射。
-- `FileStorageService` 负责文件校验、流式保存、读取、删除和存储路径安全检查。
+- `FileStorage` / `ThumbnailStorage` 定义原图与缩略图的存储边界；默认 Local 实现负责文件校验、保存、读取、删除和路径安全检查，可选 S3-compatible 实现用于独立实验。
 - 静态前端通过 `/api/...` 调用后端，不直接接触数据库或文件系统路径。
 
 ## 数据模型与实体关系
@@ -247,7 +249,7 @@ Tag ID 会先校验存在性，并去除重复 ID，然后在同一数据库事�
 | `POST` | `/api/x-import/sync/recent` | 手动从第一页同步最新 Likes；可选 `maxResults`（默认 5，范围 5..100）和 `maxPages`（默认 3，范围 1..10） |
 | `POST` | `/api/x-import/sync/continuation` | 显式续扫历史 Likes；页数截断保存游标，自然末页清除游标 |
 | `POST` | `/api/x-import/sync/continuation/reset` | 仅在历史游标为 `INVALID` 时显式重置 |
-| `GET` | `/api/x-import/inbox` | 返回按 Post 时间倒序排列的 `PENDING` 候选及有序媒体 |
+| `GET` | `/api/x-import/inbox?page=0&size=24` | 返回 0-based 分页 DTO：`items`、`page`、`size`、`totalItems`、`totalPages`；默认每页 24 条，`size` 范围 1..100，仅查询当页 `PENDING` 及媒体，按 `discovered_at DESC, id DESC` 排序 |
 | `PATCH` | `/api/x-import/inbox/skip` | 跳过请求体 `itemIds` 中仍为 `PENDING` 的项 |
 | `POST` | `/api/x-import/inbox/import` | 导入请求体 `itemIds` 中的项，逐项返回 `SUCCESS`、`DUPLICATE` 或 `FAILED` |
 
@@ -460,19 +462,18 @@ macOS/Linux：
 
 ## 版本状态
 
-`v0.1.0`、`v0.2.0` 和 `v0.3.0` tag 均已创建并 push。V0.3 已正式封存，具备 X Likes 手动同步、Inbox 照片归档和多 Asset 浏览能力。当前为 V0.4 工程化阶段，A1 运行时配置外置化与 A2 Docker & Docker Compose 均已完成；A3 GitHub Actions CI 已通过 GitHub Actions Linux runner 远程验收。A2 的镜像构建、MySQL/Flyway、应用启动、图片导入及容器重建后持久化已通过真实人工验收，具体边界见 `docs/PROJECT_STATE.md`。
+`v0.1.0`、`v0.2.0` 和 `v0.3.0` tag 均已创建并 push。V0.3 已正式封存，具备 X Likes 手动同步、Inbox 照片归档和多 Asset 浏览能力。V0.4 的 A1/A2/A3、B1/B2/B3、C1、D1 工作包与 Final Acceptance 已完成；`v0.4.0` 尚未发布。各项真实环境验收边界见 `docs/PROJECT_STATE.md`。
 
 当前默认仍为单机、本地文件系统存储；V0.4-B3 提供可选的 S3-compatible 本地验证模式，不包含历史数据迁移或云端部署。V0.4-C1 使用 Developer Console 手工生成的初始 OAuth 2.0 Token 并在本机按需刷新，已通过用户本机真实 X 人工验收：初始 `expires_at` 留空时自动刷新并同步成功；重启后未重新生成 token，再次同步一条重新 Like 的旧 Post，新增 1 条记录。没有浏览器授权回调、后台自动同步或用户认证。验收细节见 `docs/PROJECT_STATE.md`。
 
 ## Roadmap
 
 - X GIF/视频等非静态图片媒体导入，以及导入来源信息的进一步整理。
-- Inbox 紧凑网格、缩放与列数调整、选择体验、hover 动画、筛选，以及 history continuation 页面入口。
-- 后续 D1 Inbox usability：重新 Like 的旧 Post 目前仍按 `post_created_at DESC` 显示在原帖日期附近，需改善新 Like 的可发现性。
+- Inbox 进一步的筛选、视觉调整，以及 history continuation 页面入口。
 - 完整的浏览器 OAuth 授权流程（当前单用户本地应用不需要）。
 - 感知哈希重复检测与合并策略。
 - 孤儿文件扫描、诊断和人工确认后的修复工具。
 - 更丰富的图库搜索、筛选、排序和批量整理能力。
 - 在保持 `storage_key` 与数据库元数据解耦的前提下，继续整理可替换的存储实现。
 
-Roadmap 中的内容不属于 V0.3 已完成范围。
+Roadmap 中的内容不属于 V0.4 已完成范围。
