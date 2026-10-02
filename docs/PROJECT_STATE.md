@@ -5,7 +5,28 @@
 
 ## Current Version
 
-V0.4 - 工程化（配置外置化、Docker Compose、CI、存储边界与可选 S3、X Token 生命周期、Inbox 可用性）
+V0.5 - 图库使用体验（当前工作包：统一图片查看器）
+
+### V0.5-F1｜Unified Image Viewer
+
+2026-10-02，统一 Viewer 已实现。Gallery、Inbox、Detail 共用原生 JavaScript 与 `<dialog>`，不增加框架、依赖、后端 API、数据库字段或 migration。V0.4 的同步、归档、去重、事务及文件补偿逻辑保持原实现；本轮没有 commit、push 或 tag。
+
+- Gallery 从当前卡片 Asset 打开 Viewer，切图同步卡片；文字入口继续进入 Detail。Inbox 从被点击的媒体打开，弹层开关保留勾选。Detail 保留有序纵向原图及后续图片 lazy loading，点击任意原图打开 Viewer，不重置编辑表单。
+- Viewer 只浏览当前 Illustration/Post，首尾停止。支持适应窗口、1:1、1.25 倍步进缩放、原尺寸 4 倍上限、拖动和弹层内快捷键；切图、重新打开及刷新后重置为适应窗口。只加载当前大图，过期 load/error 回调不会覆盖新图片；GIF 沿用普通 `<img>`。
+- 浏览状态由 `browse-context.js` 集中管理，以 Asset ID/mediaKey 保存当前项；页码写入 URL，History API 处理 Back/Forward，sessionStorage 保存标签页上下文。刷新重新读取数据后恢复有效 Viewer；进入 Detail 前移除本次弹层历史项，返回列表时恢复页码、锚点与当前图片。Detail 切图同步来源 Gallery；缓存恢复与重新加载均支持。项目消失、页码越界或存储不可用时合理回退。
+- Viewer 不执行 Import、Skip、编辑或删除；既有页面动作与 Inbox 可见页选择规则保持。Detail 保存/删除成功只新增来源列表失效标记与返回处理，不改变其后端操作。
+
+**自动化验证：**执行 `node --test src/test/js/gallery.test.js src/test/js/x-import.test.js src/test/js/detail.test.js src/test/js/image-viewer.test.js src/test/js/browse-context.test.js`，33/33 通过。覆盖现有 Inbox 同步/批量结果/分页刷新、Gallery 卡片循环预览、Detail 纵向原图与 lazy loading，以及 Viewer 的指定图片打开、失败重试、缩放拖动边界、过期回调、Back/Forward、刷新恢复、来源返回、状态失效及未保存表单保留。模拟 DOM 不替代真实浏览器。`git diff --check` 通过；本轮纯前端改动，未运行 Maven 或完整 Java 测试。
+
+**真实浏览器验证：**使用本地源文件预览服务测试最终静态资源，没有重启现有 Spring Boot。预览服务仅允许 GET：
+
+- 使用内存模拟 API 和合成 SVG 验证 Gallery 第 3 页、指定第 2 张打开、首尾停止、1:1 与长图拖动、刷新恢复、Back/Forward、Detail 指定 Asset 定位、返回列表及最后图片同步。可见卡片开关弹层前后锚点 top 均为 250px。
+- 模拟 Inbox 验证放大第 2 张后保留勾选和 Import 按钮状态，失效图片反馈、重试、Esc 关闭；390px 窄屏无横向溢出，操作按钮正常换行。
+- 通过只读 HTTP 代理连接本机真实应用，验证已有三 Asset 作品从当前图片打开，原图成功解码（1304×2048），Detail Viewer 可用且开关后保留临时、未保存的标题输入。真实 Inbox 的现有 X CDN 图片在 Viewer 中成功解码（1128×1199）。没有提交编辑。验证期间未发现 JavaScript 运行错误；模拟失效媒体的 HTTP 404 属预期。
+
+**尚未验收：**更新后的 Spring Boot 静态资源正式部署、真实触屏单指拖动、跨浏览器兼容，以及可丢弃样本上的真实 Import/Skip/编辑保存/删除回归。上述写操作本轮未执行，也未调用真实 X sync。本工作包已有实现及上述验证证据，尚不代表 V0.5 Final Acceptance。
+
+### V0.4｜工程化与发布记录
 
 Release status:
 
@@ -392,6 +413,6 @@ README 已按 V0.2 最终能力收尾。V0.2 已完成 Final Acceptance，代码
 
 以上边界遵循 `AGENTS.md` 中的 scope 控制；若未来确有新需求，应先由用户确认范围变化。
 
-### Current version status
+### V0.4 release status
 
 V0.3 已正式封存，`v0.3.0` tag 已创建并 push。V0.4 的 A1/A2/A3、B1/B2/B3、C1、D1 计划工作包与 Final Acceptance 已按上文范围完成，具备 `v0.4.0` 的技术发布条件。`v0.4.0` 尚未创建；本轮文档变更尚未 commit / push，发布 Git 操作由用户确认后执行。

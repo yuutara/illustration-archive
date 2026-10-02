@@ -5,12 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>插画详情 · Illustration Archive</title>
     <link rel="stylesheet" href="/style.css">
+    <script src="/image-viewer.js" defer></script>
+    <script src="/browse-context.js" defer></script>
     <script src="/detail.js" defer></script>
 </head>
 <body>
 <main class="page-shell detail-shell">
     <header class="detail-header">
-        <a class="back-link" href="/">← 返回图库</a>
+        <a id="detail-back-link" class="back-link" href="/">← 返回图库</a>
         <p id="detail-status" class="load-status" aria-live="polite">正在加载…</p>
     </header>
 

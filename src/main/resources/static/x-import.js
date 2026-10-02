@@ -25,6 +25,14 @@
     let page = 0;
     let totalPages = 0;
     const pageSize = 24;
+    const viewerItems = new Map();
+    const browse = window.BrowseContext.create({
+        kind: "inbox", resolveViewer: group => viewerItems.get(group), reload: restoredPage => {
+            page = restoredPage;
+            return loadInbox();
+        }
+    });
+    page = browse.initialPage;
 
     function setMessage(text, error) {
         message.textContent = text;
@@ -65,6 +73,8 @@
     function renderItem(item) {
         const card = document.createElement("article");
         card.className = "inbox-card";
+        const groupKey = `inbox:${item.id}`;
+        card.dataset.browseAnchor = groupKey;
         const checkbox = document.createElement("input");
         checkbox.type = "checkbox";
         checkbox.value = String(item.id);
@@ -104,7 +114,20 @@
         media.sort((a, b) => a.sortOrder - b.sortOrder);
         const preview = document.createElement("div");
         preview.className = media.length === 1 ? "inbox-media single" : "inbox-media";
+        const config = {
+            groupKey, title: item.authorDisplayName || item.authorUsername || "X Post",
+            sourceHref: `https://x.com/${encodeURIComponent(item.authorUsername)}/status/${encodeURIComponent(item.xPostId)}`,
+            items: media.map((photo, index) => ({ key: photo.mediaKey,
+                fullUrl: photo.photoUrl, alt: `${item.authorDisplayName || item.authorUsername || "Post"} 的图片 ${index + 1}` }))
+        };
+        viewerItems.set(groupKey, config);
         media.forEach((photo, index) => {
+            const openButton = document.createElement("button");
+            openButton.type = "button";
+            openButton.className = "image-open-button";
+            openButton.setAttribute("aria-label", `放大查看第 ${index + 1} 张图片`);
+            openButton.addEventListener("click", () => browse.openViewer({ ...config, startKey: photo.mediaKey }, openButton));
+            if (photo.mediaKey === browse.imageKey(groupKey) || !config.opener) config.opener = openButton;
             const image = document.createElement("img");
             image.src = photo.photoUrl;
             image.alt = `${item.authorDisplayName || item.authorUsername || "Post"} 的图片 ${index + 1}`;
@@ -113,7 +136,8 @@
                 image.width = photo.width;
                 image.height = photo.height;
             }
-            preview.appendChild(image);
+            openButton.appendChild(image);
+            preview.appendChild(openButton);
         });
         content.appendChild(preview);
 
@@ -147,7 +171,7 @@
                 row.appendChild(paragraph("inbox-result-success", "导入成功"));
                 if (itemResult.illustrationId != null) {
                     const link = document.createElement("a");
-                    link.href = `/detail.html?id=${encodeURIComponent(String(itemResult.illustrationId))}`;
+                    browse.bindDetailLink(link, itemResult.illustrationId);
                     link.textContent = "查看 Illustration Detail";
                     row.appendChild(link);
                 }
@@ -166,6 +190,7 @@
     async function loadInbox() {
         loading = true;
         items = [];
+        viewerItems.clear();
         list.replaceChildren();
         count.textContent = "";
         showState("正在加载…", "正在读取本地 Inbox。", false);
@@ -182,11 +207,13 @@
             }
             items = data.items;
             totalPages = data.totalPages;
+            browse.setPage(page);
             items.forEach(item => list.appendChild(renderItem(item)));
             count.textContent = `${data.totalItems} pending`;
             pageStatus.textContent = `Page ${totalPages === 0 ? 0 : page + 1} / ${totalPages}`;
             statePanel.hidden = items.length > 0;
             if (items.length === 0) showState("No pending X Likes", "可以手动同步最近的 Likes。", false);
+            browse.ready();
         } catch (error) {
             showState("加载失败", `无法读取 Inbox：${error.message}`, true);
         } finally {

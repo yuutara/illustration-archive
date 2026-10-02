@@ -65,6 +65,22 @@
     const noteElement = document.getElementById("detail-note");
     const sourceElement = document.getElementById("detail-source");
     const metaGrid = document.getElementById("detail-meta-grid");
+    const imageButtons = new Map();
+    const browse = window.BrowseContext.create({
+        kind: "detail", resolveViewer: group => group === `illustration:${state.illustrationId}` ? viewer() : null,
+        reload: () => loadDetail()
+    });
+    browse.bindReturnLink(document.getElementById("detail-back-link"));
+
+    function viewer() {
+        const assets = orderedAssetsFor(state.detail);
+        const groupKey = `illustration:${state.illustrationId}`;
+        const key = browse.imageKey(groupKey);
+        return { groupKey, title: titleFor(state.detail), sourceHref: state.detail && state.detail.sourceUrl,
+            items: assets.map(asset => ({ key: String(asset.id),
+                fullUrl: `/api/assets/${encodeURIComponent(String(asset.id))}/content`, alt: titleFor(state.detail) })),
+            opener: imageButtons.get(key) || imageButtons.values().next().value };
+    }
 
     function readIllustrationId() {
         const rawId = new URLSearchParams(window.location.search).get("id");
@@ -631,7 +647,8 @@
                 throw new Error(`Delete request failed with status ${response.status}`);
             }
 
-            window.location.assign("/");
+            browse.invalidateSource();
+            browse.returnToSource(true);
         } catch (error) {
             setDeleting(false);
             detailStatus.textContent = "删除失败，请重试。";
@@ -689,6 +706,7 @@
     }
 
     function renderImages(detail) {
+        imageButtons.clear();
         imagesElement.replaceChildren();
         const assets = orderedAssetsFor(detail);
         if (assets.length === 0) {
@@ -703,8 +721,16 @@
         }
 
         assets.forEach(function (asset, index) {
-            const imageContainer = document.createElement("div");
-            imageContainer.className = "detail-image";
+            const imageContainer = document.createElement("button");
+            imageContainer.type = "button";
+            imageContainer.className = "detail-image image-open-button";
+            imageContainer.dataset.browseAnchor = `asset:${asset.id}`;
+            imageContainer.setAttribute("aria-label", `放大查看第 ${index + 1} 张图片`);
+            imageContainer.addEventListener("click", () => {
+                if (state.saving || state.deleting) return;
+                browse.openViewer({ ...viewer(), startKey: String(asset.id) }, imageContainer);
+            });
+            imageButtons.set(String(asset.id), imageContainer);
             const image = document.createElement("img");
             image.alt = assets.length === 1
                 ? titleFor(detail)
@@ -831,6 +857,15 @@
 
             const detail = await response.json();
             renderDetail(detail);
+            const assetId = new URLSearchParams(window.location.search).get("asset");
+            if (assetId && !browse.imageKey(`illustration:${state.illustrationId}`)) {
+                const target = imageButtons.get(assetId);
+                if (target) {
+                    browse.remember(`illustration:${state.illustrationId}`, assetId);
+                    browse.locate(target);
+                }
+            }
+            browse.ready();
             detailStatus.textContent = "详情已加载";
             return true;
         } catch (error) {
@@ -880,6 +915,7 @@
             }
 
             setEditing(false);
+            browse.invalidateSource();
             const refreshed = await loadDetail();
             if (refreshed) {
                 detailStatus.textContent = "已保存";

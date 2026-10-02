@@ -1,0 +1,132 @@
+const assert = require("node:assert/strict");
+const test = require("node:test");
+const { browser, settle } = require("./helpers/browser");
+
+function setup(env, { missing = false, reload = () => {} } = {}) {
+    const opener = env.document.getElementById("opener");
+    opener.dataset.browseAnchor = "illustration:7"; opener.rect.top = 900;
+    let context;
+    const config = { groupKey: "illustration:7", title: "作品", startKey: "22", opener,
+        items: [11, 22, 33].map(id => ({ key: String(id), fullUrl: `/api/assets/${id}/content` })),
+        detailHref: key => context.detailHref(7, key), onChange: key => { opener.currentKey = key; } };
+    context = env.window.BrowseContext.create({ kind: "gallery", reload,
+        resolveViewer: group => !missing && group === config.groupKey ? config : null });
+    return { context, config, opener };
+}
+
+test("viewer adds one history entry; Back/Forward retain last asset, scroll and source focus", async () => {
+    const env = browser({ url: "http://localhost/?page=2" }); const { context, config, opener } = setup(env);
+    assert.equal(context.initialPage, 2); context.ready(); env.flushFrames();
+    env.window.scrollY = 700; context.openViewer(config, opener);
+    assert.equal(env.window.history.length, 2);
+    env.find("image-viewer-toolbar").children[1].dispatch("click");
+    assert.equal(env.window.history.length, 2);
+    env.window.history.back(); await settle(); env.flushFrames();
+    assert.equal(env.find("image-viewer").open, false);
+    assert.equal(context.imageKey(config.groupKey), "33");
+    assert.equal(env.window.scrollY, 700);
+    assert.equal(env.document.activeElement, opener);
+    env.window.history.forward(); await settle();
+    assert.equal(env.find("image-viewer-image").src, "/api/assets/33/content");
+    env.find("image-viewer-header").children[2].dispatch("click"); await settle();
+    assert.equal(env.window.history.state.iaBrowse.viewer, null);
+});
+
+test("refresh restores viewer and current page without another push; missing Post/Asset falls back to list", async () => {
+    const env = browser({ url: "http://localhost/?page=2" }); const { context, config, opener } = setup(env);
+    context.openViewer(config, opener); env.find("image-viewer-toolbar").children[1].dispatch("click");
+    const refreshed = browser({ url: env.window.location.href, entries: env.entries(), storage: env.storage });
+    const restored = setup(refreshed); restored.context.ready();
+    assert.equal(restored.context.initialPage, 2);
+    assert.equal(refreshed.find("image-viewer-image").src, "/api/assets/33/content");
+    assert.equal(refreshed.window.history.length, 2);
+    const stale = browser({ url: env.window.location.href, entries: env.entries(), storage: env.storage });
+    setup(stale, { missing: true }).context.ready(); await settle();
+    assert.equal(stale.window.history.state.iaBrowse.viewer, null);
+    assert.equal(stale.find("image-viewer"), undefined);
+});
+
+test("Detail navigation consumes viewer entry; trusted return goes straight to source list", async () => {
+    const env = browser(); const { context, config, opener } = setup(env);
+    context.ready();
+    context.openViewer(config, opener);
+    env.find("image-viewer-toolbar").children[7].dispatch("click"); await settle();
+    assert.equal(env.entries().length, 1);
+    assert.equal(env.window.history.state.iaBrowse.viewer, null);
+    const href = env.window.location.assigned;
+    assert.equal(new URL(href, "http://localhost").searchParams.get("asset"), "22");
+    const detail = browser({ url: new URL(href, "http://localhost").href, storage: env.storage,
+        entries: [...env.entries(), { url: new URL(href, "http://localhost").href, state: null }] });
+    const detailContext = detail.window.BrowseContext.create({ kind: "detail", resolveViewer: () => null });
+    const back = detail.document.getElementById("back"); detailContext.bindReturnLink(back);
+    detailContext.remember(config.groupKey, "33");
+    back.dispatch("click"); await settle();
+    assert.equal(detail.window.location.pathname, "/");
+    assert.equal(detail.window.history.state.iaBrowse.viewer, null);
+    const cold = browser({ url: env.window.location.href, entries: env.entries(), storage: env.storage });
+    const coldContext = setup(cold).context;
+    coldContext.ready();
+    assert.equal(coldContext.imageKey(config.groupKey), "33");
+    env.window.dispatch("pageshow", { persisted: true });
+    assert.equal(opener.currentKey, "33");
+});
+
+test("direct Detail and modified clicks use safe links without consuming unrelated history", () => {
+    const env = browser({ url: "http://localhost/detail.html?id=7&ctx=unknown" });
+    const context = env.window.BrowseContext.create({ kind: "detail", resolveViewer: () => null });
+    const back = env.document.getElementById("back"); context.bindReturnLink(back);
+    assert.equal(back.href, "/");
+    assert.equal(back.dispatch("click", { ctrlKey: true }).defaultPrevented, false);
+    assert.equal(env.window.location.assigned, undefined);
+    back.dispatch("click"); assert.equal(env.window.location.assigned, "/");
+});
+
+test("unavailable sessionStorage keeps history-based viewing and refresh usable", async () => {
+    const env = browser({ storageDisabled: true }); const { context, config, opener } = setup(env);
+    context.openViewer(config, opener); env.window.history.back(); await settle();
+    assert.equal(env.find("image-viewer").open, false);
+    const refreshed = browser({ url: env.window.location.href, entries: env.entries(), storageDisabled: true });
+    assert.equal(setup(refreshed).context.imageKey(config.groupKey), "22");
+});
+
+test("changed source refreshes once on bfcache return; a page correction drops invalid viewer state", () => {
+    const env = browser({ url: "http://localhost/?page=2" }); const calls = [];
+    const { context, config, opener } = setup(env, { reload: page => calls.push(page) });
+    context.openViewer(config, opener);
+    const state = env.window.history.state.iaBrowse;
+    env.storage.set("illustration-archive:browse:v1:" + state.id, JSON.stringify({ ...state, refresh: true, viewer: null }));
+    env.window.dispatch("pageshow", { persisted: true });
+    assert.deepEqual(calls, [2]);
+    context.setPage(1); context.ready();
+    assert.equal(env.window.location.search, "?page=1");
+    assert.equal(env.window.history.state.iaBrowse.viewer, null);
+    env.window.dispatch("pageshow", { persisted: true }); assert.deepEqual(calls, [2]);
+});
+
+test("anchor restoration tracks layout movement and stops correcting after user scroll", async () => {
+    const env = browser(); const { context, opener } = setup(env);
+    context.locate(opener); context.ready(); opener.rect.top = 1200;
+    env.flushFrames(); assert.equal(env.window.scrollY, 1200);
+    env.window.dispatch("wheel"); env.window.scrollY = 300;
+    await settle(); env.flushFrames(); assert.equal(env.window.scrollY, 300);
+});
+
+test("invalid URL page and malformed history safely start on page zero", () => {
+    for (const page of ["-1", "1.5", "garbage", "9007199254740992"]) {
+        const env = browser({ url: "http://localhost/?page=" + page });
+        assert.equal(setup(env).context.initialPage, 0);
+    }
+});
+
+test("LAN HTTP UUID fallback works; unsupported dialog never adds a history entry", () => {
+    const env = browser(); delete env.window.crypto.randomUUID;
+    const { context, config, opener } = setup(env);
+    assert.equal(context.openViewer(config, opener), true);
+    const unsupported = browser(); const createElement = unsupported.document.createElement;
+    unsupported.document.createElement = tag => {
+        const node = createElement(tag); if (tag === "dialog") node.showModal = undefined; return node;
+    };
+    const fallback = setup(unsupported);
+    assert.equal(fallback.context.openViewer(fallback.config, fallback.opener), false);
+    assert.equal(unsupported.window.history.length, 1);
+});

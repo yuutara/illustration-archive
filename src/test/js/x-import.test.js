@@ -2,41 +2,10 @@ const assert = require("node:assert/strict");
 const { readFileSync } = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
-const vm = require("node:vm");
 
 const staticDir = path.resolve(__dirname, "../../main/resources/static");
-const script = readFileSync(path.join(staticDir, "x-import.js"), "utf8");
 
-class Element {
-    constructor(tagName = "div") {
-        this.tagName = tagName;
-        this.children = [];
-        this.listeners = new Map();
-        this.hidden = false;
-        this.disabled = false;
-        this.checked = false;
-        this.classList = { toggle() {} };
-    }
-
-    addEventListener(type, listener) { this.listeners.set(type, listener); }
-    append(...children) { this.children.push(...children); }
-    appendChild(child) { this.children.push(child); }
-    replaceChildren(...children) { this.children = children; }
-    setAttribute(name, value) { this[name] = value; }
-    dispatch(type) { return this.listeners.get(type)?.(); }
-    querySelectorAll(selector) {
-        const matches = [];
-        const visit = element => {
-            if (element.tagName === "input" && element.type === "checkbox"
-                    && (selector === "input[type=checkbox]" || element.checked)) {
-                matches.push(element);
-            }
-            element.children.forEach(visit);
-        };
-        this.children.forEach(visit);
-        return matches;
-    }
-}
+const { browser } = require("./helpers/browser");
 
 function inboxItem(id) {
     return { id, xPostId: `post-${id}`, authorDisplayName: `Artist ${id}`,
@@ -48,15 +17,9 @@ function inboxPage(items, page = 0, totalItems = items.length, size = 24) {
 }
 
 async function page(responses) {
-    const elements = new Map();
+    const env = browser({ url: "http://localhost/x-import.html" });
+    const elements = env.elements;
     const calls = [];
-    const document = {
-        getElementById(id) {
-            if (!elements.has(id)) elements.set(id, new Element());
-            return elements.get(id);
-        },
-        createElement(tagName) { return new Element(tagName); }
-    };
     const fetch = async (url, options) => {
         calls.push({ url, options });
         const response = responses.shift();
@@ -64,9 +27,10 @@ async function page(responses) {
         assert.equal(url, response.url);
         return { ok: true, json: async () => response.body };
     };
-    vm.runInNewContext(script, { document, fetch, encodeURIComponent });
+    env.sandbox.fetchImpl = fetch;
+    env.run("x-import.js");
     await new Promise(setImmediate);
-    return { elements, calls };
+    return { elements, calls, env };
 }
 
 function select(elements, ...ids) {
@@ -97,7 +61,7 @@ test("page initialization only reads local Inbox; one success links to Detail af
     assert.equal(elements.get("import-results").hidden, false);
     assert.match(elements.get("import-results-summary").textContent, /共 1 项：成功 1，重复 0，失败 0/);
     assert.match(resultRows(elements)[0].children[0].textContent, /post-1/);
-    assert.equal(resultRows(elements)[0].children[2].href, "/detail.html?id=42");
+    assert.equal(new URL(resultRows(elements)[0].children[2].href, "http://localhost").searchParams.get("id"), "42");
     assert.equal(elements.get("inbox-list").children.length, 0);
     assert.equal(resultRows(elements).length, 1);
 });
@@ -145,7 +109,7 @@ test("partial batch results stay paired with posts and failed items remain selec
     assert.match(rows[0].children[1].textContent, /导入失败/);
     assert.equal(rows[0].children[2].textContent, "download failed");
     assert.match(rows[1].children[0].textContent, /post-1/);
-    assert.equal(rows[1].children[2].href, "/detail.html?id=21");
+    assert.equal(new URL(rows[1].children[2].href, "http://localhost").searchParams.get("id"), "21");
     assert.match(rows[2].children[0].textContent, /post-2/);
     assert.match(rows[2].children[1].textContent, /未导入/);
     assert.equal(rows[2].children[2].textContent, "same photo");
@@ -159,7 +123,7 @@ test("partial batch results stay paired with posts and failed items remain selec
     select(elements, 3);
     await elements.get("import-button").dispatch("click");
     assert.deepEqual(JSON.parse(calls[4].options.body), { itemIds: [3] });
-    assert.equal(resultRows(elements)[0].children[2].href, "/detail.html?id=33");
+    assert.equal(new URL(resultRows(elements)[0].children[2].href, "http://localhost").searchParams.get("id"), "33");
     assert.equal(elements.get("inbox-list").children.length, 1);
     assert.equal(calls.filter(call => call.url.includes("/sync/")).length, 0);
 });
@@ -235,7 +199,7 @@ test("Import falls back from an emptied last page while preserving results", asy
     select(elements, 25);
     await elements.get("import-button").dispatch("click");
     assert.equal(elements.get("inbox-page-status").textContent, "Page 1 / 1");
-    assert.equal(resultRows(elements)[0].children[2].href, "/detail.html?id=42");
+    assert.equal(new URL(resultRows(elements)[0].children[2].href, "http://localhost").searchParams.get("id"), "42");
     assert.equal(calls[4].url, "/api/x-import/inbox?page=0&size=24");
 });
 
@@ -258,4 +222,21 @@ test("result region and Gallery link are present in the page", () => {
     assert.match(html, /id="import-results"/);
     assert.match(html, /id="import-results-list"/);
     assert.match(html, /href="\/">返回 Gallery/);
+});
+
+test("Inbox clicked media opens in order, retains visible selection and never sends write requests", async () => {
+    const item = { ...inboxItem(1), media: [3, 1, 2].map(number => ({ mediaKey: `media-${number}`, sortOrder: number,
+        photoUrl: `https://pbs.twimg.com/media/test-${number}.jpg` })) };
+    const { elements, calls, env } = await page([
+        { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([item]) }
+    ]);
+    select(elements, 1);
+    const buttons = env.document.querySelectorAll(".image-open-button");
+    buttons[1].dispatch("click");
+    assert.equal(env.find("image-viewer-image").src, "https://pbs.twimg.com/media/test-2.jpg");
+    assert.equal(env.find("image-viewer-position").textContent, "2 / 3");
+    env.find("image-viewer-header").children[2].dispatch("click"); await new Promise(setImmediate);
+    assert.equal(elements.get("inbox-list").querySelectorAll("input[type=checkbox]:checked").length, 1);
+    assert.equal(elements.get("import-button").disabled, false);
+    assert.deepEqual(calls.map(call => call.url), ["/api/x-import/inbox?page=0&size=24"]);
 });

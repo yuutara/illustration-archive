@@ -1,56 +1,19 @@
 const assert = require("node:assert/strict");
-const { readFileSync } = require("node:fs");
-const path = require("node:path");
 const test = require("node:test");
-const vm = require("node:vm");
 
-const script = readFileSync(path.resolve(__dirname, "../../main/resources/static/app.js"), "utf8");
 
-class Element {
-    constructor(tagName = "div") {
-        this.tagName = tagName;
-        this.children = [];
-        this.listeners = new Map();
-        this.hidden = false;
-        this.disabled = false;
-        this.classList = { toggle() {} };
-    }
+const { browser } = require("./helpers/browser");
 
-    addEventListener(type, listener) { this.listeners.set(type, listener); }
-    append(...children) { this.children.push(...children); }
-    appendChild(child) { this.children.push(child); }
-    replaceChildren(...children) { this.children = children; }
-    setAttribute(name, value) { this[name] = value; }
-    dispatch(type) {
-        const event = {
-            defaultPrevented: false,
-            propagationStopped: false,
-            preventDefault() { this.defaultPrevented = true; },
-            stopPropagation() { this.propagationStopped = true; }
-        };
-        if (!this.disabled) this.listeners.get(type)?.(event);
-        return event;
-    }
-}
-
-async function cardFor(item) {
-    const elements = new Map();
-    const document = {
-        getElementById(id) {
-            if (!elements.has(id)) elements.set(id, new Element());
-            return elements.get(id);
-        },
-        createElement(tagName) { return new Element(tagName); }
-    };
-    vm.runInNewContext(script, {
-        document,
-        encodeURIComponent,
-        fetch: async () => ({ ok: true, json: async () => ({
-            page: 0, totalPages: 1, totalElements: 1, items: [item]
-        }) })
-    });
+async function cardFor(item, includeEnvironment = false) {
+    const env = browser({ url: "http://localhost/" });
+    const elements = env.elements;
+    env.sandbox.fetchImpl = async () => ({ ok: true, json: async () => ({
+        page: 0, totalPages: 1, totalElements: 1, items: [item]
+    }) });
+    env.run("app.js");
     await new Promise(setImmediate);
-    return elements.get("gallery").children[0];
+    const card = elements.get("gallery").children[0];
+    return includeEnvironment ? { card, env } : card;
 }
 
 test("single asset uses thumbnail and has no preview controls or position", async () => {
@@ -58,8 +21,42 @@ test("single asset uses thumbnail and has no preview controls or position", asyn
         assets: [{ id: 11, mimeType: "image/jpeg", sortOrder: 0 }] });
     const imageContainer = card.children[0];
     assert.equal(imageContainer.children.length, 1);
-    assert.equal(imageContainer.children[0].href, "/detail.html?id=7");
+    assert.equal(new URL(imageContainer.children[0].href, "http://localhost").searchParams.get("asset"), "11");
     assert.equal(imageContainer.children[0].children[0].src, "/api/assets/11/thumbnail");
+});
+
+test("Gallery opens current Asset and viewer change updates card without another API request", async () => {
+    const item = { id: 7, title: "Three", assets: [11, 22, 33].map((id, sortOrder) => ({ id, sortOrder, mimeType: "image/png" })) };
+    const { card, env } = await cardFor(item, true);
+    env.sandbox.fetchImpl = () => { throw new Error("Viewer must not fetch Detail"); };
+    const [imageLink, , next, position] = card.children[0].children;
+    next.dispatch("click"); assert.equal(imageLink.dispatch("click").defaultPrevented, true);
+    assert.equal(env.find("image-viewer-image").src, "/api/assets/22/content");
+    env.find("image-viewer-toolbar").children[1].dispatch("click");
+    assert.equal(position.textContent, "3 / 3");
+    assert.equal(imageLink.children[0].src, "/api/assets/33/thumbnail");
+    assert.equal(new URL(card.children[1].href, "http://localhost").searchParams.get("asset"), "33");
+    env.find("image-viewer-header").children[2].dispatch("click"); await new Promise(setImmediate);
+    assert.equal(position.textContent, "3 / 3");
+    assert.equal(env.document.activeElement, imageLink);
+    const refreshed = browser({ url: env.window.location.href, entries: env.entries(), storage: env.storage });
+    refreshed.sandbox.fetchImpl = async () => ({ ok: true, json: async () => ({ page: 0, totalPages: 1, items: [item] }) });
+    refreshed.run("app.js"); await new Promise(setImmediate);
+    assert.equal(refreshed.elements.get("gallery").children[0].children[0].children[3].textContent, "3 / 3");
+});
+
+test("Gallery modified image click retains Detail link; out-of-range page reloads last valid page", async () => {
+    const { card, env } = await cardFor({ id: 7, assets: [{ id: 11, mimeType: "image/gif", sortOrder: 0 }] }, true);
+    assert.equal(card.children[0].children[0].dispatch("click", { ctrlKey: true }).defaultPrevented, false);
+    assert.equal(env.find("image-viewer"), undefined);
+    const stale = browser({ url: "http://localhost/?page=7" }); const calls = [];
+    stale.sandbox.fetchImpl = async url => {
+        calls.push(url); const page = calls.length === 1 ? 7 : 1;
+        return { ok: true, json: async () => ({ page, totalPages: 2, totalElements: 25, items: [] }) };
+    };
+    stale.run("app.js"); await new Promise(setImmediate);
+    assert.deepEqual(calls, ["/api/illustrations?page=7&size=24", "/api/illustrations?page=1&size=24"]);
+    assert.equal(stale.elements.get("page-info").textContent, "第 2 / 2 页");
 });
 
 test("three assets sort by sortOrder and wrap in both directions without navigation", async () => {
@@ -79,7 +76,7 @@ test("three assets sort by sortOrder and wrap in both directions without navigat
     const click = next.dispatch("click");
     assert.equal(click.defaultPrevented, true);
     assert.equal(click.propagationStopped, true);
-    assert.equal(imageLink.href, "/detail.html?id=7");
+    assert.equal(new URL(imageLink.href, "http://localhost").searchParams.get("asset"), "22");
     assert.equal(image.src, "/api/assets/22/thumbnail");
     assert.equal(position.textContent, "2 / 3");
     next.dispatch("click");

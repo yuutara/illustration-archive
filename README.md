@@ -8,7 +8,7 @@ Illustration Archive 解决的是“把散落在本地的插画文件整理成�
 
 项目采用 local-first 设计：默认将图片文件留在配置的本地存储目录，数据库只保存插画、作者、标签以及文件元数据。浏览器端使用 Spring Boot 静态资源目录中的原生 HTML、CSS 和 JavaScript，不需要前端构建工具。
 
-V0.3 已正式封存，增加 X Likes 手动同步与多图归档；V0.4 计划工作包与 Final Acceptance 已完成，尚未发布 `v0.4.0`。`v0.1.0`、`v0.2.0` 和 `v0.3.0` 均已创建并 push tag。
+V0.3 已正式封存，增加 X Likes 手动同步与多图归档；V0.4 计划工作包与 Final Acceptance 已完成，尚未发布 `v0.4.0`。当前进入 V0.5，统一图片查看器已实现，验收边界见 `docs/PROJECT_STATE.md`。`v0.1.0`、`v0.2.0` 和 `v0.3.0` 均已创建并 push tag。
 
 ## 项目截图
 
@@ -30,6 +30,7 @@ V0.3 已正式封存，增加 X Likes 手动同步与多图归档；V0.4 计划�
 - 可按需对历史 Asset 执行 SHA-256 回填；新导入的 JPG/PNG 自动生成缩略图，也支持历史缩略图回填。
 - 首页图库分页浏览，默认每页 24 条。JPG/PNG 卡片使用缩略图，GIF 保持原始动画；卡片显示封面、标题和作者，并可进入详情页。
 - 多 Asset 卡片可左右循环预览；Artwork-first 详情页按顺序纵向展示全部原图，保持原始比例，并显示标题、作者、标签、备注和来源链接。
+- Gallery 点击当前预览图片、Inbox 点击任意媒体、Detail 点击任意原图，均打开统一 Viewer。只浏览当前作品/Post，首尾停止；Gallery 文字入口继续打开 Detail。
 - 手动同步 X Likes：Inbox 页的 Sync latest Likes 每次从第一页查最近点赞；独立的后端 history continuation 接口保存分页游标，可跨轮、跨重启继续。页面加载不会自动请求 X API，也没有 history continuation 按钮。
 - X Import Inbox 分页展示 `PENDING` 候选，按最近发现时间排序；紧凑 Grid 中仅选择当前页，可单项或批量导入、跳过，逐项显示成功、重复或失败结果。无图、GIF、视频或混合媒体等不符合“全部直接附件为带 URL 的 photo”条件的 Post 标记为 `UNSUPPORTED`；跳过和成功导入分别变为 `SKIPPED`、`IMPORTED`。
 - 将受支持的 X Post 单图或多图归档为一个 Illustration 和有序 Asset，以 SHA-256 拒绝整条 Post 中的重复图片；批量导入允许部分成功，并记录 `imported_illustration_id`。本地文件导入仍支持 GIF，X GIF/视频导入尚不支持。
@@ -38,6 +39,16 @@ V0.3 已正式封存，增加 X Likes 手动同步与多图归档；V0.4 计划�
 - 删除单个 Illustration，并在数据库删除事务提交后清理原图和缩略图。
 - 通过 Asset 内容接口按 `asset id` 读取图片流；HTTP DTO 不暴露 `storage_key` 或本地绝对路径。
 - 首页和详情页包含加载失败、空数据、图片加载失败以及批量导入结果等基础状态反馈。
+
+## 图片查看器
+
+Viewer 提供适应窗口、1:1、放大/缩小及拖动查看；GIF 沿用原始内容地址。桌面弹层内支持 `←/→` 切图、`+/-` 缩放、`0` 适应窗口、`1` 原尺寸及 `Esc` 关闭。小屏可使用按钮和单指拖动；首版没有双指缩放或滑动切图。
+
+关闭后保留列表页码、滚动位置及当前图片；Inbox 已勾选项不会因开关 Viewer 清空。刷新当前标签页会重新读取数据，恢复有效的当前 Viewer，并重置缩放。进入 Detail 后返回来源列表；查看详情中其他 Asset 后，Gallery 卡片也同步到最后查看的图片。直接打开旧的 `detail.html?id=…` 链接仍可使用。
+
+上下文由当前浏览器标签页的 History API 和 sessionStorage 保存，不写数据库、不跨设备同步。Inbox 继续直接使用已有远程 `photoUrl`，加载失败可重试或打开来源；不保证与归档下载的分辨率一致。Import、Skip、元数据编辑和删除仍在原页面执行，翻页和数据刷新继续清空 Inbox 选择。
+
+实现不增加前端依赖或构建步骤。已经运行的自动化检查和真实浏览器验证范围见项目状态文档；正式部署需要让应用重新加载更新后的静态资源。
 
 ## 技术栈
 

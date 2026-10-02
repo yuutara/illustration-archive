@@ -2,6 +2,12 @@
     "use strict";
 
     const pageSize = 24;
+    const cardViews = new Map();
+    const browse = window.BrowseContext.create({
+        kind: "gallery",
+        resolveViewer: group => cardViews.get(group)?.viewer(),
+        reload: page => loadPage(page)
+    });
     const state = {
         page: 0,
         pendingPage: 0,
@@ -228,6 +234,7 @@
     }
 
     function showGallery(items) {
+        cardViews.clear();
         gallery.replaceChildren();
         statePanel.hidden = true;
 
@@ -246,12 +253,14 @@
         const title = titleFor(item);
         const card = document.createElement("article");
         card.className = "illustration-card";
+        const groupKey = `illustration:${item.id}`;
+        card.dataset.browseAnchor = groupKey;
         const detailUrl = item && item.id !== null && item.id !== undefined
             ? `/detail.html?id=${encodeURIComponent(String(item.id))}` : null;
 
         const imageLink = document.createElement("a");
         imageLink.className = "card-image-link";
-        imageLink.setAttribute("aria-label", `查看${title}详情`);
+        imageLink.setAttribute("aria-label", `放大查看${title}`);
         const bodyLink = document.createElement("a");
         bodyLink.className = "card-body";
         if (item && item.id !== null && item.id !== undefined) {
@@ -272,7 +281,8 @@
             : item && item.coverAssetId != null
                 ? [{ id: item.coverAssetId, mimeType: item.coverMimeType }]
                 : [];
-        let currentIndex = 0;
+        let currentIndex = Math.max(0, assets.findIndex(asset => String(asset.id) === browse.imageKey(groupKey)));
+        let updateControls = function () {};
         const image = document.createElement("img");
         image.alt = title;
         image.loading = "lazy";
@@ -293,8 +303,38 @@
             if (imageUrl !== null) {
                 image.src = imageUrl;
             }
+            if (asset && detailUrl) {
+                const href = browse.detailHref(item.id, String(asset.id));
+                imageLink.href = href;
+                bodyLink.href = href;
+            }
+            updateControls();
         }
         showAsset();
+
+        function selectAsset(key) {
+            const selected = assets.findIndex(asset => String(asset.id) === key);
+            if (selected < 0 || selected === currentIndex) return;
+            currentIndex = selected;
+            showAsset();
+        }
+
+        function viewer() {
+            return {
+                groupKey, title,
+                startKey: assets[currentIndex] && String(assets[currentIndex].id),
+                items: assets.map(asset => ({ key: String(asset.id),
+                    fullUrl: `/api/assets/${encodeURIComponent(String(asset.id))}/content`,
+                    previewUrl: galleryImageUrl(asset), alt: title })),
+                detailHref: key => browse.detailHref(item.id, key),
+                opener: imageLink, onChange: selectAsset
+            };
+        }
+        cardViews.set(groupKey, { viewer });
+        imageLink.addEventListener("click", function (event) {
+            if (window.ImageViewer.plainClick(event) && browse.openViewer(viewer(), imageLink)) event.preventDefault();
+        });
+        browse.bindDetailLink(bodyLink, item.id, assets[currentIndex] && String(assets[currentIndex].id));
 
         if (assets.length > 1) {
             const previous = document.createElement("button");
@@ -310,13 +350,14 @@
             const position = document.createElement("span");
             position.className = "card-asset-position";
             position.setAttribute("aria-live", "polite");
-            function updateControls() {
+            updateControls = function () {
                 position.textContent = `${currentIndex + 1} / ${assets.length}`;
-            }
+            };
             previous.addEventListener("click", function (event) {
                 event.preventDefault();
                 event.stopPropagation();
                 currentIndex = (currentIndex - 1 + assets.length) % assets.length;
+                browse.remember(groupKey, String(assets[currentIndex].id));
                 showAsset();
                 updateControls();
             });
@@ -324,6 +365,7 @@
                 event.preventDefault();
                 event.stopPropagation();
                 currentIndex = (currentIndex + 1) % assets.length;
+                browse.remember(groupKey, String(assets[currentIndex].id));
                 showAsset();
                 updateControls();
             });
@@ -379,7 +421,14 @@
                 ? responseTotalElements
                 : 0;
 
+            if (state.page > 0 && state.page >= state.totalPages) {
+                state.loading = false;
+                return await loadPage(Math.max(0, state.totalPages - 1));
+            }
+            browse.setPage(state.page);
+
             showGallery(Array.isArray(data.items) ? data.items : []);
+            browse.ready();
             loadStatus.textContent = "图库已更新";
         } catch (error) {
             loadStatus.textContent = "加载失败";
@@ -410,5 +459,5 @@
 
     importButton.addEventListener("click", importIllustrations);
 
-    loadPage(0);
+    loadPage(browse.initialPage);
 })();
