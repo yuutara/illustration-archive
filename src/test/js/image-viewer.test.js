@@ -5,7 +5,11 @@ const { browser } = require("./helpers/browser");
 const config = () => ({ groupKey: "illustration:7", title: "作品", startKey: "22",
     items: [11, 22, 33].map(id => ({ key: String(id), fullUrl: `/api/assets/${id}/content`,
         previewUrl: `/api/assets/${id}/thumbnail`, alt: `图片 ${id}` })) });
-function control(env, text) { return env.find("image-viewer-toolbar").children.find(node => node.textContent === text); }
+function control(env, text) {
+    const labels = { "←": "上一张图片", "→": "下一张图片", "−": "缩小图片",
+        "+": "放大图片", "适应窗口": "适应窗口", "1:1": "原始尺寸" };
+    return env.viewerButton(labels[text]);
+}
 function load(env, width = 1600, height = 2400) {
     const image = env.find("image-viewer-image");
     image.naturalWidth = width; image.naturalHeight = height; image.dispatch("load");
@@ -18,6 +22,7 @@ test("empty viewer is rejected; single image stops at both ends and invalid key 
     assert.equal(env.find("image-viewer"), undefined);
     assert.equal(env.window.ImageViewer.open({ ...config(), startKey: "missing", items: [config().items[0]] }), true);
     assert.equal(env.find("image-viewer-position").textContent, "1 / 1");
+    assert.equal(env.find("image-viewer-pagination").hidden, true);
     assert.equal(control(env, "←").disabled, true);
     assert.equal(control(env, "→").disabled, true);
     load(env, 200, 100);
@@ -60,6 +65,8 @@ test("zoom uses original dimensions, clamps pan and scale, and resets on image c
     const image = load(env, 1000, 1000);
     assert.equal(env.find("image-viewer-zoom").textContent, "60%");
     control(env, "1:1").dispatch("click");
+    assert.equal(env.find("image-viewer-more").open, false);
+    assert.equal(env.document.activeElement["aria-label"], "更多查看操作");
     const stage = env.find("image-viewer-stage");
     stage.dispatch("pointerdown", { pointerId: 1, clientX: 0, clientY: 0 });
     stage.dispatch("pointermove", { pointerId: 1, clientX: 10000, clientY: 10000 });
@@ -81,7 +88,7 @@ test("dialog owns shortcuts, preserves GIF URL, restores focus/scroll lock, and 
         items: [{ key: "gif", fullUrl: "/api/assets/33/content" }] });
     load(env); const dialog = env.find("image-viewer");
     assert.equal(env.document.documentElement.style.overflow, "hidden");
-    assert.equal(env.find("image-viewer-toolbar").children[8].hidden, true);
+    assert.equal(env.find("image-viewer-links").children[1].hidden, true);
     assert.equal(env.find("image-viewer-image").src, "/api/assets/33/content");
     dialog.dispatch("keydown", { key: "1" });
     assert.equal(env.find("image-viewer-zoom").textContent, "100%");

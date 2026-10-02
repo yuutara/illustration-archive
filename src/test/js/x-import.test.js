@@ -235,7 +235,7 @@ test("Inbox clicked media opens in order, retains visible selection and never se
     buttons[1].dispatch("click");
     assert.equal(env.find("image-viewer-image").src, "https://pbs.twimg.com/media/test-2.jpg");
     assert.equal(env.find("image-viewer-position").textContent, "2 / 3");
-    env.find("image-viewer-header").children[2].dispatch("click"); await new Promise(setImmediate);
+    env.viewerButton("关闭图片查看器").dispatch("click"); await new Promise(setImmediate);
     assert.equal(elements.get("inbox-list").querySelectorAll("input[type=checkbox]:checked").length, 1);
     assert.equal(elements.get("import-button").disabled, false);
     assert.deepEqual(calls.map(call => call.url), ["/api/x-import/inbox?page=0&size=24"]);

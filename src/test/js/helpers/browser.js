@@ -148,7 +148,9 @@ function browser({ url = "http://localhost/", entries, storage = new Map(), stor
     run("image-viewer.js"); run("browse-context.js");
     return { window, document, elements: ids, storage, run, sandbox, Element, flushFrames,
         entries: () => structuredClone(historyEntries.slice(0, cursor + 1)),
-        find: className => document.querySelectorAll("." + className)[0] };
+        find: className => document.querySelectorAll("." + className)[0],
+        viewerButton: label => document.querySelectorAll(".image-viewer-button")
+            .find(node => node["aria-label"] === label) };
 }
 
 async function settle() { await new Promise(setImmediate); }

@@ -25,6 +25,7 @@
         const node = element("button", "image-viewer-button", text);
         node.type = "button";
         node.setAttribute("aria-label", label);
+        node.title = label;
         node.addEventListener("click", action);
         return node;
     }
@@ -41,10 +42,20 @@
         const header = element("header", "image-viewer-header");
         const title = element("h2", "image-viewer-title");
         title.id = "image-viewer-title";
+        const brand = element("p", "image-viewer-brand", "Illustration\nArchive");
+        header.append(brand, title);
+
+        const pagination = element("div", "image-viewer-pagination");
+        const pages = element("p", "image-viewer-pages");
+        const current = element("span", "image-viewer-current");
+        const total = element("span", "image-viewer-total");
+        current.setAttribute("aria-hidden", "true");
+        total.setAttribute("aria-hidden", "true");
         const position = element("span", "image-viewer-position");
         position.setAttribute("aria-live", "polite");
+        pages.append(current, total, position);
         const closeButton = button("×", "关闭图片查看器", requestClose);
-        header.append(title, position, closeButton);
+        closeButton.classList.add("image-viewer-close");
 
         const stage = element("div", "image-viewer-stage");
         const status = element("p", "image-viewer-status");
@@ -53,13 +64,31 @@
         const feedback = element("div", "image-viewer-feedback");
         feedback.append(status, retry);
         const toolbar = element("div", "image-viewer-toolbar");
+        toolbar.setAttribute("role", "group");
         toolbar.setAttribute("aria-label", "图片查看操作");
-        const previous = button("←", "上一张图片", () => move(-1));
-        const next = button("→", "下一张图片", () => move(1));
+        const previous = button("‹", "上一张图片", () => move(-1));
+        const next = button("›", "下一张图片", () => move(1));
+        const navigation = element("div", "image-viewer-navigation");
+        navigation.append(previous, next);
+        pagination.append(pages, navigation);
         const minus = button("−", "缩小图片", () => zoom(scale / 1.25));
         const plus = button("+", "放大图片", () => zoom(scale * 1.25));
-        const fit = button("适应窗口", "适应窗口", () => zoom(fitScale));
-        const actual = button("1:1", "原始尺寸", () => zoom(1));
+        const more = element("details", "image-viewer-more");
+        const moreTrigger = element("summary", "image-viewer-button", "⋯");
+        moreTrigger.setAttribute("aria-label", "更多查看操作");
+        moreTrigger.title = "更多查看操作";
+        const menu = element("div", "image-viewer-menu");
+        function selectZoom(value) {
+            zoom(value);
+            more.open = false;
+            moreTrigger.focus({ preventScroll: true });
+        }
+        const fit = button("适应窗口", "适应窗口", () => selectZoom(fitScale));
+        const actual = button("原始尺寸", "原始尺寸", () => selectZoom(1));
+        fit.appendChild(element("span", "image-viewer-shortcut", "0"));
+        actual.appendChild(element("span", "image-viewer-shortcut", "1:1"));
+        menu.append(fit, actual);
+        more.append(moreTrigger, menu);
         const zoomLabel = element("span", "image-viewer-zoom");
         const detail = element("a", "image-viewer-link", "查看详情");
         const source = element("a", "image-viewer-link", "打开来源 ↗");
@@ -71,8 +100,12 @@
                 options.onNavigateDetail(detail.href);
             }
         });
-        toolbar.append(previous, next, minus, zoomLabel, plus, fit, actual, detail, source);
-        dialog.append(header, stage, feedback, toolbar);
+        toolbar.append(minus, zoomLabel, plus, more);
+        const links = element("div", "image-viewer-links");
+        links.append(detail, source);
+        const edge = element("aside", "image-viewer-edge");
+        edge.append(header, pagination, toolbar, links);
+        dialog.append(stage, edge, feedback, closeButton);
         dialog.addEventListener("cancel", event => {
             event.preventDefault();
             requestClose();
@@ -118,8 +151,8 @@
             zoom(wasFit ? fitScale : scale);
         });
         document.body.appendChild(dialog);
-        ui = { dialog, title, position, closeButton, stage, status, retry, previous, next,
-            minus, plus, fit, actual, zoomLabel, detail, source };
+        ui = { dialog, title, position, pagination, current, total, closeButton, stage, status, retry, previous, next,
+            minus, plus, fit, actual, more, zoomLabel, detail, source };
     }
 
     function plainClick(event) {
@@ -143,6 +176,9 @@
         ui.previous.disabled = index === 0;
         ui.next.disabled = index === options.items.length - 1;
         ui.position.textContent = `${index + 1} / ${options.items.length}`;
+        ui.pagination.hidden = options.items.length === 1;
+        ui.current.textContent = String(index + 1).padStart(2, "0");
+        ui.total.textContent = `/ ${String(options.items.length).padStart(2, "0")}`;
         ui.minus.disabled = !loaded || scale <= fitScale;
         ui.plus.disabled = !loaded || scale >= 4;
         ui.fit.disabled = !loaded;
@@ -187,6 +223,7 @@
         ui.stage.replaceChildren();
         ui.status.textContent = "正在加载图片…";
         ui.retry.hidden = true;
+        ui.more.open = false;
         if (item.previewUrl && item.previewUrl !== item.fullUrl) {
             const preview = element("img", "image-viewer-preview");
             preview.alt = "";
@@ -244,6 +281,7 @@
         previousOverflow = document.documentElement.style.overflow;
         document.documentElement.style.overflow = "hidden";
         ui.title.textContent = config.title || "图片查看器";
+        ui.title.title = ui.title.textContent;
         setLink(ui.source, config.sourceHref);
         ui.dialog.showModal();
         ui.closeButton.focus({ preventScroll: true });

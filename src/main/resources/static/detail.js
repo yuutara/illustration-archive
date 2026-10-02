@@ -676,7 +676,7 @@
         resetAuthorEditor();
         resetTagEditor();
         setEditing(false);
-        detailStatus.textContent = "详情已加载";
+        detailStatus.textContent = "";
     }
 
     function showState(title, message, canRetry) {
@@ -866,7 +866,7 @@
                 }
             }
             browse.ready();
-            detailStatus.textContent = "详情已加载";
+            detailStatus.textContent = "";
             return true;
         } catch (error) {
             detailStatus.textContent = "加载失败";
@@ -916,10 +916,7 @@
 
             setEditing(false);
             browse.invalidateSource();
-            const refreshed = await loadDetail();
-            if (refreshed) {
-                detailStatus.textContent = "已保存";
-            }
+            await loadDetail();
         } catch (error) {
             detailStatus.textContent = "保存失败，请重试";
         } finally {

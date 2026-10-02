@@ -32,11 +32,11 @@ test("Gallery opens current Asset and viewer change updates card without another
     const [imageLink, , next, position] = card.children[0].children;
     next.dispatch("click"); assert.equal(imageLink.dispatch("click").defaultPrevented, true);
     assert.equal(env.find("image-viewer-image").src, "/api/assets/22/content");
-    env.find("image-viewer-toolbar").children[1].dispatch("click");
+    env.viewerButton("下一张图片").dispatch("click");
     assert.equal(position.textContent, "3 / 3");
     assert.equal(imageLink.children[0].src, "/api/assets/33/thumbnail");
     assert.equal(new URL(card.children[1].href, "http://localhost").searchParams.get("asset"), "33");
-    env.find("image-viewer-header").children[2].dispatch("click"); await new Promise(setImmediate);
+    env.viewerButton("关闭图片查看器").dispatch("click"); await new Promise(setImmediate);
     assert.equal(position.textContent, "3 / 3");
     assert.equal(env.document.activeElement, imageLink);
     const refreshed = browser({ url: env.window.location.href, entries: env.entries(), storage: env.storage });

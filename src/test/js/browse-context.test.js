@@ -19,7 +19,7 @@ test("viewer adds one history entry; Back/Forward retain last asset, scroll and 
     assert.equal(context.initialPage, 2); context.ready(); env.flushFrames();
     env.window.scrollY = 700; context.openViewer(config, opener);
     assert.equal(env.window.history.length, 2);
-    env.find("image-viewer-toolbar").children[1].dispatch("click");
+    env.viewerButton("下一张图片").dispatch("click");
     assert.equal(env.window.history.length, 2);
     env.window.history.back(); await settle(); env.flushFrames();
     assert.equal(env.find("image-viewer").open, false);
@@ -28,13 +28,13 @@ test("viewer adds one history entry; Back/Forward retain last asset, scroll and 
     assert.equal(env.document.activeElement, opener);
     env.window.history.forward(); await settle();
     assert.equal(env.find("image-viewer-image").src, "/api/assets/33/content");
-    env.find("image-viewer-header").children[2].dispatch("click"); await settle();
+    env.viewerButton("关闭图片查看器").dispatch("click"); await settle();
     assert.equal(env.window.history.state.iaBrowse.viewer, null);
 });
 
 test("refresh restores viewer and current page without another push; missing Post/Asset falls back to list", async () => {
     const env = browser({ url: "http://localhost/?page=2" }); const { context, config, opener } = setup(env);
-    context.openViewer(config, opener); env.find("image-viewer-toolbar").children[1].dispatch("click");
+    context.openViewer(config, opener); env.viewerButton("下一张图片").dispatch("click");
     const refreshed = browser({ url: env.window.location.href, entries: env.entries(), storage: env.storage });
     const restored = setup(refreshed); restored.context.ready();
     assert.equal(restored.context.initialPage, 2);
@@ -50,7 +50,7 @@ test("Detail navigation consumes viewer entry; trusted return goes straight to s
     const env = browser(); const { context, config, opener } = setup(env);
     context.ready();
     context.openViewer(config, opener);
-    env.find("image-viewer-toolbar").children[7].dispatch("click"); await settle();
+    env.find("image-viewer-link").dispatch("click"); await settle();
     assert.equal(env.entries().length, 1);
     assert.equal(env.window.history.state.iaBrowse.viewer, null);
     const href = env.window.location.assigned;

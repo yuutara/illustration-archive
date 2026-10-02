@@ -14,7 +14,7 @@ async function loadPage(assets) {
     env.sandbox.fetchImpl = async () => ({ ok: true, json: async () => detail });
     env.run("detail.js");
     await new Promise(setImmediate);
-    assert.equal(elements.get("detail-status").textContent, "详情已加载");
+    assert.equal(elements.get("detail-status").textContent, "");
     return elements.get("detail-images").children;
 }
 
@@ -59,6 +59,63 @@ test("detail page provides the gallery element", () => {
     assert.match(html, /id="detail-images"/);
 });
 
+test("Detail keeps loading and errors, then clears status after successful retry", async () => {
+    const env = browser({ url: "http://localhost/detail.html?id=7" });
+    const elements = env.elements;
+    let complete;
+    env.sandbox.fetchImpl = () => new Promise(resolve => { complete = resolve; });
+    env.run("detail.js");
+    assert.equal(elements.get("detail-status").textContent, "正在加载…");
+    assert.equal(elements.get("detail-content").hidden, true);
+    complete({ ok: false, status: 500 });
+    await new Promise(setImmediate);
+    assert.equal(elements.get("detail-status").textContent, "加载失败");
+    assert.equal(elements.get("detail-state-panel").hidden, false);
+    assert.equal(elements.get("detail-retry-button").hidden, false);
+
+    const retried = elements.get("detail-retry-button").dispatch("click");
+    assert.equal(elements.get("detail-status").textContent, "正在加载…");
+    complete({ ok: true, json: async () => ({ id: 7, title: "Test", assets: [], tags: [] }) });
+    await retried;
+    assert.equal(elements.get("detail-status").textContent, "");
+    assert.equal(elements.get("detail-state-panel").hidden, true);
+    assert.equal(elements.get("detail-content").hidden, false);
+});
+
+test("Detail cancel and successful save clear status without masking save or reload errors", async () => {
+    const env = browser({ url: "http://localhost/detail.html?id=7" });
+    const elements = env.elements;
+    const success = async () => ({ ok: true,
+        json: async () => ({ id: 7, title: "Test", assets: [], tags: [] }) });
+    env.sandbox.fetchImpl = success;
+    env.run("detail.js"); await new Promise(setImmediate);
+    elements.get("detail-edit-button").dispatch("click");
+    assert.equal(elements.get("detail-status").textContent, "正在编辑");
+    elements.get("detail-cancel-button").dispatch("click");
+    assert.equal(elements.get("detail-status").textContent, "");
+    assert.equal(elements.get("detail-edit-form").hidden, true);
+
+    elements.get("detail-edit-button").dispatch("click");
+    elements.get("detail-title-input").value = "尚未保存";
+    env.sandbox.fetchImpl = async () => ({ ok: false, status: 500 });
+    await elements.get("detail-edit-form").dispatch("submit");
+    assert.equal(elements.get("detail-status").textContent, "保存失败，请重试");
+    assert.equal(elements.get("detail-edit-form").hidden, false);
+    assert.equal(elements.get("detail-title-input").value, "尚未保存");
+
+    env.sandbox.fetchImpl = async (url, request) => ({ ok: request.method === "PATCH", status: 500 });
+    await elements.get("detail-edit-form").dispatch("submit");
+    assert.equal(elements.get("detail-status").textContent, "加载失败");
+    assert.equal(elements.get("detail-state-panel").hidden, false);
+
+    env.sandbox.fetchImpl = success;
+    await elements.get("detail-retry-button").dispatch("click");
+    elements.get("detail-edit-button").dispatch("click");
+    await elements.get("detail-edit-form").dispatch("submit");
+    assert.equal(elements.get("detail-status").textContent, "");
+    assert.equal(elements.get("detail-edit-form").hidden, true);
+});
+
 test("Detail URL Asset locates original; viewer does not discard unsaved editor values", async () => {
     const env = browser({ url: "http://localhost/detail.html?id=7&asset=22" });
     env.sandbox.fetchImpl = async () => ({ ok: true, json: async () => ({ id: 7, title: "Test",
@@ -69,7 +126,7 @@ test("Detail URL Asset locates original; viewer does not discard unsaved editor 
     const title = env.elements.get("detail-title-input"); title.value = "尚未保存";
     env.elements.get("detail-images").children[1].dispatch("click");
     assert.equal(env.find("image-viewer-image").src, "/api/assets/22/content");
-    env.find("image-viewer-header").children[2].dispatch("click"); await new Promise(setImmediate);
+    env.viewerButton("关闭图片查看器").dispatch("click"); await new Promise(setImmediate);
     assert.equal(title.value, "尚未保存");
     assert.equal(env.elements.get("detail-edit-form").hidden, false);
 });
