@@ -5,7 +5,32 @@
 
 ## Current Version
 
-V0.5 - 图库使用体验（当前工作包：统一图片查看器）
+V0.5 - 图库使用体验（当前工作包：F05A Gallery / Detail Presentation Polish）
+
+### V0.5-F05A｜Gallery Browse Mode + Detail Presentation Polish
+
+2026-10-02，按确认后的 03「原幅 Masonry」实施。Gallery 仍以 Illustration 为单位，每页 24 件并保留明确分页；没有无限追加、搜索、Author / Tag 导航或新管理页面。后端、数据库、Inbox、`image-viewer.js` 与 `browse-context.js` 均未修改。
+
+- Gallery 使用薄工具栏，现有导入表单默认收起，展开 / 收起保留节点与输入。图片没有常驻标题、缺失作者提示或卡片文字区；有效作者 / 标题在 hover / keyboard focus 时出现，多图保留叠图图标与总数，并在 hover / focus 时显示轻量预览箭头。点击图片继续通过现有 BrowseContext 打开 Viewer，修改键点击保留 Detail 链接。
+- 新增无依赖 `masonry-layout.js`：等宽列、最短列放置、同高靠左，DOM 维持接口顺序；高度按原比例计算，桌面最多 8 列，gutter 8px，窄屏两列 / 一列与 6px gutter。Gallery / Detail 的纸白与鼠尾草样式限定在页面作用域，Viewer 样式段保持原样。
+- 当前页封面尺寸采用 4 路并发准备，整个准备阶段最多等待 6 秒；最多缓存 128 个预览比例。尺寸确定后一次提交布局，再调用既有 `browse.ready()`。失败 / 超时保留固定占位，迟到的图片不挤动邻图；Viewer 切换异比例 Asset 时，在固定封面格子内 contain。翻页准备期间保留原页，失败保留 URL、作品与滚动位置，重试成功才换页。
+- Detail 保留有序原图与原编辑表单：作者 24px，handle 14px，静态鼠尾草 Tag chips；空标题 / 标签 / 来源 / 备注隐藏，缺作者仅显示弱提示。来源与备注降级，编辑 / 删除移到信息末尾并弱化；没有改变保存、删除或来源 URL 校验流程。
+
+**自动化验证：**执行 `node --test src/test/js/gallery.test.js src/test/js/detail.test.js src/test/js/masonry-layout.test.js src/test/js/image-viewer.test.js src/test/js/browse-context.test.js src/test/js/x-import.test.js`，44/44 通过。包括最短列几何、比例 / 长图 / 断点、失败 / 超时 / 乱序尺寸准备、换页失败保留原页、多图切换固定坐标、Detail 空字段及安全来源，以及既有 Viewer / BrowseContext / Inbox 回归。`git diff --check` 通过。纯前端范围，未运行 Maven。
+
+**浏览器验证：**最终源文件通过本地只读预览代理连接真实应用；未重启 Spring Boot。1280×720、1920×1080、390×844 的 Gallery 均无横向溢出，分别为 6 / 8 / 2 列；当前 23 件真实作品首屏完整可见 13 / 23 / 8 件。Detail 在上述桌面与窄屏中检查了标题、作者、handle、chips、来源、备注和弱操作。真实作品的坐标点击开关 Viewer 后，锚点 top 118.90625px、scrollY 844 均保持不变，焦点回到图片入口；Gallery 冷刷新保持同一位置。另一次实际坐标链路完成 Detail Back / Forward / Detail 刷新 / 返回图库，锚点与 scrollY 同样保持；Detail 临时未保存标题在 Viewer 开关后仍存在，随后取消，没有提交编辑。
+
+真实库不足两页，多页、失败翻页重试、页码越界、横 / 竖 / 长图、透明 PNG、GIF、不同宽高多图以及图片失败使用同一正式前端源文件和只读模拟 API 验证，不能视为真实多页验收。现有 bfcache 回归通过；浏览器返回链路未单独证明缓存命中与未命中两条路径。真实库预览未出现 JS error / warn；模拟的 HTTP 404 / 503 属预期。
+
+**尚未验收：**原生浏览器 200% 缩放（内嵌浏览器快捷键未生效，Edge 工具连接不可用）；已补做 640×360 等效视口无横向溢出检查，但不代替原生缩放。仍需更新后的 Spring Boot 静态资源部署、真实多页库与跨浏览器检查。本轮未执行业务写入，也未 commit / push / merge / tag；上述实现与证据不宣告 V0.5 Final Acceptance。
+
+**F05A 实机验收回归修复（2026-10-02）：**恢复旧 Gallery 的多图左右循环预览。单图不创建控件；多图箭头作为图片链接的兄弟按钮，仅在 hover / focus 时出现，点击阻止默认行为与冒泡，并使用现有 `browse.remember()` 同步当前 Asset / Detail href。图片主体仍从当前预览打开 Viewer。没有改变封面决定的格子、分页或 F01 契约；异比例图片使用 contain 与纸白留边。
+
+本次修复只新增修改 `app.js`、Gallery scoped CSS、`gallery.test.js` 和本记录，保留此前 F05A 未提交改动。执行 `node --test src/test/js/gallery.test.js src/test/js/image-viewer.test.js src/test/js/browse-context.test.js src/test/js/masonry-layout.test.js`，28/28 通过；`git diff --check` 通过。新增测试覆盖单 / 多图控件、排序与首尾循环、箭头不打开 Viewer / 不新增历史项、当前 Asset 同步、Viewer 起始项 / 关闭 / 刷新与固定封面格子。
+
+只读真实库源码预览中，1280px 鼠标与 Enter、390px Space 均能轮换真实三图作品 28；点击图片从当前 Asset 29 / 30 打开 Viewer。390px 关闭前后 top 283.5208435058594px / scrollY 90 不变，预览与焦点保留；刷新恢复 Asset 29。使用同一源码的异比例模拟三图从 600×900 切到 1200×400，格子 198.8333×298.25px 与所有邻图坐标不变，未打开 Viewer；随后 Viewer → Detail → 返回 Gallery 保留 Asset 1105。本次未重启应用或执行业务写入，没有 commit / push / merge / tag；此前尚未验收项保持上述边界。
+
+**F05A 收尾验收（2026-10-02）：**用户已确认 F05A 完成真实浏览器验收，恢复多图 Gallery 轮换后也未发现明显问题。该用户实机验收与上方实现阶段的自动化 / 工具验证分别记录，不将此前未单项验证的细节改写为自动测试结论。最终提交前枚举 `src/test/js` 的全部 6 个 `*.test.js` 并执行 `node --test`，46/46 通过（0 failures、0 skipped）；`git diff --check` 通过。全部 11 个待提交文件均属于 F05A Gallery / Detail、多图预览回归修复及其测试 / 状态文档；oil-ui、visualizations、preview server 等项目外产物未进入仓库。F01 两个脚本、后端、数据库与 Inbox 均无改动。本轮只收尾 F05A，不推进其他 V0.5 工作包或宣告版本发布。
 
 ### V0.5-F1｜Unified Image Viewer
 

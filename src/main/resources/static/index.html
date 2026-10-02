@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="gallery-document">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,21 +7,25 @@
     <link rel="stylesheet" href="/style.css">
     <script src="/image-viewer.js" defer></script>
     <script src="/browse-context.js" defer></script>
+    <script src="/masonry-layout.js" defer></script>
     <script src="/app.js" defer></script>
 </head>
-<body>
+<body class="gallery-page">
+<header class="browse-toolbar">
+    <a class="archive-brand" href="/">Illustration Archive</a>
+    <span id="total-count" class="total-count"></span>
+    <p id="load-status" class="load-status" aria-live="polite">正在加载…</p>
+    <button id="import-toggle" class="browse-import-toggle" type="button" aria-expanded="false"
+            aria-controls="import-panel">导入插画</button>
+    <details class="browse-more">
+        <summary aria-label="更多操作">⋯</summary>
+        <div class="browse-more-menu"><a href="/x-import.html">X Import →</a></div>
+    </details>
+</header>
 <main class="page-shell">
-    <header class="page-header">
-        <div>
-            <p class="eyebrow">Illustration Archive</p>
-            <h1>插画图库</h1>
-            <p class="page-description">把喜欢的画面，安静地收在这里。</p>
-            <a class="back-link" href="/x-import.html">X Import →</a>
-        </div>
-        <p id="load-status" class="load-status" aria-live="polite">正在加载…</p>
-    </header>
+    <h1 class="visually-hidden">插画图库</h1>
 
-    <section class="import-section" aria-labelledby="import-heading">
+    <section id="import-panel" class="import-section" aria-labelledby="import-heading" hidden>
         <div class="section-heading">
             <div>
                 <h2 id="import-heading">导入插画</h2>
@@ -51,12 +55,9 @@
     </section>
 
     <section aria-labelledby="gallery-heading">
-        <div class="section-heading">
-            <h2 id="gallery-heading">全部插画</h2>
-            <span id="total-count" class="total-count"></span>
-        </div>
+        <h2 id="gallery-heading" class="visually-hidden">全部插画</h2>
 
-        <div id="gallery" class="gallery" aria-live="polite"></div>
+        <div id="gallery" class="gallery" aria-busy="true"></div>
 
         <div id="state-panel" class="state-panel" role="status" hidden>
             <h3 id="state-title"></h3>

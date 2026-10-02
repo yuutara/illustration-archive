@@ -613,7 +613,7 @@
         editButton.hidden = editing;
         deleteButton.hidden = editing;
         editForm.hidden = !editing;
-        titleElement.hidden = editing;
+        titleElement.hidden = editing || !textOrFallback(state.detail && state.detail.title, "");
         metaGrid.hidden = editing;
     }
 
@@ -755,8 +755,9 @@
         const author = detail && detail.author;
         authorNameElement.textContent = textOrFallback(
             author && author.displayName,
-            "未知作者"
+            "作者未填写"
         );
+        authorNameElement.classList.toggle("is-empty", !textOrFallback(author && author.displayName, ""));
 
         const xUsername = authorHandle(author);
         if (xUsername) {
@@ -777,12 +778,10 @@
             : [];
 
         if (tags.length === 0) {
-            const emptyTags = document.createElement("p");
-            emptyTags.className = "empty-value";
-            emptyTags.textContent = "暂无标签";
-            tagsElement.appendChild(emptyTags);
+            document.getElementById("detail-tags-section").hidden = true;
             return;
         }
+        document.getElementById("detail-tags-section").hidden = false;
 
         tags.forEach(function (tag) {
             const tagElement = document.createElement("span");
@@ -794,12 +793,10 @@
 
     function renderSource(detail) {
         sourceElement.replaceChildren();
+        const section = document.getElementById("detail-source-section");
+        section.hidden = true;
         const sourceUrl = textOrFallback(detail && detail.sourceUrl, "");
         if (!sourceUrl) {
-            const emptySource = document.createElement("p");
-            emptySource.className = "empty-value";
-            emptySource.textContent = "暂无来源";
-            sourceElement.appendChild(emptySource);
             return;
         }
 
@@ -814,23 +811,23 @@
             sourceLink.href = parsedUrl.href;
             sourceLink.target = "_blank";
             sourceLink.rel = "noreferrer";
-            sourceLink.textContent = sourceUrl;
+            sourceLink.textContent = `${parsedUrl.hostname} ↗`;
+            sourceLink.title = sourceUrl;
             sourceElement.appendChild(sourceLink);
+            section.hidden = false;
         } catch (error) {
-            const invalidSource = document.createElement("p");
-            invalidSource.className = "empty-value";
-            invalidSource.textContent = "暂无来源";
-            sourceElement.appendChild(invalidSource);
+            // Preserve the existing protocol validation; invalid sources have no reading block.
         }
     }
 
     function renderDetail(detail) {
         state.detail = detail;
-        titleElement.textContent = titleFor(detail);
+        titleElement.textContent = textOrFallback(detail && detail.title, "");
         renderImages(detail);
         renderAuthor(detail);
         renderTags(detail);
-        noteElement.textContent = textOrFallback(detail && detail.note, "暂无备注");
+        noteElement.textContent = textOrFallback(detail && detail.note, "");
+        document.getElementById("detail-note-section").hidden = !noteElement.textContent;
         renderSource(detail);
         resetAuthorEditor();
         resetTagEditor();

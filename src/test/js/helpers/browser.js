@@ -56,6 +56,7 @@ function browser({ url = "http://localhost/", entries, storage = new Map(), stor
             this.children = []; this.append(...children);
         }
         setAttribute(name, value) { this[name] = value; }
+        getAttribute(name) { return this[name] ?? null; }
         removeAttribute(name) { delete this[name]; }
         dispatch(type, properties = {}) {
             const event = { type, target: this, button: 0, isPrimary: true,
@@ -85,7 +86,11 @@ function browser({ url = "http://localhost/", entries, storage = new Map(), stor
             return this.parentNode ? this.parentNode.closest(selector) : null;
         }
         focus() { document.activeElement = this; }
-        getBoundingClientRect() { const top = this.rect.top - window.scrollY; return { top, bottom: top + this.rect.height }; }
+        getBoundingClientRect() {
+            const top = (this.style.top ? parseFloat(this.style.top) : this.rect.top) - window.scrollY;
+            const height = this.style.height ? parseFloat(this.style.height) : this.rect.height;
+            return { top, bottom: top + height, height };
+        }
         showModal() { this.open = true; }
         close() { this.open = false; }
         setPointerCapture(id) { this.capturedPointer = id; }
@@ -108,7 +113,7 @@ function browser({ url = "http://localhost/", entries, storage = new Map(), stor
         assign(href) { this.assigned = href; }, replace(href) { this.replaced = href; }
     };
     const window = {
-        document, location, crypto: { randomUUID }, scrollY: 0, innerHeight: 800,
+        document, location, crypto: { randomUUID }, scrollY: 0, innerHeight: 800, innerWidth: 1280,
         sessionStorage: {
             getItem(key) { if (storageDisabled) throw new Error("Storage disabled"); return storage.get(key) || null; },
             setItem(key, value) { if (storageDisabled) throw new Error("Storage disabled"); storage.set(key, value); }
@@ -141,12 +146,29 @@ function browser({ url = "http://localhost/", entries, storage = new Map(), stor
     }
     const sandbox = vm.createContext({ window, document, URL, URLSearchParams, structuredClone,
         encodeURIComponent, setTimeout, clearTimeout, FormData, fetch: (...args) => sandbox.fetchImpl(...args) });
+    sandbox.imageSizeImpl = () => ({ width: 800, height: 600 });
+    sandbox.Image = class extends Element {
+        constructor() { super("img"); }
+        set src(url) {
+            this.url = url;
+            Promise.resolve(sandbox.imageSizeImpl(url)).then(size => {
+                this.naturalWidth = size && size.width; this.naturalHeight = size && size.height;
+                if (size) this.onload?.(); else this.onerror?.();
+            });
+        }
+    };
+    const observers = [];
+    sandbox.ResizeObserver = class {
+        constructor(callback) { observers.push(callback); }
+        observe() {}
+    };
     function run(file) {
         vm.runInContext(readFileSync(path.resolve(__dirname, "../../../main/resources/static", file), "utf8"), sandbox);
     }
     function flushFrames() { while (frames.length) frames.shift()(); }
-    run("image-viewer.js"); run("browse-context.js");
+    run("image-viewer.js"); run("browse-context.js"); run("masonry-layout.js");
     return { window, document, elements: ids, storage, run, sandbox, Element, flushFrames,
+        resize: () => observers.forEach(callback => callback()),
         entries: () => structuredClone(historyEntries.slice(0, cursor + 1)),
         find: className => document.querySelectorAll("." + className)[0],
         viewerButton: label => document.querySelectorAll(".image-viewer-button")

@@ -37,6 +37,93 @@
     const importSuccessCount = document.getElementById("import-success-count");
     const importFailureCount = document.getElementById("import-failure-count");
     const importItems = document.getElementById("import-items");
+    const importToggle = document.getElementById("import-toggle");
+    const importPanel = document.getElementById("import-panel");
+    let layoutRatios = [];
+    let layoutWidth = 0;
+    let resizeFrame = false;
+    const sizeCacheKey = "ia:masonry:sizes:v1";
+    const sizeCache = new Map();
+    try {
+        const saved = JSON.parse(window.sessionStorage.getItem(sizeCacheKey));
+        if (Array.isArray(saved)) saved.slice(-128).forEach(([url, ratio]) => {
+            if (typeof url === "string" && Number.isFinite(ratio) && ratio > 0) sizeCache.set(url, ratio);
+        });
+    } catch (_) { /* Browser storage is optional. */ }
+
+    function assetsFor(item) {
+        return Array.isArray(item && item.assets) && item.assets.length > 0
+            ? item.assets.slice().sort((a, b) => Number(a.sortOrder) - Number(b.sortOrder) || Number(a.id) - Number(b.id))
+            : item && item.coverAssetId != null ? [{ id: item.coverAssetId, mimeType: item.coverMimeType }] : [];
+    }
+
+    function measureRatio(url, timeout) {
+        if (!url) return Promise.resolve(1);
+        if (sizeCache.has(url)) return Promise.resolve(sizeCache.get(url));
+        if (timeout <= 0) return Promise.resolve(1);
+        return new Promise(resolve => {
+            const probe = new Image();
+            const timer = window.setTimeout(() => finish(false), timeout);
+            const finish = success => {
+                clearTimeout(timer);
+                probe.onload = probe.onerror = null;
+                const ratio = success && probe.naturalWidth > 0 && probe.naturalHeight > 0
+                    ? probe.naturalWidth / probe.naturalHeight : 1;
+                if (success && probe.naturalWidth > 0 && probe.naturalHeight > 0) sizeCache.set(url, ratio);
+                resolve(ratio);
+            };
+            probe.onload = () => finish(true);
+            probe.onerror = () => finish(false);
+            probe.src = url;
+        });
+    }
+
+    async function prepareRatios(items) {
+        const ratios = Array(items.length);
+        let next = 0;
+        const deadline = Date.now() + 6000;
+        async function worker() {
+            while (next < items.length) {
+                const index = next++;
+                const assets = assetsFor(items[index]);
+                const cover = assets.find(asset => asset.id === items[index].coverAssetId) || assets[0];
+                ratios[index] = await measureRatio(galleryImageUrl(cover), deadline - Date.now());
+            }
+        }
+        await Promise.all(Array.from({ length: Math.min(4, items.length) }, worker));
+        while (sizeCache.size > 128) sizeCache.delete(sizeCache.keys().next().value);
+        try { window.sessionStorage.setItem(sizeCacheKey, JSON.stringify(Array.from(sizeCache))); }
+        catch (_) { /* In-memory sizes still work when storage is unavailable. */ }
+        return ratios;
+    }
+
+    function layoutGallery(preserveAnchor) {
+        const width = gallery.clientWidth;
+        if (!width || (preserveAnchor && width === layoutWidth)) return;
+        const cards = Array.from(gallery.children);
+        const anchor = preserveAnchor && cards.filter(card => {
+            const rect = card.getBoundingClientRect();
+            return rect.bottom > 0 && rect.top < window.innerHeight;
+        }).sort((a, b) => Math.abs(a.getBoundingClientRect().top) - Math.abs(b.getBoundingClientRect().top))[0];
+        const anchorTop = anchor && anchor.getBoundingClientRect().top;
+        const geometry = window.MasonryLayout.layout(width, layoutRatios, window.innerWidth);
+        cards.forEach((card, index) => {
+            const box = geometry.boxes[index];
+            card.style.left = `${box.left}px`;
+            card.style.top = `${box.top}px`;
+            card.style.width = `${box.width}px`;
+            card.style.height = `${box.height}px`;
+        });
+        gallery.style.height = `${geometry.height}px`;
+        layoutWidth = width;
+        if (anchor) window.scrollTo(0, Math.max(0, window.scrollY + anchor.getBoundingClientRect().top - anchorTop));
+    }
+
+    new ResizeObserver(() => {
+        if (resizeFrame || !layoutRatios.length) return;
+        resizeFrame = true;
+        window.requestAnimationFrame(() => { resizeFrame = false; layoutGallery(true); });
+    }).observe(gallery);
 
     function nonNegativeCount(value, fallback) {
         const count = Number(value);
@@ -135,6 +222,9 @@
         }
 
         state.importing = true;
+        importPanel.hidden = false;
+        importToggle.setAttribute("aria-expanded", "true");
+        importToggle.disabled = true;
         importFilesInput.disabled = true;
         importButton.disabled = true;
         clearImportResult();
@@ -175,6 +265,7 @@
             setImportStatus("导入请求失败，请重试。", "error");
         } finally {
             state.importing = false;
+            importToggle.disabled = false;
             importFilesInput.disabled = false;
             if (!batchHandled) {
                 renderSelectedFiles();
@@ -186,13 +277,6 @@
         return item && typeof item.title === "string" && item.title.trim()
             ? item.title
             : "未命名";
-    }
-
-    function authorFor(item) {
-        const displayName = item && item.author && item.author.displayName;
-        return typeof displayName === "string" && displayName.trim()
-            ? displayName
-            : "未知作者";
     }
 
     function galleryImageUrl(asset) {
@@ -216,7 +300,7 @@
             ? `第 ${state.page + 1} / ${state.totalPages} 页`
             : "第 0 / 0 页";
         totalCount.textContent = state.totalElements > 0
-            ? `${state.totalElements} 幅插画`
+            ? `${state.totalElements} 件作品`
             : "";
         previousButton.disabled = state.loading || state.page <= 0;
         nextButton.disabled = state.loading
@@ -225,20 +309,21 @@
     }
 
     function showState(title, message, canRetry) {
-        gallery.replaceChildren();
-        gallery.hidden = true;
+        gallery.hidden = gallery.children.length === 0;
         statePanel.hidden = false;
         stateTitle.textContent = title;
         stateMessage.textContent = message;
         retryButton.hidden = !canRetry;
     }
 
-    function showGallery(items) {
+    function showGallery(items, ratios) {
         cardViews.clear();
         gallery.replaceChildren();
         statePanel.hidden = true;
+        layoutRatios = ratios;
 
         if (items.length === 0) {
+            gallery.style.height = "0px";
             showState("暂无插画", "还没有可以展示的插画。", false);
             return;
         }
@@ -247,10 +332,13 @@
             gallery.appendChild(createCard(item));
         });
         gallery.hidden = false;
+        layoutGallery(false);
     }
 
     function createCard(item) {
         const title = titleFor(item);
+        const validTitle = typeof item.title === "string" ? item.title.trim() : "";
+        const author = typeof item.author?.displayName === "string" ? item.author.displayName.trim() : "";
         const card = document.createElement("article");
         card.className = "illustration-card";
         const groupKey = `illustration:${item.id}`;
@@ -260,12 +348,10 @@
 
         const imageLink = document.createElement("a");
         imageLink.className = "card-image-link";
-        imageLink.setAttribute("aria-label", `放大查看${title}`);
-        const bodyLink = document.createElement("a");
-        bodyLink.className = "card-body";
+        imageLink.setAttribute("aria-label", `放大查看${validTitle || author || `作品 ${item.id}`}`);
+        imageLink.setAttribute("role", "button");
         if (item && item.id !== null && item.id !== undefined) {
             imageLink.href = detailUrl;
-            bodyLink.href = detailUrl;
         }
 
         const imageContainer = document.createElement("div");
@@ -276,15 +362,10 @@
         fallback.textContent = "图片加载失败";
         fallback.hidden = true;
 
-        const assets = Array.isArray(item && item.assets) && item.assets.length > 0
-            ? item.assets.slice().sort((left, right) => Number(left.sortOrder) - Number(right.sortOrder) || Number(left.id) - Number(right.id))
-            : item && item.coverAssetId != null
-                ? [{ id: item.coverAssetId, mimeType: item.coverMimeType }]
-                : [];
+        const assets = assetsFor(item);
         let currentIndex = Math.max(0, assets.findIndex(asset => String(asset.id) === browse.imageKey(groupKey)));
-        let updateControls = function () {};
         const image = document.createElement("img");
-        image.alt = title;
+        image.alt = "";
         image.loading = "lazy";
         image.decoding = "async";
         image.addEventListener("error", function () {
@@ -306,9 +387,7 @@
             if (asset && detailUrl) {
                 const href = browse.detailHref(item.id, String(asset.id));
                 imageLink.href = href;
-                bodyLink.href = href;
             }
-            updateControls();
         }
         showAsset();
 
@@ -332,58 +411,61 @@
         }
         cardViews.set(groupKey, { viewer });
         imageLink.addEventListener("click", function (event) {
+            if (state.loading && window.ImageViewer.plainClick(event)) { event.preventDefault(); return; }
             if (window.ImageViewer.plainClick(event) && browse.openViewer(viewer(), imageLink)) event.preventDefault();
         });
-        browse.bindDetailLink(bodyLink, item.id, assets[currentIndex] && String(assets[currentIndex].id));
+        imageLink.addEventListener("keydown", event => {
+            if (event.key === " " && browse.openViewer(viewer(), imageLink)) event.preventDefault();
+        });
 
         if (assets.length > 1) {
-            const previous = document.createElement("button");
-            previous.type = "button";
-            previous.className = "card-asset-button card-asset-previous";
-            previous.setAttribute("aria-label", `上一张：${title}`);
-            previous.textContent = "‹";
-            const next = document.createElement("button");
-            next.type = "button";
-            next.className = "card-asset-button card-asset-next";
-            next.setAttribute("aria-label", `下一张：${title}`);
-            next.textContent = "›";
+            // Sibling buttons keep preview cycling separate from the Viewer link.
+            function previewButton(step, label, className) {
+                const button = document.createElement("button");
+                button.type = "button";
+                button.className = `card-asset-button ${className}`;
+                button.setAttribute("aria-label", `${label}预览：${validTitle || author || `作品 ${item.id}`}`);
+                button.textContent = step < 0 ? "‹" : "›";
+                button.addEventListener("click", event => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (state.loading) return;
+                    currentIndex = (currentIndex + step + assets.length) % assets.length;
+                    browse.remember(groupKey, String(assets[currentIndex].id));
+                    showAsset();
+                });
+                return button;
+            }
+            imageContainer.append(
+                previewButton(-1, "上一张", "card-asset-previous"),
+                previewButton(1, "下一张", "card-asset-next")
+            );
             const position = document.createElement("span");
             position.className = "card-asset-position";
-            position.setAttribute("aria-live", "polite");
-            updateControls = function () {
-                position.textContent = `${currentIndex + 1} / ${assets.length}`;
-            };
-            previous.addEventListener("click", function (event) {
-                event.preventDefault();
-                event.stopPropagation();
-                currentIndex = (currentIndex - 1 + assets.length) % assets.length;
-                browse.remember(groupKey, String(assets[currentIndex].id));
-                showAsset();
-                updateControls();
-            });
-            next.addEventListener("click", function (event) {
-                event.preventDefault();
-                event.stopPropagation();
-                currentIndex = (currentIndex + 1) % assets.length;
-                browse.remember(groupKey, String(assets[currentIndex].id));
-                showAsset();
-                updateControls();
-            });
-            updateControls();
-            imageContainer.append(previous, next, position);
+            position.textContent = String(assets.length);
+            position.setAttribute("aria-hidden", "true");
+            imageLink.setAttribute("aria-label", `${imageLink.getAttribute("aria-label")}，共 ${assets.length} 张图片`);
+            imageLink.appendChild(position);
         }
 
-        const titleElement = document.createElement("h3");
-        titleElement.className = "card-title";
-        titleElement.title = title;
-        titleElement.textContent = title;
-
-        const authorElement = document.createElement("p");
-        authorElement.className = "card-author";
-        authorElement.textContent = authorFor(item);
-
-        bodyLink.append(titleElement, authorElement);
-        card.append(imageContainer, bodyLink);
+        if (author || validTitle) {
+            const info = document.createElement("span");
+            info.className = "card-hover-info";
+            if (author) {
+                const credit = document.createElement("span");
+                credit.className = "card-author";
+                credit.textContent = author;
+                info.appendChild(credit);
+            }
+            if (validTitle) {
+                const caption = document.createElement("span");
+                caption.className = "card-title";
+                caption.textContent = validTitle;
+                info.appendChild(caption);
+            }
+            imageLink.appendChild(info);
+        }
+        card.append(imageContainer);
         return card;
     }
 
@@ -394,9 +476,12 @@
 
         state.loading = true;
         state.pendingPage = page;
+        gallery.setAttribute("aria-busy", "true");
+        gallery.inert = true;
         updatePagination();
         loadStatus.textContent = "正在加载…";
-        showState("正在加载", "正在读取图库内容。", false);
+        if (!gallery.children.length) showState("正在加载", "正在读取图库内容。", false);
+        else statePanel.hidden = true;
 
         try {
             const response = await fetch(`/api/illustrations?page=${page}&size=${pageSize}`, {
@@ -411,30 +496,34 @@
             const responseTotalPages = Number(data.totalPages);
             const responseTotalElements = Number(data.totalElements);
 
-            state.page = Number.isInteger(responsePage) && responsePage >= 0
+            const loadedPage = Number.isInteger(responsePage) && responsePage >= 0
                 ? responsePage
                 : page;
-            state.totalPages = Number.isInteger(responseTotalPages) && responseTotalPages >= 0
+            const totalPages = Number.isInteger(responseTotalPages) && responseTotalPages >= 0
                 ? responseTotalPages
                 : 0;
-            state.totalElements = Number.isInteger(responseTotalElements) && responseTotalElements >= 0
-                ? responseTotalElements
-                : 0;
 
-            if (state.page > 0 && state.page >= state.totalPages) {
+            if (loadedPage > 0 && loadedPage >= totalPages) {
                 state.loading = false;
-                return await loadPage(Math.max(0, state.totalPages - 1));
+                return await loadPage(Math.max(0, totalPages - 1));
             }
+            const items = Array.isArray(data.items) ? data.items : [];
+            const ratios = await prepareRatios(items);
+            state.page = loadedPage;
+            state.totalPages = totalPages;
+            state.totalElements = Number.isInteger(responseTotalElements) && responseTotalElements >= 0 ? responseTotalElements : 0;
             browse.setPage(state.page);
 
-            showGallery(Array.isArray(data.items) ? data.items : []);
+            showGallery(items, ratios);
             browse.ready();
-            loadStatus.textContent = "图库已更新";
+            loadStatus.textContent = "";
         } catch (error) {
             loadStatus.textContent = "加载失败";
             showState("图库加载失败", "暂时无法读取图库，请稍后重试。", true);
         } finally {
             state.loading = false;
+            gallery.setAttribute("aria-busy", "false");
+            gallery.inert = false;
             updatePagination();
         }
     }
@@ -458,6 +547,11 @@
     });
 
     importButton.addEventListener("click", importIllustrations);
+    importToggle.addEventListener("click", () => {
+        if (state.importing) return;
+        importPanel.hidden = !importPanel.hidden;
+        importToggle.setAttribute("aria-expanded", String(!importPanel.hidden));
+    });
 
     loadPage(browse.initialPage);
 })();

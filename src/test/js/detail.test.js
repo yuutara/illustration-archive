@@ -130,3 +130,22 @@ test("Detail URL Asset locates original; viewer does not discard unsaved editor 
     assert.equal(title.value, "尚未保存");
     assert.equal(env.elements.get("detail-edit-form").hidden, false);
 });
+
+test("reading metadata hides empty blocks and keeps static sage chip semantics and safe sources", async () => {
+    const env = browser({url:"http://localhost/detail.html?id=7"});
+    env.sandbox.fetchImpl = async () => ({ok:true,json:async()=>({id:7,title:null,author:null,note:"",sourceUrl:"javascript:alert(1)",assets:[],tags:[]})});
+    env.run("detail.js"); await new Promise(setImmediate);
+    assert.equal(env.elements.get("detail-title").hidden,true);
+    assert.equal(env.elements.get("detail-author-name").textContent,"作者未填写");
+    assert.equal(env.elements.get("detail-note-section").hidden,true);
+    assert.equal(env.elements.get("detail-source-section").hidden,true);
+    assert.equal(env.elements.get("detail-tags-section").hidden,true);
+    env.sandbox.fetchImpl = async () => ({ok:true,json:async()=>({id:7,title:"Work",author:{displayName:"Artist",xUsername:"artist"},note:"A note",sourceUrl:"https://example.com/art/1",assets:[],tags:[{id:1,name:"收藏"}]})});
+    await env.elements.get("detail-retry-button").dispatch("click");
+    assert.equal(env.elements.get("detail-title").hidden,false);
+    assert.equal(env.elements.get("detail-author-name").textContent,"Artist");
+    assert.equal(env.elements.get("detail-tags").children[0].tagName,"span");
+    assert.equal(env.elements.get("detail-source").children[0].href,"https://example.com/art/1");
+    assert.equal(env.elements.get("detail-source").children[0].textContent,"example.com ↗");
+    assert.equal(env.elements.get("detail-note-section").hidden,false);
+});

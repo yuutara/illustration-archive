@@ -1139,3 +1139,84 @@ h2 {
         gap: 10px;
     }
 }
+
+/* F05A page scopes: Inbox and the sealed Viewer keep their own styles. */
+.gallery-page, .detail-page {
+    --page-background: #fafaf6;
+    --surface: #e9eee5;
+    --text: #303632;
+    --text-muted: #5e6b5e;
+    --accent: #566a52;
+    --accent-dark: #43583f;
+    --border: #d4dcd0;
+    background: var(--page-background);
+}
+.gallery-document { scrollbar-gutter: stable; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.browse-toolbar { display: flex; align-items: center; gap: 20px; height: 48px; padding: 0 16px; border-bottom: 1px solid var(--border); }
+.archive-brand { color: var(--text); font: 16px Georgia, "Microsoft YaHei", serif; text-decoration: none; white-space: nowrap; }
+.browse-toolbar .total-count, .browse-toolbar .load-status { font-size: 12px; margin: 0; }
+.browse-toolbar .load-status { margin-left: auto; }
+.browse-import-toggle { padding: 8px 4px; border: 0; background: transparent; color: var(--text-muted); cursor: pointer; white-space: nowrap; }
+.browse-import-toggle:disabled { opacity: .55; cursor: default; }
+.browse-more { position: relative; }
+.browse-more summary { display: flex; align-items: center; justify-content: center; width: 32px; min-height: 40px; list-style: none; cursor: pointer; font-size: 22px; }
+.browse-more summary::-webkit-details-marker { display: none; }
+.browse-more-menu { position: absolute; z-index: 3; top: 100%; right: 0; width: 150px; padding: 12px; background: var(--page-background); border: 1px solid var(--border); border-radius: 6px; }
+.browse-more-menu a { color: var(--accent); text-decoration: none; }
+.gallery-page .page-shell { width: min(1888px, calc(100% - 32px)); padding: 8px 0 24px; }
+.gallery-page .import-section { margin: 8px 0 20px; padding: 18px; background: var(--surface); border-radius: 6px; }
+.gallery-page .gallery { position: relative; display: block; }
+.gallery-page .illustration-card { position: absolute; overflow: visible; border: 0; border-radius: 0; background: transparent; box-shadow: none; transition: none; }
+.gallery-page .illustration-card:hover { transform: none; box-shadow: none; }
+.gallery-page .card-image { width: 100%; height: 100%; aspect-ratio: auto; background: #edf0e9; border-radius: 2px; overflow: visible; }
+.gallery-page .card-image-link { position: relative; display: block; width: 100%; height: 100%; overflow: hidden; border-radius: 2px; }
+.gallery-page .card-image img { display: block; width: 100%; height: 100%; object-fit: contain; background: var(--page-background); }
+.gallery-page .card-asset-button { width: 30px; height: 36px; padding: 0; border-radius: 3px; background: rgba(250,250,246,.9); color: var(--accent-dark); font-size: 24px; line-height: 1; opacity: 0; pointer-events: none; }
+.gallery-page .card-asset-previous { left: 6px; }
+.gallery-page .card-asset-next { right: 6px; }
+.gallery-page .card-image:hover .card-asset-button, .gallery-page .card-image:focus-within .card-asset-button { opacity: 1; pointer-events: auto; }
+.gallery-page .card-asset-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.gallery-page .card-hover-info { position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; gap: 3px; padding: 24px 10px 9px; background: linear-gradient(transparent, rgba(20, 27, 20, .75)); color: #fff; opacity: 0; pointer-events: none; transition: opacity .14s; }
+.gallery-page .card-image-link:hover .card-hover-info, .gallery-page .card-image:focus-within .card-hover-info { opacity: 1; }
+.gallery-page .card-author, .gallery-page .card-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 0; font: 13px/1.4 "Segoe UI", "Microsoft YaHei", sans-serif; color: inherit; }
+.gallery-page .card-author { font-weight: 600; }
+.gallery-page .card-title { opacity: .86; }
+.gallery-page .card-asset-position { top: 6px; right: 6px; bottom: auto; left: auto; transform: none; display: flex; align-items: center; gap: 5px; padding: 3px 6px; border-radius: 3px; color: #465343; background: rgba(250,250,246,.9); font-size: 11px; }
+.gallery-page .card-asset-position::before { content: ""; width: 9px; height: 8px; border: 1px solid currentColor; box-shadow: -2px -2px 0 -1px #fafaf6, -2px -2px 0 0 currentColor; }
+.gallery-page .pagination { margin: 24px 0 0; gap: 20px; }
+.gallery-page .pagination button { border: 0; background: transparent; color: var(--accent); box-shadow: none; padding: 10px; }
+.gallery-page .pagination button:disabled { opacity: .4; }
+.gallery-page .state-panel { margin: 20px 0; }
+.gallery-page .primary-button { background: var(--accent); }
+.gallery-page a:focus-visible, .browse-import-toggle:focus-visible, .browse-more summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.detail-page .page-shell { padding-top: 24px; }
+.detail-page .detail-image { border-color: var(--border); background: var(--surface); border-radius: 8px; }
+.detail-page .detail-information { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 40px; margin-top: 8px; }
+.detail-page .detail-summary-heading { margin-bottom: 22px; }
+.detail-page .detail-summary h1 { font-size: 30px; overflow-wrap: anywhere; }
+.detail-page .detail-author-block { margin-bottom: 18px; }
+.detail-page .detail-author-name { font-size: 24px; font-weight: 600; overflow-wrap: anywhere; }
+.detail-page .detail-author-name.is-empty { font-size: 14px; font-weight: 400; color: var(--text-muted); }
+.detail-page .detail-author-handle { font-size: 14px; }
+.detail-page .tag-chip { color: var(--accent-dark); border-color: var(--border); background: var(--surface); font-size: 14px; overflow-wrap: anywhere; max-width: 100%; }
+.detail-page .detail-meta-grid { display: flex; flex-direction: column; gap: 16px; }
+.detail-page .detail-meta-section { min-height: 0; padding: 0; border: 0; border-radius: 0; background: transparent; }
+.detail-page .detail-note, .detail-page .detail-source-link { font-size: 14px; color: var(--text-muted); }
+.detail-page .detail-summary-actions { margin-top: 0; gap: 24px; }
+.detail-page .detail-summary-actions button { min-width: 0; min-height: 40px; padding: 8px 0; text-align: left; border: 0; border-radius: 0; background: transparent; color: var(--text-muted); font-size: 14px; box-shadow: none; }
+.detail-page .detail-summary-actions .danger-button { color: #98605a; }
+.detail-page .detail-summary-actions button:hover { text-decoration: underline; text-underline-offset: 3px; }
+.detail-page .detail-edit-form { grid-column: 1 / -1; }
+@media (max-width: 760px) { .detail-page .detail-information { grid-template-columns: 1fr; gap: 24px; } }
+@media (max-width: 619px) {
+    .browse-toolbar { height: 44px; padding: 0 8px; gap: 12px; }
+    .archive-brand { font-size: 13px; }
+    .browse-toolbar .total-count { display: none; }
+    .browse-toolbar .load-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+    .browse-import-toggle { margin-left: auto; font-size: 12px; }
+    .gallery-page .page-shell { width: calc(100% - 16px); padding-top: 6px; }
+    .gallery-page .pagination { flex-direction: row; justify-content: center; gap: 10px; }
+    .detail-page .detail-summary h1 { font-size: 26px; }
+}
+@media (prefers-reduced-motion: reduce) { .gallery-page .card-hover-info { transition: none; } }
