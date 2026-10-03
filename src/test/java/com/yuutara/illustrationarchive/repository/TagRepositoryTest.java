@@ -99,29 +99,30 @@ class TagRepositoryTest {
 		@SuppressWarnings({"unchecked", "rawtypes"})
 		ArgumentCaptor<RowMapper<TagSummary>> rowMapperCaptor =
 				(ArgumentCaptor) ArgumentCaptor.forClass(RowMapper.class);
-		when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq("%land%"))).thenReturn(List.of());
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq("%land%"), eq(20), eq(0))).thenReturn(List.of());
 
-		repository.search("  land  ");
+		repository.search("  land  ", 20, 0);
 
 		ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
-		verify(jdbcTemplate).query(sqlCaptor.capture(), rowMapperCaptor.capture(), eq("%land%"));
+		verify(jdbcTemplate).query(sqlCaptor.capture(), rowMapperCaptor.capture(), eq("%land%"), eq(20), eq(0));
 		String sql = sqlCaptor.getValue();
 		assertTrue(sql.contains("WHERE name LIKE ?"));
 		assertTrue(sql.contains("ORDER BY name ASC, id ASC"));
-		assertTrue(sql.contains("LIMIT 20"));
+		assertTrue(sql.contains("LIMIT ? OFFSET ?"));
 		TagSummary tag = rowMapperCaptor.getValue().mapRow(resultSet, 0);
 		assertEquals(5L, tag.id());
 		assertEquals("landscape", tag.name());
 	}
 
 	@Test
-	void returnsEmptyWithoutQueryingWhenSearchKeywordIsNullOrBlank() {
+	void listsExistingItemsForNullAndBlankKeywordsWithPagination() {
 		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
 		TagRepository repository = new TagRepository(jdbcTemplate);
-
-		assertEquals(List.of(), repository.search(null));
-		assertEquals(List.of(), repository.search("   "));
-
-		verifyNoInteractions(jdbcTemplate);
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq("%%"), eq(20), eq(0))).thenReturn(List.of());
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq("%%"), eq(100), eq(20))).thenReturn(List.of());
+		repository.search(null, 20, 0);
+		repository.search("   ", 100, 20);
+		verify(jdbcTemplate).query(anyString(), any(RowMapper.class), eq("%%"), eq(20), eq(0));
+		verify(jdbcTemplate).query(anyString(), any(RowMapper.class), eq("%%"), eq(100), eq(20));
 	}
 }

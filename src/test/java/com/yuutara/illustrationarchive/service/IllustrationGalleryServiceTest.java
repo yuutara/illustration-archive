@@ -23,6 +23,24 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class IllustrationGalleryServiceTest {
+    @Test
+    void resolvesMultiSelectLabelsAndPreservesUnknownIdsWithoutExtraRows() {
+        var repository = mock(IllustrationRepository.class);
+        var authors = mock(AuthorRepository.class);
+        var tags = mock(TagRepository.class);
+        var service = new IllustrationGalleryService(repository, authors, tags);
+        var query = IllustrationGalleryQuery.withIds("q", List.of(2L, 1L, 999L), List.of(5L, 3L));
+        when(repository.findGalleryPage(query, 24, 0L)).thenReturn(List.of());
+        when(authors.findSummariesByIds(query.authorIds())).thenReturn(List.of(new com.yuutara.illustrationarchive.dto.AuthorSummary(1L, "A", "a")));
+        when(tags.findSummariesByIds(query.tagIds())).thenReturn(List.of(new TagSummary(3L, "T")));
+        var filters = service.getGallery(0, 24, query).filters();
+        assertEquals(List.of(1L, 2L, 999L), filters.authorIds());
+        assertEquals(List.of(3L, 5L), filters.tagIds());
+        assertEquals(1, filters.authors().size()); assertEquals(1, filters.tags().size());
+        assertEquals(null, filters.authorId()); assertEquals(null, filters.tagId());
+        assertThrows(IllegalArgumentException.class, () -> IllustrationGalleryQuery.withIds(null, List.of(1L, 0L), List.of()));
+        assertThrows(IllegalArgumentException.class, () -> IllustrationGalleryQuery.withIds(null, java.util.Collections.nCopies(101, 1L), List.of()));
+    }
 	private static final IllustrationGalleryQuery EMPTY = new IllustrationGalleryQuery(null, null, null);
 
 	@Test

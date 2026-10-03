@@ -8,6 +8,7 @@
     <script src="/image-viewer.js" defer></script>
     <script src="/browse-context.js" defer></script>
     <script src="/masonry-layout.js" defer></script>
+    <script src="/metadata-picker.js" defer></script>
     <script src="/app.js" defer></script>
 </head>
 <body class="gallery-page">
@@ -18,6 +19,36 @@
         <input id="gallery-search-input" type="search" placeholder="搜索收藏库" maxlength="200" autocomplete="off">
         <button type="submit" aria-label="搜索收藏库">搜索</button>
     </form>
+    <div class="gallery-facet-controls">
+        <button id="gallery-facet-toggle" class="facet-button facet-mobile" type="button" aria-expanded="false" aria-controls="gallery-facet-panel">筛选 ▾</button>
+        <button id="gallery-author-toggle" class="facet-button facet-desktop" type="button" aria-expanded="false" aria-controls="gallery-author-panel">作者 ▾</button>
+        <button id="gallery-tag-toggle" class="facet-button facet-desktop" type="button" aria-expanded="false" aria-controls="gallery-tag-panel">标签 ▾</button>
+        <div id="gallery-facet-panel" class="gallery-facet-panel" hidden>
+            <section id="gallery-author-panel" class="metadata-picker-panel" aria-label="筛选作者" hidden>
+                <div class="metadata-picker-heading"><strong>作者</strong><button id="gallery-author-clear" class="facet-button" type="button">不限作者</button></div>
+                <div class="metadata-picker-search">
+                    <label class="visually-hidden" for="gallery-author-search-input">搜索作者</label>
+                    <input id="gallery-author-search-input" type="search" placeholder="搜索作者" autocomplete="off">
+                    <button id="gallery-author-search-button" class="secondary-button" type="button">搜索</button>
+                </div>
+                <p id="gallery-author-search-status" class="detail-edit-status" aria-live="polite"></p>
+                <ul id="gallery-author-search-results" class="metadata-picker-results"></ul>
+                <button id="gallery-author-more" class="secondary-button" type="button" hidden>加载更多</button>
+            </section>
+            <section id="gallery-tag-panel" class="metadata-picker-panel" aria-label="筛选标签" hidden>
+                <div class="metadata-picker-heading"><strong>标签</strong><button id="gallery-tag-clear" class="facet-button" type="button">不限标签</button></div>
+                <div class="metadata-picker-search">
+                    <label class="visually-hidden" for="gallery-tag-search-input">搜索标签</label>
+                    <input id="gallery-tag-search-input" type="search" placeholder="搜索标签" autocomplete="off">
+                    <button id="gallery-tag-search-button" class="secondary-button" type="button">搜索</button>
+                </div>
+                <p id="gallery-tag-search-status" class="detail-edit-status" aria-live="polite"></p>
+                <ul id="gallery-tag-search-results" class="metadata-picker-results"></ul>
+                <button id="gallery-tag-more" class="secondary-button" type="button" hidden>加载更多</button>
+            </section>
+            <button id="gallery-facet-close" class="facet-button" type="button">收起筛选</button>
+        </div>
+    </div>
     <span id="total-count" class="total-count"></span>
     <p id="load-status" class="load-status" aria-live="polite">正在加载…</p>
     <button id="import-toggle" class="browse-import-toggle" type="button" aria-expanded="false"

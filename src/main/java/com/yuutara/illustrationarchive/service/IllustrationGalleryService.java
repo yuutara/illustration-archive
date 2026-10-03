@@ -54,13 +54,18 @@ public class IllustrationGalleryService {
 		AuthorSummary author = query.authorId() == null ? null : authorRepository.findById(query.authorId())
 				.map(value -> new AuthorSummary(value.id(), value.displayName(), value.xUsername())).orElse(null);
 		var tag = query.tagId() == null ? null : tagRepository.findById(query.tagId()).orElse(null);
+        var authors = query.authorIds().size() > 1 ? authorRepository.findSummariesByIds(query.authorIds())
+                : author == null ? List.<AuthorSummary>of() : List.of(author);
+        var tags = query.tagIds().size() > 1 ? tagRepository.findSummariesByIds(query.tagIds())
+                : tag == null ? List.<com.yuutara.illustrationarchive.dto.TagSummary>of() : List.of(tag);
 		return new IllustrationGalleryPage(
 				page,
 				size,
 				totalElements,
 				totalPages,
 				previewItems,
-				new IllustrationGalleryFilters(query.q(), query.authorId(), query.tagId(), author, tag)
+				new IllustrationGalleryFilters(query.q(), query.authorId(), query.tagId(), author, tag,
+                        query.authorIds(), query.tagIds(), authors, tags)
 		);
 	}
 

@@ -25,24 +25,32 @@
         return Number.isSafeInteger(page) && page >= 0 ? page : 0;
     }
 
-    function galleryQuery(params) {
-        const exactId = name => {
-            const value = (params.get(name) || "").trim();
+    function queryIds(query, key) {
+        const values = query && query[key];
+        return [...new Set((Array.isArray(values) ? values : values ? [values] : []).map(value => {
+            value = String(value).trim();
             return /^\d+$/.test(value) ? BigInt(value).toString() : value;
-        };
-        return { q: (params.get("q") || "").trim(),
-            authorId: exactId("authorId"), tagId: exactId("tagId") };
+        }))].sort((a, b) => /^\d+$/.test(a) && /^\d+$/.test(b)
+            ? BigInt(a) < BigInt(b) ? -1 : BigInt(a) > BigInt(b) ? 1 : 0 : a.localeCompare(b));
+    }
+
+    function normalizeGalleryQuery(query) {
+        return { q: (query?.q || "").trim(), authorId: queryIds(query, "authorId"), tagId: queryIds(query, "tagId") };
+    }
+
+    function galleryQuery(params) {
+        return normalizeGalleryQuery({ q: params.get("q"), authorId: params.getAll("authorId"), tagId: params.getAll("tagId") });
     }
 
     function sameQuery(left, right) {
-        const empty = { q: "", authorId: "", tagId: "" };
-        left = left || empty; right = right || empty;
-        return ["q", "authorId", "tagId"].every(key => (left[key] || "") === (right[key] || ""));
+        return JSON.stringify(normalizeGalleryQuery(left)) === JSON.stringify(normalizeGalleryQuery(right));
     }
 
     function galleryHref(query, page = 0, ctx) {
         const params = new URLSearchParams();
-        for (const key of ["q", "authorId", "tagId"]) if (query && query[key]) params.set(key, query[key]);
+        query = normalizeGalleryQuery(query);
+        if (query.q) params.set("q", query.q);
+        for (const key of ["authorId", "tagId"]) query[key].forEach(id => params.append(key, id));
         params.set("page", String(pageNumber(page)));
         if (ctx) params.set("ctx", ctx);
         return paths.gallery + "?" + params;
@@ -289,16 +297,18 @@
             const previousId = state.id;
             const closedViewer = state.viewer;
             const savedNext = read(next.id);
+            const refreshGallery = adapter.kind === "gallery" && savedNext && savedNext.refresh
+                && savedNext.page === next.page && sameQuery(savedNext.query, next.query);
             const latestAssets = next.id === state.id ? state.assets
                 : savedNext && savedNext.page === next.page && sameQuery(savedNext.query, next.query) ? savedNext.assets : next.assets;
             window.ImageViewer.close();
-            state = { ...next, assets: latestAssets };
+            state = { ...next, assets: latestAssets, ...(refreshGallery ? { refresh: false, viewer: null } : {}) };
             closing = false;
             write(false);
             const action = afterClose;
             afterClose = null;
             if (action) action();
-            else if (next.page !== previousPage || adapter.kind === "gallery"
+            else if (refreshGallery || next.page !== previousPage || adapter.kind === "gallery"
                 && (!sameQuery(next.query, previousQuery) || next.id !== previousId || !ready)) {
                 ready = false;
                 adapter.reload(next.page, next.query, { history: true });
@@ -369,5 +379,5 @@
         };
     }
 
-    window.BrowseContext = { create, galleryQuery, galleryHref, sameQuery };
+    window.BrowseContext = { create, galleryQuery, galleryHref, sameQuery, queryIds, normalizeGalleryQuery };
 })();

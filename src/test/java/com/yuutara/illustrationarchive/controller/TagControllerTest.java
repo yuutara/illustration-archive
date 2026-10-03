@@ -43,14 +43,14 @@ class TagControllerTest {
 		MockMvc mockMvc = MockMvcBuilders
 				.standaloneSetup(new TagController(tagService))
 				.build();
-		when(tagService.search("百")).thenReturn(List.of(new TagSummary(1L, "百合")));
+		when(tagService.search("百", 20, 0)).thenReturn(List.of(new TagSummary(1L, "百合")));
 
 		mockMvc.perform(get("/api/tags").queryParam("keyword", "百"))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$[0].id").value(1))
 				.andExpect(jsonPath("$[0].name").value("百合"));
 
-		verify(tagService).search("百");
+		verify(tagService).search("百", 20, 0);
 	}
 
 	@Test
@@ -59,13 +59,27 @@ class TagControllerTest {
 		MockMvc mockMvc = MockMvcBuilders
 				.standaloneSetup(new TagController(tagService))
 				.build();
-		when(tagService.search(null)).thenReturn(List.of());
+		when(tagService.search(null, 20, 0)).thenReturn(List.of());
 
 		mockMvc.perform(get("/api/tags"))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$").isArray())
 				.andExpect(jsonPath("$").isEmpty());
 
-		verify(tagService).search(null);
+		verify(tagService).search(null, 20, 0);
+	}
+
+	@Test
+	void passesExplicitPaginationAndRejectsInvalidParameters() throws Exception {
+		TagService service = mock(TagService.class);
+		MockMvc mvc = MockMvcBuilders.standaloneSetup(new TagController(service)).build();
+		when(service.search("", 100, 20)).thenReturn(List.of());
+		mvc.perform(get("/api/tags").param("keyword", "").param("limit", "100").param("offset", "20"))
+				.andExpect(status().isOk());
+		verify(service).search("", 100, 20);
+		when(service.search(null, 101, 0)).thenThrow(new IllegalArgumentException("Invalid limit"));
+		mvc.perform(get("/api/tags?limit=101")).andExpect(status().isBadRequest());
+		mvc.perform(get("/api/tags?limit=oops")).andExpect(status().isBadRequest());
+		mvc.perform(get("/api/tags?offset=2147483648")).andExpect(status().isBadRequest());
 	}
 }

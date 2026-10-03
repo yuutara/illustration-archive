@@ -5,7 +5,47 @@
 
 ## Current Version
 
-V0.5 - 图库使用体验（当前工作包：F03 全库搜索 + Tag / Author 导航）
+V0.5 - 图库使用体验（当前工作包：A Metadata Picker + Gallery Faceted Browse）
+
+### V0.5-A｜Metadata Picker + Gallery Faceted Browse
+
+2026-10-03，按用户指定范围实现；当前分支 `v0.5-metadata-picker`。未 commit / push / merge / tag，不宣告 V0.5 Final Acceptance。
+
+- 扩展既有 `GET /api/authors`、`GET /api/tags`：空或空白 keyword 列出现有项，`limit` 默认 20、允许 1..100，`offset` 默认 0、不得为负；非法参数 HTTP 400。仍返回数组，不新增总数查询或平行 endpoint。作者按 `display_name ASC, id ASC`、Tag 按 `name ASC, id ASC` 排序，查询使用绑定参数；作者 picker 支持带 `@` 的 handle 搜索。没有 migration 或新数据模型；用户追加授权后的 Gallery 多选查询扩展见下方收尾记录。
+- 新增小型原生 `metadata-picker.js`，仅负责列表、辅助搜索、加载更多、loading / error 和选中状态。每次展开直接读取现有项；分页按实际服务器返回条数推进 offset，不将置顶的已选项计入 offset。选中项按 ID 去重并始终置顶显示，搜索和分页也保留勾选状态；输入立即使旧请求失效，关闭后忽略在途响应，加载更多失败保留已读列表并可原位重试。
+- Detail 当前作者旁可展开选择，显示 `displayName + @handle`；Tag 点击即可添加或取消。已有新建作者 / 标签入口保留，新建后刷新对应打开的列表。草稿、取消编辑和 PATCH 继续由 `detail.js` 管理，picker 不拥有保存逻辑。列表不持久缓存，重新展开和新建刷新均读取最新数据。
+- Gallery 桌面薄工具栏增加作者 / Tag 入口，390px 合为一个“筛选”入口；当前多选版本选择后保留弹层，便于连续勾选。`app.js` 继续拥有筛选提交：保留 q 与另一分类 IDs、从第 0 页读取；在途筛选之后提交搜索也保留待应用的 IDs。继续使用 F03 URL / chips / BrowseContext，未增加常驻面板、分类树、次数统计或前端框架。
+- 返回回归发现浏览器可能复用旧 API 响应，因此 Gallery / Detail / picker 的可变读取使用 `cache: no-store`；BrowseContext 的 Gallery 分支在 popstate 覆盖快照前消费 metadata refresh 标记，确保返回后读到保存结果。没有改 `image-viewer.js`、Inbox、Masonry 布局或归档 / Storage / 去重逻辑。
+
+**自动化验证：**完整 Java 执行 `./mvnw.cmd '-Dmaven.repo.local=C:\Users\YuanYuChou\.m2\repository' '-DargLine=-Djava.io.tmpdir=D:\IdeaProjects\illustration-archive\target\test-temp' test`，289 tests、0 failures、0 errors、2 skipped（未启用的外部 LocalStack 与专用 MySQL 测试），`BUILD SUCCESS`。Windows sandbox 读取既有 AWS SDK 缓存 JAR 曾失败，提升权限重跑后成功；没有修改产品逻辑绕过环境错误。完整 JS 使用 `rg --files src/test/js -g '*.test.js'` 枚举七个测试文件，执行 `node --test`，83/83 通过、0 failures / skipped。覆盖同名作者 IDs、Tag toggle / 取消 / PATCH、创建后刷新、失败保存、搜索及加载更多乱序、立即输入失效、分页重试、q + IDs、历史 / 刷新及返回 refresh 标记。`git diff --check` 通过。
+
+**真实 MySQL 验证：**扩展既有 opt-in `IllustrationGalleryMySqlTest`，仍仅允许全新 `illustration_archive_f03_test_<digits>` schema，使用既有 V1–V6。最终版本显式开启测试环境变量，执行上述 Maven 命令加 `'-Dtest=IllustrationGalleryMySqlTest'`，1 test、0 failures / errors / skipped，`BUILD SUCCESS`。验证原有 60 件作品的组合查询、分页 / Assets / Spring read-only 事务，以及 26 位作者的 20 + 6 分页、27 个 Tag 的 20 + 7 分页、稳定排序 / 无重复 IDs、同名作者区分、`@handle` 搜索、零结果和越界 offset。
+
+**真实浏览器验收：**最终资源的临时 Spring Boot 实例绑定本机 18085（专用 MySQL / 合成媒体），检查作者与 Tag 默认展开、辅助搜索、加载更多、已选 Tag 跨搜索保留；同名作者 `@same_a` / `@same_b` 按 ID 选择。实际取消恢复原作者 / Tags；新建作者 / Tag 后列表刷新，保存后冷刷新读取正确 IDs。q + Author + Tag、Back / Forward、刷新、保存后返回更新、Viewer → Detail 冷刷新 → Gallery 均通过；三 Asset 样本从第 3 张进入 Detail 并返回，条件和第 3 张位置均保留。
+
+用户另行明确授权后，18086 连接现有 29 件收藏库，关闭 Flyway，只做读取、筛选、进入编辑并取消，未执行业务写入或 X sync。作者 / Tag 默认列表可直接选择；“雪子”作者条件返回 1 件，deepseek Tag 与 q“二创”、ChatGPT 作者组合返回 5 件；Back / Forward、刷新及 Viewer → Detail → Gallery 保留三项条件。1280×720 / 390×844 下图片继续占主要画面，工具栏约 48 / 44px，窄屏无横向溢出；最后页面无浏览器 error / warn。请求乱序 / 错误分支属于 JS 模拟覆盖，不等同真实网络故障验收；未验证原生 200% 缩放、跨浏览器或物理触屏。
+
+**运行与清理：**临时 18085 / 18086 实例及本轮两份专用测试 schema 已清理，原有 8080 进程未重启。日常实例需从最新源码重启后使用本工作包。截图 / 合成媒体留在项目外，启动脚本 / 日志位于 ignored `.maven/picker`，不进入待提交 diff。
+
+**A 收尾增强｜本地收藏 / 置顶（2026-10-03）：**收藏逻辑统一位于 `metadata-picker.js`，每行选择按钮旁独立提供 `☆ / ★`；收藏与选中勾号分别显示，点击星号不调用选择回调、不改变 Detail 草稿或 Gallery 条件。收藏项置于顶部“收藏”区域，下方保留正常全部 / 搜索列表，选中项仍可见；Author 与 Tag 分别用 `illustration-archive.metadata-favorites.v1.authors` / `.tags` 的 localStorage ID 数组持久化，Gallery / Detail 共用，每次展开重新读取，兼容返回缓存页面后另一页面修改收藏。
+
+展开时仅在存在收藏 IDs 的情况下，使用既有列表 API 的 `limit=100 / offset` 分页核验；全部找到即停止，未找到则读至末页，成功完成后忽略并清理 stale IDs。收藏核验与正常 20 项分页、搜索请求各自独立，不将收藏条数计入普通 offset；搜索 / 加载更多保留收藏状态，关闭后忽略在途核验。失败读取不清理保存的 IDs；localStorage 不可用时保留当前页面会话内操作。没有改 `detail.js` / `app.js`、Java、API、数据库或 migration，没有最近使用、统计排序、管理页、跨设备同步或新依赖。
+
+**增强验证：**执行 `node --test src/test/js/metadata-picker.test.js src/test/js/detail.test.js src/test/js/gallery.test.js`，42/42 通过；补上缓存页面恢复用例后，执行 `node --test (rg --files src/test/js -g '*.test.js')`，89/89 通过、0 failures / skipped；`git diff --check` 通过。新增 6 个用例覆盖收藏 / 取消与选择互不干扰、收藏区位置、Author / Tag 隔离、同类 picker 共用、跨页面 localStorage 恢复、超过 100 项的收藏核验、stale IDs、搜索 / 加载更多、失败 / 关闭核验、损坏或不可用存储及缓存页面重新展开；这些故障 / stale / 大列表属于模拟 JS 覆盖。本轮纯前端增强未重跑 Java 测试，上方 A 的 Java / MySQL 验证保留。
+
+真实浏览器使用本机 18086 的只读收藏库实例（Flyway 关闭）：收藏 hasei 作者 / 百合 Tag 不改变 Gallery 条件；搜索雪子仍保留 hasei 收藏，刷新后 Detail 恢复同一作者 / Tag 收藏；取消作者收藏保留当前作者，取消编辑不撤销本地收藏。另从已加载 Gallery 进入 Detail 新增收藏并返回，重新展开能读到新收藏；从收藏区选择作者后，取消收藏仍保留作者筛选。1280×720 / 390×844 截图已检查，窄屏无横向溢出，星号按钮 44×44px，最后控制台无 error / warn。真实库没有保存 / PATCH / 删除 / 新建操作；测试用本地收藏已通过 UI 取消，临时实例已关闭，原有 8080 未重启。截图留在项目外 `picker-favorites-desktop.png` / `picker-favorites-390.png`。未 commit / push / merge / tag，仍属于当前 A 工作包。
+
+**A 收尾修正｜X Author 身份复用与 Gallery 多选（2026-10-03）：**先审查真实 Author、Illustration 关联、Inbox 身份快照与创建链路，再实现本工作包内修正。X 导入仍以稳定 `x_user_id` 优先查询；找不到时，只尝试认领唯一、同 handle（去 `@`、忽略大小写）、`x_user_id IS NULL` 的旧记录。存在其他稳定身份快照、多个候选或无法用同一 X 身份快照证明的关联作品时不认领；displayName 不参与身份判断。不确定记录保留。认领、作品 / Asset 插入及 Inbox 状态仍处于原有单 Post 事务，失败一起回滚。唯一键竞争时按稳定 ID 重新读取。手工新建同 handle 且只有一个候选时返回已有作者；多候选要求选择已有项，未提供 handle 的同名作者仍可分别创建。
+
+真实库只有一组明确重复：旧 Author **1**（`@kudo_eru`、无 X ID、无关联作品）与 Author **15**（`kudo_eru`、X ID `1201513602835828737`）。16 条同 handle Inbox 快照均指向这个稳定身份；canonical 15 已有关联作品 36，来源 Post 与 Inbox 相符，未发现冲突身份。既有 V4 和真实数据库已经具有 `uk_author_x_user_id` 唯一约束，允许多个 NULL、禁止重复非空 ID；因此不新增 migration。按用户授权执行一次明确 pair 的事务合并：预先备份两个 Author 原记录及关联 / 数量，更新旧作者作品引用后删除旧 Author；本次实际迁移作品 **0**、删除重复作者 **1**，收藏库作品保持 **29**、Assets 数量不变，其他旧作者不动。脚本默认 dry-run、显式 `-Apply` 才写入，审查条件变化即停止；重新运行返回 `Already merged; no writes.`。备份保留在 ignored `.maven/picker/author-1-15-before.json`，不是启动任务或自动迁移。
+
+Gallery Author / Tag 使用原生 checkbox 多选，`☆ / ★` 是 label 外的独立按钮，仍共用原有本地收藏。每分类内部 OR，q / Author 集合 / Tag 集合之间 AND，空集合不限制。API / URL 采用重复 `authorId` / `tagId` 参数；单项 URL 和旧 BrowseContext 标量快照仍有效。IDs 校验为正数，每分类最多 100 个，去重并稳定排序；未知 ID 不产生错误。count 与 page 共用同一 predicate：Author 用绑定的 `IN`，Tag 用相关 `EXISTS ... IN`，不引入 JOIN 重复作品。响应增加 IDs / summaries 数组，同时保留单项情况下原有 scalar 字段。轻量 chips 按项显示、可单项 / 全部清除；请求期间连续勾选和提交 q 使用待应用集合，旧响应不能覆盖最新条件。BrowseContext 存完整集合，分页、历史、刷新及 Detail 返回保留全部条件。异步列表重绘后恢复原勾选控件焦点。Detail Author 继续单选，Tag 继续多选；没有改 Author 为多对多，没有修改 Viewer / Inbox 或引入新依赖。
+
+**本轮自动化验证：**使用上方 Maven Wrapper / 缓存 / temp 参数运行完整 `test`，普通运行 296 tests、0 failures / errors、2 skipped；设置专用 `F03_MYSQL_TEST_*` 环境后再次运行同一完整命令，**296 tests、0 failures / errors、1 skipped（LocalStack）**，`BUILD SUCCESS`。扩展真实 MySQL opt-in 验证 60 件 fixture 的多作者 OR（48 件）、多 Tag OR（40 件）、q + 两分类 AND（32 件）、未知 / 重复 IDs、count / page 一致、分页无重复；验证旧作者认领、身份冲突 / 歧义 / 未证明作品拒绝认领及现有唯一约束。使用真实 Spring 事务代理制造 Asset 插入后的失败，验证旧作者认领、Illustration / Asset / Inbox 写入全部回滚。未调用真实 X sync。全部 JS 执行 `node --test (rg --files src/test/js -g '*.test.js')`，**93/93 通过，0 failures / skipped**；新增覆盖多选组合、独立收藏、原生 checkbox / 焦点、连续请求乱序、完整历史与 Viewer / Detail 返回，原有收藏 / Detail 测试也通过。`git diff --check` 通过。
+
+**本轮真实浏览器验收：**18085 专用 MySQL fixture 验证同名作者两项 OR、两个 Tag 与 q 合并得到 32 件、24 + 8 分页、单项 / 全部 chips 清除、Back / Forward / 冷刷新，以及 Viewer → Detail → 冷刷新 → Gallery 返回完整集合和页码。Detail 更换作者只产生一个草稿作者，取消恢复原作者；收藏区在 Gallery / Detail 共享，点星号不改变筛选。390×844 合并入口中可取消 / 搜索再添加条件，四项 checkbox 恢复，无横向溢出。18086 真实库关闭 Flyway，浏览器仅查询：kudo_eru 返回唯一 ID 15；q“二创” + Author 4 / 5 + Tag 1 / 4 返回 5 件，390px 恢复全部勾选与 chips，Masonry 保持图片主导。两个页面最后 console 无 error / warn。截图位于项目外 `picker-multi-desktop.png` / `picker-multi-390.png`。测试收藏通过 UI 取消；临时实例与本轮专用 schema 已清理，日常 8080 未重启。真实库唯一业务写入为上述已审查、已备份的 Author 1 → 15 合并；未做其他删除、PATCH、新建或 X sync。仍未 commit / push / merge / tag，不推进 V0.5 Final Acceptance。
+
+**A 封存确认（2026-10-03）：**用户确认最终实机验收通过，授权最终检查正常后以 `feat: improve metadata picking and faceted browsing` 提交当前工作包。本轮不再修改功能。完整 Java 使用上方 Maven Wrapper / 缓存 / temp 参数执行 `test`，296 tests、0 failures、0 errors、2 skipped（未启用的 LocalStack 与专用 MySQL opt-in 测试），`BUILD SUCCESS`；此前真实 MySQL 与浏览器验收证据保留。全部七个 JS 测试文件通过 `node --test (rg --files src/test/js -g '*.test.js')` 执行，93/93 通过、0 failures / skipped；`git diff --check` 通过。确认重复 Author 合并、稳定 X 身份复用、Gallery 多选及本地收藏均已记录；无新增 / 修改 migration、Storage、Viewer、Inbox 或非预期 Archive 改动。`XPostPersistenceService` 仅包含已授权的作者身份复用修正，保留原有事务与归档写入逻辑；BrowseContext 仅支持完整筛选集合及原有 metadata 返回刷新。A 按上述范围封存，不推进下一项功能或 V0.5 Final Acceptance，不 merge / tag / push。
 
 ### V0.5-F03｜全库搜索 + Tag / Author 导航
 

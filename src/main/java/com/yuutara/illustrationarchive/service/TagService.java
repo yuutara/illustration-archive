@@ -25,7 +25,10 @@ public class TagService {
 				.orElseThrow(() -> new IllegalStateException("Created tag could not be found."));
 	}
 
-	public List<TagSummary> search(String keyword) {
-		return tagRepository.search(keyword);
+	public List<TagSummary> search(String keyword, int limit, int offset) {
+		if (limit < 1 || limit > 100 || offset < 0) {
+			throw new IllegalArgumentException("Limit must be between 1 and 100; offset must be nonnegative.");
+		}
+		return tagRepository.search(keyword, limit, offset);
 	}
 }

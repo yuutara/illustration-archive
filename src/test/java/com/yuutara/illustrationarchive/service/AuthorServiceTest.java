@@ -17,6 +17,25 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class AuthorServiceTest {
+    @Test
+    void manualCreateReusesUniqueNormalizedHandleAndNeverChangesItsProfile() {
+        var repository = mock(AuthorRepository.class);
+        var service = new AuthorService(repository);
+        var detail = new AuthorDetail(15L, "Existing profile", "artist", null, null);
+        when(repository.findIdsByNormalizedXUsername("Artist")).thenReturn(List.of(15L));
+        when(repository.findById(15L)).thenReturn(Optional.of(detail));
+        assertEquals(detail, service.create("Different name", " @Artist "));
+        org.mockito.Mockito.verify(repository, org.mockito.Mockito.never()).insert(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void ambiguousHandlesAreNotGuessedFromDisplayNames() {
+        var repository = mock(AuthorRepository.class);
+        var service = new AuthorService(repository);
+        when(repository.findIdsByNormalizedXUsername("artist")).thenReturn(List.of(1L, 2L));
+        assertThrows(IllegalArgumentException.class, () -> service.create("Same name", "artist"));
+        org.mockito.Mockito.verify(repository, org.mockito.Mockito.never()).insert(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any());
+    }
 
 	@Test
 	void createsAuthorWithTrimmedValuesAndReturnsDatabaseDetail() {
@@ -72,11 +91,20 @@ class AuthorServiceTest {
 		AuthorRepository repository = mock(AuthorRepository.class);
 		AuthorService service = new AuthorService(repository);
 		List<AuthorSummary> expected = List.of(new AuthorSummary(7L, "Artist", "artist_x"));
-		when(repository.search("art")).thenReturn(expected);
+		when(repository.search("art", 20, 0)).thenReturn(expected);
 
-		List<AuthorSummary> result = service.search("art");
+		List<AuthorSummary> result = service.search("art", 20, 0);
 
 		assertEquals(expected, result);
-		verify(repository).search("art");
+		verify(repository).search("art", 20, 0);
+	}
+	@Test
+	void rejectsInvalidPaginationBeforeQuerying() {
+		AuthorRepository repository = mock(AuthorRepository.class);
+		AuthorService service = new AuthorService(repository);
+		assertThrows(IllegalArgumentException.class, () -> service.search(null, 0, 0));
+		assertThrows(IllegalArgumentException.class, () -> service.search(null, 101, 0));
+		assertThrows(IllegalArgumentException.class, () -> service.search(null, 20, -1));
+		verifyNoInteractions(repository);
 	}
 }

@@ -132,14 +132,15 @@ public class IllustrationRepository {
 	private GalleryPredicate galleryPredicate(IllustrationGalleryQuery query) {
 		List<String> conditions = new ArrayList<>();
 		List<Object> parameters = new ArrayList<>();
-		if (query.authorId() != null) {
-			conditions.add("i.author_id = ?");
-			parameters.add(query.authorId());
+		if (!query.authorIds().isEmpty()) {
+			conditions.add("i.author_id IN (" + String.join(", ", java.util.Collections.nCopies(query.authorIds().size(), "?")) + ")");
+			parameters.addAll(query.authorIds());
 		}
-		if (query.tagId() != null) {
+		if (!query.tagIds().isEmpty()) {
 			conditions.add("EXISTS (SELECT 1 FROM illustration_tag selected_tag "
-					+ "WHERE selected_tag.illustration_id = i.id AND selected_tag.tag_id = ?)");
-			parameters.add(query.tagId());
+					+ "WHERE selected_tag.illustration_id = i.id AND selected_tag.tag_id IN ("
+                    + String.join(", ", java.util.Collections.nCopies(query.tagIds().size(), "?")) + "))");
+			parameters.addAll(query.tagIds());
 		}
 		if (query.q() != null) {
 			String pattern = "%" + query.q().replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%";

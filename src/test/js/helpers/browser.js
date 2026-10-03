@@ -3,7 +3,7 @@ const { randomUUID } = require("node:crypto");
 const path = require("node:path");
 const vm = require("node:vm");
 
-function browser({ url = "http://localhost/", entries, storage = new Map(), storageDisabled = false } = {}) {
+function browser({ url = "http://localhost/", entries, storage = new Map(), localStorage = new Map(), storageDisabled = false } = {}) {
     const windowListeners = new Map();
     const ids = new Map();
     const frames = [];
@@ -55,6 +55,11 @@ function browser({ url = "http://localhost/", entries, storage = new Map(), stor
         replaceChildren(...children) {
             this.children.forEach(child => { child.parentNode = null; });
             this.children = []; this.append(...children);
+        }
+        insertBefore(child, reference) {
+            this.children.splice(this.children.indexOf(reference), 0, child);
+            child.parentNode = this;
+            return child;
         }
         setAttribute(name, value) { this[name] = value; }
         getAttribute(name) { return this[name] ?? null; }
@@ -119,6 +124,10 @@ function browser({ url = "http://localhost/", entries, storage = new Map(), stor
             getItem(key) { if (storageDisabled) throw new Error("Storage disabled"); return storage.get(key) || null; },
             setItem(key, value) { if (storageDisabled) throw new Error("Storage disabled"); storage.set(key, value); }
         },
+        localStorage: {
+            getItem(key) { if (storageDisabled) throw new Error("Storage disabled"); return localStorage.get(key) || null; },
+            setItem(key, value) { if (storageDisabled) throw new Error("Storage disabled"); localStorage.set(key, value); }
+        },
         addEventListener(type, listener) {
             if (!windowListeners.has(type)) windowListeners.set(type, []);
             windowListeners.get(type).push(listener);
@@ -174,7 +183,7 @@ function browser({ url = "http://localhost/", entries, storage = new Map(), stor
         vm.runInContext(readFileSync(path.resolve(__dirname, "../../../main/resources/static", file), "utf8"), sandbox);
     }
     function flushFrames() { while (frames.length) frames.shift()(); }
-    run("image-viewer.js"); run("browse-context.js"); run("masonry-layout.js");
+    run("image-viewer.js"); run("browse-context.js"); run("masonry-layout.js"); run("metadata-picker.js");
     return { window, document, elements: ids, storage, run, sandbox, Element, flushFrames,
         flushTimers() { const actions = [...deferredTimers.values()]; deferredTimers.clear(); actions.forEach(action => action()); },
         resize: () => observers.forEach(callback => callback()),

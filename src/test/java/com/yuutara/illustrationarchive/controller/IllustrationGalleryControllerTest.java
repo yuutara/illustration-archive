@@ -23,6 +23,20 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class IllustrationGalleryControllerTest {
 	private static final IllustrationGalleryQuery EMPTY = new IllustrationGalleryQuery(null, null, null);
 
+    @Test
+    void bindsRepeatedIdsAndRejectsAnyInvalidMember() throws Exception {
+        var service = mock(IllustrationGalleryService.class);
+        var query = IllustrationGalleryQuery.withIds("Work", List.of(2L, 1L, 2L), List.of(5L, 3L));
+        when(service.getGallery(0, 24, query)).thenReturn(new IllustrationGalleryPage(0, 24, 0, 0, List.of(), null));
+        var mvc = MockMvcBuilders.standaloneSetup(new IllustrationGalleryController(service)).build();
+        mvc.perform(get("/api/illustrations").param("q", "Work").param("authorId", "2", "1", "2").param("tagId", "5", "3"))
+                .andExpect(status().isOk());
+        verify(service).getGallery(0, 24, query);
+        for (String bad : List.of("0", "-1", "wrong", "9223372036854775808", "")) {
+            mvc.perform(get("/api/illustrations").param("tagId", "3", bad)).andExpect(status().isBadRequest());
+        }
+    }
+
 	@Test
 	void passesQueryParametersToGalleryServiceAndReturnsGalleryPage() throws Exception {
 		IllustrationGalleryService illustrationGalleryService = mock(IllustrationGalleryService.class);

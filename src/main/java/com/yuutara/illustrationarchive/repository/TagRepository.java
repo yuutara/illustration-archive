@@ -29,7 +29,7 @@ public class TagRepository {
 			FROM tag
 			WHERE name LIKE ?
 			ORDER BY name ASC, id ASC
-			LIMIT 20
+			LIMIT ? OFFSET ?
 			""";
 
 	private final JdbcTemplate jdbcTemplate;
@@ -60,15 +60,18 @@ public class TagRepository {
 		), id).stream().findFirst();
 	}
 
-	public List<TagSummary> search(String keyword) {
-		if (keyword == null || keyword.trim().isEmpty()) {
-			return List.of();
-		}
-
-		String pattern = "%" + keyword.trim() + "%";
+	public List<TagSummary> search(String keyword, int limit, int offset) {
+		String pattern = "%" + (keyword == null ? "" : keyword.trim()) + "%";
 		return jdbcTemplate.query(SEARCH_SQL, (resultSet, rowNum) -> new TagSummary(
 				resultSet.getLong("id"),
 				resultSet.getString("name")
-		), pattern);
+		), pattern, limit, offset);
 	}
+
+    public List<TagSummary> findSummariesByIds(List<Long> ids) {
+        if (ids.isEmpty()) return List.of();
+        return jdbcTemplate.query("SELECT id, name FROM tag WHERE id IN ("
+                + String.join(", ", java.util.Collections.nCopies(ids.size(), "?")) + ") ORDER BY id",
+                (rs, row) -> new TagSummary(rs.getLong("id"), rs.getString("name")), ids.toArray());
+    }
 }

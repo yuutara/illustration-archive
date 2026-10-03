@@ -31,6 +31,28 @@ import static org.mockito.Mockito.when;
 class IllustrationRepositoryTest {
 	private static final IllustrationGalleryQuery EMPTY = new IllustrationGalleryQuery(null, null, null);
 
+    @Test
+    void multiSelectCountAndPageShareOrGroupsAndBoundParameters() {
+        var jdbc = mock(JdbcTemplate.class);
+        var repository = new IllustrationRepository(jdbc);
+        var query = IllustrationGalleryQuery.withIds("Work", List.of(2L, 1L, 2L), List.of(5L, 3L));
+        when(jdbc.queryForObject(anyString(), eq(Long.class), any(Object[].class))).thenReturn(0L);
+        repository.count(query); repository.findGalleryPage(query, 24, 48L);
+        var countSql = ArgumentCaptor.forClass(String.class);
+        var countArgs = ArgumentCaptor.forClass(Object[].class);
+        var pageSql = ArgumentCaptor.forClass(String.class);
+        var pageArgs = ArgumentCaptor.forClass(Object[].class);
+        verify(jdbc).queryForObject(countSql.capture(), eq(Long.class), countArgs.capture());
+        verify(jdbc).query(pageSql.capture(), any(RowMapper.class), pageArgs.capture());
+        String predicate = countSql.getValue().substring(countSql.getValue().indexOf("WHERE i.author_id"));
+        assertTrue(predicate.contains("i.author_id IN (?, ?) AND EXISTS"));
+        assertTrue(predicate.contains("selected_tag.tag_id IN (?, ?)) AND"));
+        assertTrue(pageSql.getValue().contains(predicate));
+        assertEquals(List.of(1L, 2L, 3L, 5L), List.of(countArgs.getValue()).subList(0, 4));
+        assertEquals(List.of(countArgs.getValue()), List.of(pageArgs.getValue()).subList(0, 10));
+        assertFalse(pageSql.getValue().contains("LEFT JOIN illustration_tag"));
+    }
+
 	@Test
 	void countsIllustrations() {
 		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);

@@ -60,7 +60,7 @@ class AuthorControllerTest {
 		MockMvc mockMvc = MockMvcBuilders
 				.standaloneSetup(new AuthorController(authorService))
 				.build();
-		when(authorService.search("kudo"))
+		when(authorService.search("kudo", 20, 0))
 				.thenReturn(List.of(new AuthorSummary(7L, "Kudo", "@kudo")));
 
 		mockMvc.perform(get("/api/authors?keyword=kudo"))
@@ -69,7 +69,7 @@ class AuthorControllerTest {
 				.andExpect(jsonPath("$[0].displayName").value("Kudo"))
 				.andExpect(jsonPath("$[0].xUsername").value("@kudo"));
 
-		verify(authorService).search("kudo");
+		verify(authorService).search("kudo", 20, 0);
 	}
 
 	@Test
@@ -78,13 +78,27 @@ class AuthorControllerTest {
 		MockMvc mockMvc = MockMvcBuilders
 				.standaloneSetup(new AuthorController(authorService))
 				.build();
-		when(authorService.search(null)).thenReturn(List.of());
+		when(authorService.search(null, 20, 0)).thenReturn(List.of());
 
 		mockMvc.perform(get("/api/authors"))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$").isArray())
 				.andExpect(jsonPath("$").isEmpty());
 
-		verify(authorService).search(null);
+		verify(authorService).search(null, 20, 0);
+	}
+
+	@Test
+	void passesExplicitPaginationAndRejectsInvalidParameters() throws Exception {
+		AuthorService service = mock(AuthorService.class);
+		MockMvc mvc = MockMvcBuilders.standaloneSetup(new AuthorController(service)).build();
+		when(service.search("", 100, 20)).thenReturn(List.of());
+		mvc.perform(get("/api/authors").param("keyword", "").param("limit", "100").param("offset", "20"))
+				.andExpect(status().isOk());
+		verify(service).search("", 100, 20);
+		when(service.search(null, 101, 0)).thenThrow(new IllegalArgumentException("Invalid limit"));
+		mvc.perform(get("/api/authors?limit=101")).andExpect(status().isBadRequest());
+		mvc.perform(get("/api/authors?limit=oops")).andExpect(status().isBadRequest());
+		mvc.perform(get("/api/authors?offset=2147483648")).andExpect(status().isBadRequest());
 	}
 }

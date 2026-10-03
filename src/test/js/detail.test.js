@@ -7,6 +7,84 @@ const staticDir = path.resolve(__dirname, "../../main/resources/static");
 
 const { browser, settle } = require("./helpers/browser");
 
+test("metadata drafts use author IDs and toggle tags; cancel resets both, save keeps PATCH ownership", async () => {
+    const env = browser({ url: "http://localhost/detail.html?id=7" });
+    const node = id => env.document.getElementById(`detail-${id}`);
+    let detail = { id: 7, title: "Work", assets: [], author: { id: 1, displayName: "Same", xUsername: "one" }, tags: [{ id: 90, name: "Pinned" }] };
+    const calls = [];
+    env.sandbox.fetchImpl = async (url, options = {}) => {
+        calls.push({ url, options });
+        if (options.method === "PATCH") {
+            const payload = JSON.parse(options.body);
+            detail = { ...detail, author: { id: payload.authorId, displayName: "Same", xUsername: "two" },
+                tags: payload.tagIds.map(id => ({ id, name: "Fresh" })) };
+            return { ok: true };
+        }
+        return { ok: true, json: async () => url.startsWith("/api/authors")
+            ? [{ id: 1, displayName: "Same", xUsername: "one" }, { id: 2, displayName: "Same", xUsername: "two" }]
+            : url.startsWith("/api/tags") ? [{ id: 3, name: "Fresh" }] : detail };
+    };
+    env.run("detail.js"); await settle();
+    node("edit-button").dispatch("click");
+    await node("author-toggle").dispatch("click");
+    const authors = node("author-search-results").children.map(li => li.children[0]);
+    assert.equal(authors[0]["aria-pressed"], "true");
+    authors[1].dispatch("click");
+    assert.match(node("author-selection").textContent, /@two/);
+    assert.equal(node("author-search-results").children[0].children[0].dataset.metadataId, "2");
+    await node("tag-toggle").dispatch("click");
+    const tags = node("tag-search-results").children.map(li => li.children[0]);
+    assert.equal(tags[0].textContent, "✓ Pinned");
+    tags[0].dispatch("click"); tags[1].dispatch("click");
+    assert.equal(node("tag-selection").children[0].textContent, "Fresh ×");
+    node("cancel-button").dispatch("click");
+    assert.equal(node("author-panel").hidden, true);
+    assert.equal(node("tag-panel").hidden, true);
+    assert.equal(calls.some(call => call.options.method === "PATCH"), false);
+    node("edit-button").dispatch("click");
+    assert.match(node("author-selection").textContent, /@one/);
+    assert.equal(node("tag-selection").children[0].textContent, "Pinned ×");
+    await node("author-toggle").dispatch("click");
+    node("author-search-results").children[1].children[0].dispatch("click");
+    await node("tag-toggle").dispatch("click");
+    node("tag-search-results").children[0].children[0].dispatch("click");
+    node("tag-search-results").children[0].children[0].dispatch("click");
+    await node("edit-form").dispatch("submit");
+    const payload = JSON.parse(calls.find(call => call.options.method === "PATCH").options.body);
+    assert.equal(payload.authorId, 2);
+    assert.deepEqual(payload.tagIds, [3]);
+    assert.equal(node("edit-form").hidden, true);
+    assert.equal(node("author-name").children[0].href, "/?authorId=2&page=0");
+});
+
+test("new author and tag refresh open pickers and become drafts; failed save preserves editable selection", async () => {
+    const env = browser({ url: "http://localhost/detail.html?id=7" });
+    const node = id => env.document.getElementById(`detail-${id}`);
+    const requests = [];
+    const newAuthor = { id: 2, displayName: "New", xUsername: "new" }, newTag = { id: 3, name: "New tag" };
+    env.sandbox.fetchImpl = async (url, options = {}) => {
+        requests.push({ url, options });
+        if (options.method === "PATCH") return { ok: false, status: 500 };
+        return { ok: true, json: async () => options.method === "POST" ? (url === "/api/authors" ? newAuthor : newTag)
+            : url.startsWith("/api/authors") || url.startsWith("/api/tags") ? [] : { id: 7, assets: [], tags: [] } };
+    };
+    env.run("detail.js"); await settle(); node("edit-button").dispatch("click");
+    await node("author-toggle").dispatch("click");
+    node("author-create-button").dispatch("click"); node("author-create-display-name").value = "New";
+    await node("author-create-submit").dispatch("click"); await settle();
+    assert.equal(requests.filter(call => call.url.startsWith("/api/authors?")).length, 2);
+    assert.match(node("author-selection").textContent, /New/);
+    await node("tag-toggle").dispatch("click");
+    node("tag-create-button").dispatch("click"); node("tag-create-name").value = "New tag";
+    await node("tag-create-submit").dispatch("click"); await settle();
+    assert.equal(requests.filter(call => call.url.startsWith("/api/tags?")).length, 2);
+    assert.equal(node("tag-search-results").children[0].children[0].textContent, "✓ New tag");
+    await node("edit-form").dispatch("submit");
+    assert.equal(node("edit-form").hidden, false);
+    assert.equal(node("tag-toggle").disabled, false);
+    assert.equal(node("tag-selection").children[0].textContent, "New tag ×");
+});
+
 async function loadPage(assets) {
     const env = browser({ url: "http://localhost/detail.html?id=7" });
     const elements = env.elements;

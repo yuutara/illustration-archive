@@ -74,6 +74,26 @@ class XPostPersistenceServiceTest {
 		verify(illustrations).insertXPost(42L, "https://x.com/newname/status/99");
 	}
 
+    @Test
+    void uniqueSafeLegacyHandleIsClaimedBeforeCreatingAnotherAuthor() {
+        when(authors.claimLegacyXAuthor("user-1", "Artist", "artist")).thenReturn(Optional.of(42L));
+        service.persist(item, media(1), files(1));
+        verify(authors, never()).insertXAuthor(anyString(), anyString(), anyString());
+        verify(illustrations).insertXPost(42L, "https://x.com/artist/status/99");
+    }
+
+    @Test
+    void stableIdentityAlwaysWinsAndUniquenessRaceReusesTheWinner() {
+        when(authors.findIdByXUserId("user-1")).thenReturn(Optional.of(42L));
+        service.persist(item, media(1), files(1));
+        verify(authors, never()).claimLegacyXAuthor(anyString(), anyString(), anyString());
+        reset(authors);
+        when(authors.findIdByXUserId("user-1")).thenReturn(Optional.empty(), Optional.of(43L));
+        when(authors.insertXAuthor(anyString(), anyString(), anyString())).thenThrow(new org.springframework.dao.DuplicateKeyException("race"));
+        service.persist(item, media(1), files(1));
+        verify(illustrations).insertXPost(43L, "https://x.com/artist/status/99");
+    }
+
 	@Test
 	void duplicateExistingOrWithinPostPreventsAllRows() {
 		when(assets.findIllustrationIdBySha256("sha1")).thenReturn(Optional.of(81L));

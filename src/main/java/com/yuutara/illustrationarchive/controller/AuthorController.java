@@ -7,6 +7,7 @@ import com.yuutara.illustrationarchive.service.AuthorService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/authors")
@@ -32,7 +34,14 @@ public class AuthorController {
 	}
 
 	@GetMapping
-	public List<AuthorSummary> search(@RequestParam(required = false) String keyword) {
-		return authorService.search(keyword);
+	public List<AuthorSummary> search(@RequestParam(required = false) String keyword,
+			@RequestParam(defaultValue = "20") int limit,
+			@RequestParam(defaultValue = "0") int offset) {
+		return authorService.search(keyword, limit, offset);
+	}
+
+	@ExceptionHandler(IllegalArgumentException.class)
+	public ResponseEntity<Map<String, String>> invalidInput(IllegalArgumentException exception) {
+		return ResponseEntity.badRequest().body(Map.of("message", exception.getMessage()));
 	}
 }

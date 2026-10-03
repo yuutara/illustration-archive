@@ -111,16 +111,16 @@ class AuthorRepositoryTest {
 		@SuppressWarnings({"unchecked", "rawtypes"})
 		ArgumentCaptor<RowMapper<AuthorSummary>> rowMapperCaptor =
 				(ArgumentCaptor) ArgumentCaptor.forClass(RowMapper.class);
-		when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq("%art%"), eq("%art%"))).thenReturn(List.of());
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq("%art%"), eq("%art%"), eq(20), eq(0))).thenReturn(List.of());
 
-		repository.search("art");
+		repository.search("art", 20, 0);
 
 		ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
-		verify(jdbcTemplate).query(sqlCaptor.capture(), rowMapperCaptor.capture(), eq("%art%"), eq("%art%"));
+		verify(jdbcTemplate).query(sqlCaptor.capture(), rowMapperCaptor.capture(), eq("%art%"), eq("%art%"), eq(20), eq(0));
 		String sql = sqlCaptor.getValue();
 		assertTrue(sql.contains("display_name LIKE ? OR x_username LIKE ?"));
 		assertTrue(sql.contains("ORDER BY display_name ASC, id ASC"));
-		assertTrue(sql.contains("LIMIT 20"));
+		assertTrue(sql.contains("LIMIT ? OFFSET ?"));
 		AuthorSummary author = rowMapperCaptor.getValue().mapRow(resultSet, 0);
 		assertEquals(7L, author.id());
 		assertEquals("Artist", author.displayName());
@@ -128,13 +128,24 @@ class AuthorRepositoryTest {
 	}
 
 	@Test
-	void returnsEmptyWithoutQueryingWhenSearchKeywordIsNullOrBlank() {
+	void searchesHandleWithOptionalAtPrefixAndBoundPagination() {
 		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
 		AuthorRepository repository = new AuthorRepository(jdbcTemplate);
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq("%@artist%"), eq("%artist%"), eq(100), eq(20)))
+				.thenReturn(List.of());
+		repository.search(" @artist ", 100, 20);
+		verify(jdbcTemplate).query(anyString(), any(RowMapper.class), eq("%@artist%"), eq("%artist%"), eq(100), eq(20));
+	}
 
-		assertEquals(List.of(), repository.search(null));
-		assertEquals(List.of(), repository.search("   "));
-
-		verifyNoInteractions(jdbcTemplate);
+	@Test
+	void listsExistingItemsForNullAndBlankKeywordsWithPagination() {
+		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+		AuthorRepository repository = new AuthorRepository(jdbcTemplate);
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq("%%"), eq("%%"), eq(20), eq(0))).thenReturn(List.of());
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq("%%"), eq("%%"), eq(100), eq(20))).thenReturn(List.of());
+		repository.search(null, 20, 0);
+		repository.search("   ", 100, 20);
+		verify(jdbcTemplate).query(anyString(), any(RowMapper.class), eq("%%"), eq("%%"), eq(20), eq(0));
+		verify(jdbcTemplate).query(anyString(), any(RowMapper.class), eq("%%"), eq("%%"), eq(100), eq(20));
 	}
 }

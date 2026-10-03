@@ -14,6 +14,25 @@ function setup(env, { missing = false, reload = () => {} } = {}) {
     return { context, config, opener };
 }
 
+test("multi-select sets survive Viewer Detail return and normalize order without losing members", () => {
+    const env = browser({ url: "http://localhost/?q=Work&authorId=2&authorId=1&authorId=2&tagId=5&tagId=3&page=2" });
+    const { context, config, opener } = setup(env);
+    const api = env.window.BrowseContext;
+    assert.equal(api.sameQuery(context.initialQuery, { q: "Work", authorId: ["1", "2"], tagId: ["3", "5"] }), true);
+    assert.equal(api.sameQuery(context.initialQuery, { q: "Work", authorId: ["1"], tagId: ["3", "5"] }), false);
+    context.ready(); context.openViewer(config, opener);
+    const detail = new URL(context.detailHref(7, "22"), "http://localhost");
+    const detailEnv = browser({ url: detail.href, storage: env.storage });
+    const detailContext = detailEnv.window.BrowseContext.create({ kind: "detail" });
+    const back = detailEnv.document.getElementById("back");
+    detailContext.bindReturnLink(back);
+    const returned = new URL(back.href, "http://localhost");
+    assert.deepEqual(returned.searchParams.getAll("authorId"), ["1", "2"]);
+    assert.deepEqual(returned.searchParams.getAll("tagId"), ["3", "5"]);
+    assert.equal(returned.searchParams.get("q"), "Work");
+    assert.equal(returned.searchParams.get("page"), "2");
+});
+
 test("viewer adds one history entry; Back/Forward retain last asset, scroll and source focus", async () => {
     const env = browser({ url: "http://localhost/?page=2" }); const { context, config, opener } = setup(env);
     assert.equal(context.initialPage, 2); context.ready(); env.flushFrames();
@@ -157,6 +176,25 @@ test("optional close callback receives the last media once after close, never on
     env.window.history.forward(); await settle();
     assert.equal(calls.length, 1);
     assert.equal(env.find("image-viewer-image").src, "/b.jpg");
+});
+
+test("Gallery return consumes saved metadata invalidation before popstate can overwrite it", () => {
+    const env = browser({ url: "http://localhost/?q=Work&authorId=1&tagId=2&page=0" });
+    const calls = [];
+    const { context, config } = setup(env, { reload: (...args) => calls.push(args) });
+    context.ready();
+    const sourceState = structuredClone(env.window.history.state);
+    const detail = browser({ url: new URL(context.detailHref(7, "11"), "http://localhost").href, storage: env.storage });
+    const detailContext = detail.window.BrowseContext.create({ kind: "detail", resolveViewer: () => null });
+    detailContext.invalidateSource();
+    env.window.dispatch("popstate", { state: sourceState });
+    assert.equal(calls.length, 1);
+    assert.deepEqual(Array.from(calls[0][1].authorId), ["1"]);
+    assert.deepEqual(Array.from(calls[0][1].tagId), ["2"]);
+    assert.equal(calls[0][1].q, "Work");
+    assert.equal(calls[0][2].history, true);
+    env.window.dispatch("pageshow", { persisted: true });
+    assert.equal(calls.length, 1);
 });
 
 test("Gallery source links preserve all query conditions, page and ctx without a second return parameter", () => {

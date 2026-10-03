@@ -47,11 +47,20 @@ class TagServiceTest {
 		TagRepository repository = mock(TagRepository.class);
 		TagService service = new TagService(repository);
 		List<TagSummary> expected = List.of(new TagSummary(5L, "landscape"));
-		when(repository.search("land")).thenReturn(expected);
+		when(repository.search("land", 20, 0)).thenReturn(expected);
 
-		List<TagSummary> result = service.search("land");
+		List<TagSummary> result = service.search("land", 20, 0);
 
 		assertEquals(expected, result);
-		verify(repository).search("land");
+		verify(repository).search("land", 20, 0);
+	}
+	@Test
+	void rejectsInvalidPaginationBeforeQuerying() {
+		TagRepository repository = mock(TagRepository.class);
+		TagService service = new TagService(repository);
+		assertThrows(IllegalArgumentException.class, () -> service.search(null, 0, 0));
+		assertThrows(IllegalArgumentException.class, () -> service.search(null, 101, 0));
+		assertThrows(IllegalArgumentException.class, () -> service.search(null, 20, -1));
+		verifyNoInteractions(repository);
 	}
 }

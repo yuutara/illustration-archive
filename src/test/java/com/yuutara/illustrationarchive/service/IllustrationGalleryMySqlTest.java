@@ -72,6 +72,13 @@ class IllustrationGalleryMySqlTest {
 			assertPages(service, new IllustrationGalleryQuery(null, null, 1L), descending(1, 60).stream().filter(id -> id % 2 == 0).toList());
 			assertPages(service, new IllustrationGalleryQuery("探索", null, null), descending(1, 60).stream().filter(id -> id % 2 == 0 || id % 3 == 0).toList());
 			assertPages(service, new IllustrationGalleryQuery("探索", 1L, 1L), descending(1, 36).stream().filter(id -> id % 2 == 0).toList());
+            assertPages(service, IllustrationGalleryQuery.withIds(null, List.of(2L, 1L), List.of()), descending(1, 48));
+            assertPages(service, IllustrationGalleryQuery.withIds(null, List.of(), List.of(2L, 1L)),
+                    descending(1, 60).stream().filter(id -> id % 2 == 0 || id % 3 == 0).toList());
+            assertPages(service, IllustrationGalleryQuery.withIds("探索", List.of(1L, 2L), List.of(1L, 2L)),
+                    descending(1, 48).stream().filter(id -> id % 2 == 0 || id % 3 == 0).toList());
+            assertPages(service, IllustrationGalleryQuery.withIds(null, List.of(1L, 999L), List.of(1L, 2L, 999L)),
+                    descending(1, 36).stream().filter(id -> id % 2 == 0 || id % 3 == 0).toList());
 			assertPages(service, new IllustrationGalleryQuery("needle", null, null), List.of(1L));
 			assertPages(service, new IllustrationGalleryQuery("@same_a", null, null), descending(1, 36));
 			assertPages(service, new IllustrationGalleryQuery("Same artist", null, null), descending(1, 48));
@@ -87,8 +94,90 @@ class IllustrationGalleryMySqlTest {
 			assertEquals(List.of(11L, 12L, 13L), note.assets().stream().map(asset -> asset.id()).toList());
 			assertEquals(36, service.getGallery(0, 24, new IllustrationGalleryQuery("  ", 1L, null)).totalElements());
 		}
+		// Reuse this opt-in schema for metadata picker HTTP/browser acceptance.
+		for (int id = 1; id <= 24; id++) {
+			jdbc.update("INSERT INTO author(display_name,x_username) VALUES (?,?)", "Picker author %02d".formatted(id), "picker_%02d".formatted(id));
+			jdbc.update("INSERT INTO tag(name) VALUES (?)", "Picker tag %02d".formatted(id));
+		}
+		var authors = new AuthorService(new AuthorRepository(jdbc));
+		var tags = new TagService(new TagRepository(jdbc));
+		assertEquals(20, authors.search(null, 20, 0).size());
+		assertEquals(6, authors.search("  ", 20, 20).size());
+		assertEquals(27, tags.search(null, 100, 0).size());
+		assertEquals(7, tags.search("", 20, 20).size());
+		var authorIds = new ArrayList<Long>();
+		authorIds.addAll(authors.search(null, 20, 0).stream().map(a -> a.id()).toList());
+		authorIds.addAll(authors.search(null, 20, 20).stream().map(a -> a.id()).toList());
+		assertEquals(authors.search(null, 100, 0).stream().map(a -> a.id()).toList(), authorIds);
+		assertEquals(26, new HashSet<>(authorIds).size());
+		assertEquals(List.of(1L, 2L), authors.search("Same artist", 20, 0).stream().map(a -> a.id()).toList());
+		assertEquals(List.of(2L), authors.search("@same_b", 20, 0).stream().map(a -> a.id()).toList());
+		assertEquals(24, authors.search("picker_", 100, 0).size());
+		assertEquals(24, tags.search("Picker tag", 100, 0).size());
+		assertTrue(authors.search(null, 20, 100).isEmpty());
+		assertTrue(tags.search("missing metadata", 20, 0).isEmpty());
+        verifyIdentityClaims(jdbc, dataSource);
 		System.out.println("F03 real MySQL: 60 fixture works, duplicate tags, 3 pages, literal search and proxied read-only transaction passed. Schema retained for browser acceptance: " + database);
 	}
+
+    private void verifyIdentityClaims(JdbcTemplate jdbc, DataSource dataSource) {
+        var transactions = new org.springframework.transaction.support.TransactionTemplate(new DataSourceTransactionManager(dataSource));
+        transactions.executeWithoutResult(status -> {
+            var authors = new AuthorRepository(jdbc);
+            jdbc.update("INSERT INTO author(id,display_name,x_username) VALUES (200,'Old manual','@Reuse')");
+            assertEquals(200L, authors.claimLegacyXAuthor("stable-200", "Current profile", "reuse").orElseThrow());
+            assertEquals(200L, authors.findIdByXUserId("stable-200").orElseThrow());
+            assertEquals(1L, jdbc.queryForObject("SELECT COUNT(*) FROM author WHERE x_user_id='stable-200'", Long.class));
+            assertThrows(org.springframework.dao.DuplicateKeyException.class, () -> authors.insertXAuthor("stable-200", "Name", "new-handle"));
+            jdbc.update("INSERT INTO author(id,display_name,x_username) VALUES (201,'Same','ambiguous'),(202,'Same','@AMBIGUOUS')");
+            assertTrue(authors.claimLegacyXAuthor("new-id", "Same", "ambiguous").isEmpty());
+            jdbc.update("INSERT INTO author(id,display_name,x_username,x_user_id) VALUES (203,'Conflict','conflict','different-id')");
+            assertTrue(authors.claimLegacyXAuthor("new-id", "Conflict", "conflict").isEmpty());
+            jdbc.update("INSERT INTO author(id,display_name,x_username) VALUES (204,'Unproven','unproven')");
+            jdbc.update("INSERT INTO illustration(id,author_id) VALUES (200,204)");
+            assertTrue(authors.claimLegacyXAuthor("new-id", "Unproven", "unproven").isEmpty());
+            jdbc.update("INSERT INTO author(id,display_name,x_username) VALUES (205,'Historic conflict','historic')");
+            jdbc.update("INSERT INTO x_like_item(x_post_id,x_author_id,author_username,author_display_name,status,discovered_at,updated_at) VALUES ('identity-post-1','previous-owner','historic','Historic','PENDING',NOW(3),NOW(3))");
+            assertTrue(authors.claimLegacyXAuthor("current-owner", "Historic", "historic").isEmpty());
+            jdbc.update("INSERT INTO author(id,display_name,x_username) VALUES (207,'Proven manual','@proven')");
+            jdbc.update("INSERT INTO illustration(id,author_id,source_url) VALUES (201,207,'https://x.com/proven/status/identity-post-2')");
+            jdbc.update("INSERT INTO x_like_item(x_post_id,x_author_id,author_username,author_display_name,status,discovered_at,updated_at) VALUES ('identity-post-2','stable-207','proven','Current','PENDING',NOW(3),NOW(3))");
+            assertEquals(207L, authors.claimLegacyXAuthor("stable-207", "Current", "proven").orElseThrow());
+            status.setRollbackOnly();
+        });
+        assertEquals(0L, jdbc.queryForObject("SELECT COUNT(*) FROM author WHERE id>=200", Long.class));
+        assertEquals(60L, jdbc.queryForObject("SELECT COUNT(*) FROM illustration", Long.class));
+        // Exercise the real Spring proxy: claiming an author and inserting a Post roll back with an Asset failure.
+        jdbc.update("INSERT INTO author(id,display_name,x_username) VALUES (206,'Rollback manual','rollback')");
+        jdbc.update("INSERT INTO x_like_item(id,x_post_id,x_author_id,author_username,author_display_name,status,discovered_at,updated_at) VALUES (206,'identity-rollback-post','rollback-id','rollback','Updated','PENDING',NOW(3),NOW(3))");
+        try (var context = new AnnotationConfigApplicationContext()) {
+            context.register(Transactions.class);
+            context.registerBean(PlatformTransactionManager.class, () -> new DataSourceTransactionManager(dataSource));
+            context.registerBean(AuthorRepository.class, () -> new AuthorRepository(jdbc));
+            var inbox = new com.yuutara.illustrationarchive.repository.XLikeRepository(jdbc);
+            context.registerBean(com.yuutara.illustrationarchive.repository.XLikeRepository.class, () -> inbox);
+            context.registerBean(IllustrationRepository.class, () -> new IllustrationRepository(jdbc));
+            context.registerBean(com.yuutara.illustrationarchive.repository.AssetRepository.class, () -> new com.yuutara.illustrationarchive.repository.AssetRepository(jdbc) {
+                @Override public long insert(long illustrationId, String filename, String key, String mime, long size, int order, String sha) {
+                    super.insert(illustrationId, filename, key, mime, size, order, sha);
+                    throw new IllegalStateException("simulated Asset failure after database insert");
+                }
+            });
+            context.registerBean(XPostPersistenceService.class);
+            context.refresh();
+            assertThrows(IllegalStateException.class, () -> context.getBean(XPostPersistenceService.class).persist(
+                    inbox.findForImport(206, false).orElseThrow(),
+                    List.of(new com.yuutara.illustrationarchive.dto.XLikeMedia("identity-media", 0, "photo", "fixture", 1, 1)),
+                    List.of(new com.yuutara.illustrationarchive.storage.StoredFile("fixture.png", "identity-rollback.png", "image/png", 1, "a".repeat(64)))));
+        }
+        assertNull(jdbc.queryForObject("SELECT x_user_id FROM author WHERE id=206", String.class));
+        assertEquals("Rollback manual", jdbc.queryForObject("SELECT display_name FROM author WHERE id=206", String.class));
+        assertEquals(60L, jdbc.queryForObject("SELECT COUNT(*) FROM illustration", Long.class));
+        assertEquals(0L, jdbc.queryForObject("SELECT COUNT(*) FROM asset WHERE storage_key='identity-rollback.png'", Long.class));
+        assertEquals("PENDING", jdbc.queryForObject("SELECT status FROM x_like_item WHERE id=206", String.class));
+        jdbc.update("DELETE FROM x_like_item WHERE id=206");
+        jdbc.update("DELETE FROM author WHERE id=206");
+    }
 
 	private List<Long> descending(long first, long last) {
 		return LongStream.rangeClosed(first, last).boxed().sorted(java.util.Comparator.reverseOrder()).toList();

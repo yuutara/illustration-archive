@@ -12,10 +12,8 @@
         authorDirty: false,
         selectedAuthorId: null,
         selectedAuthor: null,
-        authorSearching: false,
         tagsDirty: false,
         selectedTags: [],
-        tagSearching: false,
         creatingTag: false
     };
 
@@ -71,6 +69,19 @@
         reload: () => loadDetail()
     });
     browse.bindReturnLink(document.getElementById("detail-back-link"));
+    const authorPicker = window.MetadataPicker.create({
+        prefix: "detail-author", endpoint: "/api/authors", label: authorLabel,
+        selected: () => {
+            const author = state.authorDirty ? state.selectedAuthor : state.detail?.author;
+            return author ? [author] : [];
+        }, choose: selectAuthor, blocked: () => !state.editing || state.saving || creationInProgress()
+    });
+    const tagPicker = window.MetadataPicker.create({
+        prefix: "detail-tag", endpoint: "/api/tags", label: tag => tag.name,
+        selected: () => state.selectedTags,
+        choose: tag => state.selectedTags.some(item => item.id === Number(tag.id)) ? removeTag(Number(tag.id)) : selectTag(tag),
+        blocked: () => !state.editing || state.saving || creationInProgress()
+    });
 
     function viewer() {
         const assets = orderedAssetsFor(state.detail);
@@ -127,6 +138,8 @@
         tagCreateNameInput.disabled = disabled;
         saveButton.disabled = disabled;
         cancelButton.disabled = disabled;
+        authorPicker.setDisabled(disabled);
+        tagPicker.setDisabled(disabled);
     }
 
     function populateEditForm(detail) {
@@ -151,6 +164,7 @@
     }
 
     function renderAuthorSelection() {
+        authorPicker.sync();
         if (state.authorDirty) {
             authorSelectionElement.textContent = state.selectedAuthorId === null
                 ? "已选择清除作者关联（保存后生效）"
@@ -165,6 +179,7 @@
     }
 
     function resetAuthorEditor() {
+        authorPicker.close();
         closeAuthorCreateForm();
         state.authorDirty = false;
         state.selectedAuthorId = null;
@@ -176,6 +191,7 @@
     }
 
     function selectAuthor(author) {
+        if (!state.editing || state.saving) return;
         const authorId = Number(author && author.id);
         if (!Number.isSafeInteger(authorId) || authorId <= 0) {
             return;
@@ -268,6 +284,7 @@
 
             closeAuthorCreateForm();
             selectAuthor(createdAuthor);
+            authorPicker.refresh();
             authorSearchStatus.textContent = "已创建并选择作者，保存后生效。";
         } catch (error) {
             authorCreateStatus.textContent = "创建作者失败，请检查输入后重试。";
@@ -275,79 +292,6 @@
             if (state.creatingAuthor) {
                 setCreatingAuthor(false);
             }
-        }
-    }
-
-    function renderAuthorSearchResults(authors) {
-        authorSearchResults.replaceChildren();
-        const validAuthors = Array.isArray(authors)
-            ? authors.filter(function (author) {
-                const authorId = Number(author && author.id);
-                return Number.isSafeInteger(authorId) && authorId > 0;
-            })
-            : [];
-
-        if (validAuthors.length === 0) {
-            const emptyResults = document.createElement("li");
-            emptyResults.className = "empty-value";
-            emptyResults.textContent = "没有找到匹配作者";
-            authorSearchResults.appendChild(emptyResults);
-            return 0;
-        }
-
-        validAuthors.forEach(function (author) {
-            const resultItem = document.createElement("li");
-            const resultButton = document.createElement("button");
-            resultButton.className = "author-search-result";
-            resultButton.type = "button";
-            resultButton.disabled = state.saving;
-            resultButton.textContent = authorLabel(author);
-            resultButton.addEventListener("click", function () {
-                selectAuthor(author);
-            });
-            resultItem.appendChild(resultButton);
-            authorSearchResults.appendChild(resultItem);
-        });
-
-        return validAuthors.length;
-    }
-
-    async function searchAuthors() {
-        if (state.saving || state.authorSearching) {
-            return;
-        }
-
-        const keyword = authorSearchInput.value.trim();
-        if (!keyword) {
-            authorSearchResults.replaceChildren();
-            authorSearchStatus.textContent = "请输入关键词后搜索。";
-            return;
-        }
-
-        state.authorSearching = true;
-        authorSearchButton.disabled = true;
-        authorSearchStatus.textContent = "正在搜索…";
-        authorSearchResults.replaceChildren();
-
-        try {
-            const query = new URLSearchParams({ keyword: keyword });
-            const response = await fetch(`/api/authors?${query.toString()}`, {
-                headers: { Accept: "application/json" }
-            });
-            if (!response.ok) {
-                throw new Error(`Author search failed with status ${response.status}`);
-            }
-
-            const authors = await response.json();
-            const resultCount = renderAuthorSearchResults(authors);
-            authorSearchStatus.textContent = resultCount > 0
-                ? `找到 ${resultCount} 位作者。`
-                : "没有找到匹配作者。";
-        } catch (error) {
-            authorSearchStatus.textContent = "搜索作者失败，请重试。";
-        } finally {
-            state.authorSearching = false;
-            authorSearchButton.disabled = state.saving;
         }
     }
 
@@ -367,6 +311,7 @@
     }
 
     function renderSelectedTags() {
+        tagPicker.sync();
         tagSelectionElement.replaceChildren();
         if (state.selectedTags.length === 0) {
             const emptyTags = document.createElement("p");
@@ -391,6 +336,7 @@
     }
 
     function resetTagEditor() {
+        tagPicker.close();
         closeTagCreateForm();
         state.tagsDirty = false;
         state.selectedTags = Array.isArray(state.detail && state.detail.tags)
@@ -403,6 +349,7 @@
     }
 
     function selectTag(tag) {
+        if (!state.editing || state.saving) return;
         if (!validTag(tag)) {
             return;
         }
@@ -423,6 +370,7 @@
     }
 
     function removeTag(tagId) {
+        if (!state.editing || state.saving || creationInProgress()) return;
         const remainingTags = state.selectedTags.filter(function (tag) {
             return tag.id !== tagId;
         });
@@ -441,7 +389,7 @@
         const disabled = state.saving || state.deleting || creationInProgress();
         setCreationControlsDisabled(disabled);
         tagSearchInput.disabled = disabled;
-        tagSearchButton.disabled = disabled || state.tagSearching;
+        tagSearchButton.disabled = disabled;
         tagSelectionElement.querySelectorAll("button").forEach(function (button) {
             button.disabled = disabled;
         });
@@ -458,7 +406,7 @@
     }
 
     function openTagCreateForm() {
-        if (!state.editing || state.saving || state.deleting || state.tagSearching || state.creatingTag
+        if (!state.editing || state.saving || state.deleting || state.creatingTag
             || state.creatingAuthor
             || !tagCreatePanel.hidden) {
             return;
@@ -506,6 +454,7 @@
 
             closeTagCreateForm();
             selectTag(createdTag);
+            tagPicker.refresh();
             tagSearchStatus.textContent = "已创建并选择标签，保存后生效。";
         } catch (error) {
             tagCreateStatus.textContent = "创建标签失败，请检查输入后重试。";
@@ -516,76 +465,6 @@
         }
     }
 
-    function renderTagSearchResults(tags) {
-        tagSearchResults.replaceChildren();
-        const validTags = Array.isArray(tags)
-            ? tags.filter(validTag).map(normalizeTag)
-            : [];
-
-        if (validTags.length === 0) {
-            const emptyResults = document.createElement("li");
-            emptyResults.className = "empty-value";
-            emptyResults.textContent = "没有找到匹配标签";
-            tagSearchResults.appendChild(emptyResults);
-            return 0;
-        }
-
-        validTags.forEach(function (tag) {
-            const resultItem = document.createElement("li");
-            const resultButton = document.createElement("button");
-            resultButton.className = "tag-search-result";
-            resultButton.type = "button";
-            resultButton.disabled = state.saving;
-            resultButton.textContent = tag.name;
-            resultButton.addEventListener("click", function () {
-                selectTag(tag);
-            });
-            resultItem.appendChild(resultButton);
-            tagSearchResults.appendChild(resultItem);
-        });
-
-        return validTags.length;
-    }
-
-    async function searchTags() {
-        if (state.saving || state.tagSearching || state.creatingTag) {
-            return;
-        }
-
-        const keyword = tagSearchInput.value.trim();
-        if (!keyword) {
-            tagSearchResults.replaceChildren();
-            tagSearchStatus.textContent = "请输入关键词后搜索。";
-            return;
-        }
-
-        state.tagSearching = true;
-        tagSearchButton.disabled = true;
-        tagSearchStatus.textContent = "正在搜索…";
-        tagSearchResults.replaceChildren();
-
-        try {
-            const query = new URLSearchParams({ keyword: keyword });
-            const response = await fetch(`/api/tags?${query.toString()}`, {
-                headers: { Accept: "application/json" }
-            });
-            if (!response.ok) {
-                throw new Error(`Tag search failed with status ${response.status}`);
-            }
-
-            const tags = await response.json();
-            const resultCount = renderTagSearchResults(tags);
-            tagSearchStatus.textContent = resultCount > 0
-                ? `找到 ${resultCount} 个标签。`
-                : "没有找到匹配标签。";
-        } catch (error) {
-            tagSearchStatus.textContent = "搜索标签失败，请重试。";
-        } finally {
-            state.tagSearching = false;
-            tagSearchButton.disabled = state.saving || state.creatingTag;
-        }
-    }
-
     function setSaving(saving) {
         state.saving = saving;
         setCreationControlsDisabled(saving || state.deleting || creationInProgress());
@@ -593,13 +472,13 @@
         sourceInput.disabled = saving;
         noteInput.disabled = saving;
         authorSearchInput.disabled = saving;
-        authorSearchButton.disabled = saving || state.authorSearching;
+        authorSearchButton.disabled = saving;
         authorClearButton.disabled = saving;
         authorSearchResults.querySelectorAll("button").forEach(function (button) {
             button.disabled = saving;
         });
         tagSearchInput.disabled = saving || state.creatingTag;
-        tagSearchButton.disabled = saving || state.creatingTag || state.tagSearching;
+        tagSearchButton.disabled = saving || state.creatingTag;
         tagSelectionElement.querySelectorAll("button").forEach(function (button) {
             button.disabled = saving || state.creatingTag;
         });
@@ -615,6 +494,9 @@
         editForm.hidden = !editing;
         titleElement.hidden = editing || !textOrFallback(state.detail && state.detail.title, "");
         metaGrid.hidden = editing;
+        if (!editing) { authorPicker.close(); tagPicker.close(); }
+        authorPicker.sync();
+        tagPicker.sync();
     }
 
     function setDeleting(deleting) {
@@ -853,6 +735,7 @@
 
         try {
             const response = await fetch(`/api/illustrations/${state.illustrationId}`, {
+                cache: "no-store",
                 headers: { Accept: "application/json" }
             });
             if (!response.ok) {
@@ -933,24 +816,10 @@
     deleteButton.addEventListener("click", deleteIllustration);
     editForm.addEventListener("submit", saveDetail);
     cancelButton.addEventListener("click", cancelEditing);
-    authorSearchButton.addEventListener("click", searchAuthors);
-    authorSearchInput.addEventListener("keydown", function (event) {
-        if (event.key === "Enter") {
-            event.preventDefault();
-            searchAuthors();
-        }
-    });
     authorClearButton.addEventListener("click", clearAuthorSelection);
     authorCreateButton.addEventListener("click", openAuthorCreateForm);
     authorCreateSubmitButton.addEventListener("click", createAuthor);
     authorCreateCancelButton.addEventListener("click", closeAuthorCreateForm);
-    tagSearchButton.addEventListener("click", searchTags);
-    tagSearchInput.addEventListener("keydown", function (event) {
-        if (event.key === "Enter") {
-            event.preventDefault();
-            searchTags();
-        }
-    });
     tagCreateButton.addEventListener("click", openTagCreateForm);
     tagCreateSubmitButton.addEventListener("click", createTag);
     tagCreateCancelButton.addEventListener("click", closeTagCreateForm);

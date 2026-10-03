@@ -2,8 +2,148 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { browser, settle } = require("./helpers/browser");
 
+test("search submitted while a facet is loading preserves that pending author and tag", async () => {
+    const env = browser({ url: "http://localhost/?tagId=3" });
+    let pendingAuthor;
+    const requests = [];
+    env.sandbox.fetchImpl = async url => {
+        const query = new URL(url, "http://localhost"); requests.push(query);
+        if (query.pathname === "/api/authors") return { ok: true, json: async () => [{ id: 2, displayName: "Same" }] };
+        if (query.searchParams.has("authorId") && !query.searchParams.has("q")) return new Promise(resolve => { pendingAuthor = resolve; });
+        return { ok: true, json: async () => ({ page: 0, totalPages: 0, totalElements: 0, items: [] }) };
+    };
+    env.run("app.js"); await settle();
+    env.elements.get("gallery-author-toggle").dispatch("click"); await settle();
+    env.elements.get("gallery-author-search-results").children[0].children[0].children[0].dispatch("change");
+    env.elements.get("gallery-search-input").value = "next";
+    env.elements.get("gallery-search-form").dispatch("submit"); await settle();
+    assert.equal(requests.at(-1).searchParams.get("authorId"), "2");
+    assert.equal(requests.at(-1).searchParams.get("tagId"), "3");
+    assert.equal(requests.at(-1).searchParams.get("q"), "next");
+    pendingAuthor({ ok: true, json: async () => ({ page: 0, totalPages: 0, totalElements: 0, items: [] }) }); await settle();
+    assert.equal(new URL(env.window.location.href).searchParams.get("q"), "next");
+});
+
+test("facet picks preserve q and the other ID, reset page, and survive Back/Forward and refresh", async () => {
+    const env = browser({ url: "http://localhost/?q=Work&page=2" });
+    const node = id => env.document.getElementById(`gallery-${id}`);
+    const queries = [];
+    env.sandbox.fetchImpl = async url => {
+        const parsed = new URL(url, "http://localhost");
+        if (parsed.pathname === "/api/authors") return { ok: true, json: async () => [{ id: 2, displayName: "Same", xUsername: "two" }] };
+        if (parsed.pathname === "/api/tags") return { ok: true, json: async () => [{ id: 3, name: "Tag" }] };
+        queries.push(parsed.searchParams);
+        return { ok: true, json: async () => ({ page: Number(parsed.searchParams.get("page")), totalPages: 3, totalElements: 50, items: [],
+            filters: { author: { id: 2, displayName: "Same", xUsername: "two" }, tag: { id: 3, name: "Tag" } } }) };
+    };
+    env.run("app.js"); await settle();
+    await node("author-toggle").dispatch("click");
+    await settle();
+    node("author-search-results").children[0].children[0].children[0].dispatch("change"); await settle();
+    assert.equal(queries.at(-1).get("q"), "Work");
+    assert.equal(queries.at(-1).get("authorId"), "2");
+    assert.equal(queries.at(-1).get("page"), "0");
+    assert.match(node("filters").children[1].textContent, /@two/);
+    node("facet-close").dispatch("click");
+    node("facet-toggle").dispatch("click"); await settle();
+    assert.equal(node("author-panel").hidden, false);
+    assert.equal(node("tag-panel").hidden, false);
+    node("tag-search-results").children[0].children[0].children[0].dispatch("change"); await settle();
+    assert.equal(queries.at(-1).get("q"), "Work");
+    assert.equal(queries.at(-1).get("authorId"), "2");
+    assert.equal(queries.at(-1).get("tagId"), "3");
+    const saved = env.window.location.href;
+    env.window.history.back(); await settle(); await settle();
+    assert.equal(new URL(env.window.location.href).searchParams.has("tagId"), false);
+    env.window.history.forward(); await settle(); await settle();
+    assert.equal(env.window.location.href, saved);
+    const refreshed = browser({ url: saved }); refreshed.sandbox.fetchImpl = env.sandbox.fetchImpl;
+    refreshed.run("app.js"); await settle();
+    assert.equal(queries.at(-1).get("tagId"), "3");
+    assert.equal(queries.at(-1).get("authorId"), "2");
+    assert.equal(queries.at(-1).get("q"), "Work");
+});
+
 const multi = { id: 7, title: "Three", author: { displayName: "Artist" }, coverAssetId: 11,
     assets: [11, 22, 33].map((id, sortOrder) => ({ id, sortOrder, mimeType: "image/png" })) };
+
+test("multi-select checkboxes retain independent stars, chips, pending groups and full history state", async () => {
+    const localStorage = new Map();
+    const env = browser({ url: "http://localhost/?q=Work&authorId=1&tagId=3&page=2", localStorage });
+    const authors = [{ id: 1, displayName: "Same", xUsername: "one" }, { id: 2, displayName: "Same", xUsername: "two" }];
+    const tags = [{ id: 3, name: "Three" }, { id: 5, name: "Five" }];
+    const queries = [], node = id => env.document.getElementById(`gallery-${id}`);
+    const row = (kind, id) => node(`${kind}-search-results`).children.find(row => row.children[0].dataset.metadataId === String(id));
+    env.sandbox.fetchImpl = async url => {
+        const parsed = new URL(url, "http://localhost"), params = parsed.searchParams;
+        if (parsed.pathname === "/api/authors") return { ok: true, json: async () => authors };
+        if (parsed.pathname === "/api/tags") return { ok: true, json: async () => tags };
+        queries.push(params);
+        return { ok: true, json: async () => ({ page: Number(params.get("page")), totalPages: 3, totalElements: 60, items: [multi],
+            filters: { authors: authors.filter(item => params.getAll("authorId").includes(String(item.id))),
+                tags: tags.filter(item => params.getAll("tagId").includes(String(item.id))) } }) };
+    };
+    env.run("app.js"); await settle();
+    node("author-toggle").dispatch("click"); await settle();
+    const beforeStar = queries.length;
+    row("author", 2).children[1].dispatch("click");
+    assert.equal(queries.length, beforeStar);
+    assert.equal(row("author", 2).children[0].children[0].checked, false);
+    row("author", 2).children[0].children[0].dispatch("change"); await settle();
+    assert.equal(node("author-panel").hidden, false);
+    assert.deepEqual(queries.at(-1).getAll("authorId"), ["1", "2"]);
+    assert.equal(queries.at(-1).get("page"), "0");
+    assert.equal(row("author", 1).children[0].children[0].checked, true);
+    row("author", 1).children[0].children[0].dispatch("change"); await settle();
+    assert.deepEqual(queries.at(-1).getAll("authorId"), ["2"]);
+    row("author", 1).children[0].children[0].dispatch("change"); await settle();
+    node("tag-toggle").dispatch("click"); await settle();
+    row("tag", 5).children[1].dispatch("click");
+    row("tag", 5).children[0].children[0].dispatch("change"); await settle();
+    const saved = env.window.location.href;
+    assert.deepEqual(new URL(saved).searchParams.getAll("authorId"), ["1", "2"]);
+    assert.deepEqual(new URL(saved).searchParams.getAll("tagId"), ["3", "5"]);
+    assert.equal(new URL(saved).searchParams.get("q"), "Work");
+    assert.equal(node("filters").children.length, 6);
+    assert.deepEqual(JSON.parse(localStorage.get("illustration-archive.metadata-favorites.v1.authors")), ["2"]);
+    const authorChip = node("filters").children.find(chip => chip.textContent.includes("@two"));
+    authorChip.dispatch("click"); await settle();
+    assert.deepEqual(queries.at(-1).getAll("authorId"), ["1"]);
+    assert.deepEqual(queries.at(-1).getAll("tagId"), ["3", "5"]);
+    env.window.history.back(); await settle(); await settle();
+    assert.equal(env.window.location.href, saved);
+    env.window.history.forward(); await settle(); await settle();
+    assert.deepEqual(new URL(env.window.location.href).searchParams.getAll("authorId"), ["1"]);
+    const refreshed = browser({ url: saved, localStorage }); refreshed.sandbox.fetchImpl = env.sandbox.fetchImpl;
+    refreshed.run("app.js"); await settle();
+    assert.deepEqual(queries.at(-1).getAll("authorId"), ["1", "2"]);
+    assert.deepEqual(queries.at(-1).getAll("tagId"), ["3", "5"]);
+    refreshed.document.getElementById("gallery-filters").children.at(-1).dispatch("click"); await settle();
+    assert.deepEqual(queries.at(-1).getAll("authorId"), []);
+    assert.deepEqual(queries.at(-1).getAll("tagId"), []);
+    assert.equal(queries.at(-1).has("q"), false);
+});
+
+test("rapid multi-select toggles preserve pending members and ignore obsolete responses", async () => {
+    const env = browser({ url: "http://localhost/?tagId=3&tagId=5" });
+    const pending = [];
+    env.sandbox.fetchImpl = async url => {
+        const parsed = new URL(url, "http://localhost");
+        if (parsed.pathname === "/api/authors") return { ok: true, json: async () => [{ id: 1, displayName: "One" }, { id: 2, displayName: "Two" }] };
+        if (parsed.searchParams.has("authorId")) return new Promise(resolve => pending.push({ params: parsed.searchParams, resolve }));
+        return { ok: true, json: async () => ({ page: 0, totalPages: 0, totalElements: 0, items: [] }) };
+    };
+    env.run("app.js"); await settle();
+    env.document.getElementById("gallery-author-toggle").dispatch("click"); await settle();
+    const list = env.document.getElementById("gallery-author-search-results");
+    list.children[0].children[0].children[0].dispatch("change");
+    list.children[1].children[0].children[0].dispatch("change");
+    assert.deepEqual(pending[1].params.getAll("authorId"), ["1", "2"]);
+    assert.deepEqual(pending[1].params.getAll("tagId"), ["3", "5"]);
+    pending[1].resolve({ ok: true, json: async () => ({ page: 0, totalPages: 0, totalElements: 0, items: [] }) }); await settle();
+    pending[0].resolve({ ok: true, json: async () => ({ page: 0, totalPages: 0, totalElements: 0, items: [] }) }); await settle();
+    assert.deepEqual(new URL(env.window.location.href).searchParams.getAll("authorId"), ["1", "2"]);
+});
 async function setup(items = [multi], options = {}) {
     const env = browser(options);
     env.sandbox.fetchImpl = async () => ({ ok: true, json: async () => ({page: 0, totalPages: 2, totalElements: 25, items}) });

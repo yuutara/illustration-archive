@@ -9,6 +9,7 @@ import com.yuutara.illustrationarchive.repository.XLikeRepository;
 import com.yuutara.illustrationarchive.storage.StoredFile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.dao.DuplicateKeyException;
 
 import java.util.HashSet;
 import java.util.List;
@@ -52,9 +53,17 @@ public class XPostPersistenceService {
 		}
 
 		var existingAuthorId = authors.findIdByXUserId(current.xAuthorId());
-		long authorId = existingAuthorId.orElseGet(() ->
-				authors.insertXAuthor(current.xAuthorId(), current.authorDisplayName(),
-						current.authorUsername()));
+        long authorId;
+        if (existingAuthorId.isPresent()) authorId = existingAuthorId.get();
+        else {
+            try {
+                authorId = authors.claimLegacyXAuthor(current.xAuthorId(), current.authorDisplayName(), current.authorUsername())
+                        .orElseGet(() -> authors.insertXAuthor(current.xAuthorId(), current.authorDisplayName(), current.authorUsername()));
+            } catch (DuplicateKeyException collision) {
+                // The unique stable ID resolves an import racing with another Post.
+                authorId = authors.findIdByXUserId(current.xAuthorId()).orElseThrow(() -> collision);
+            }
+        }
 		if (existingAuthorId.isPresent()) {
 			authors.updateXAuthor(authorId, current.authorDisplayName(), current.authorUsername());
 		}

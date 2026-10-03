@@ -48,6 +48,61 @@
     const searchForm = document.getElementById("gallery-search-form");
     const searchInput = document.getElementById("gallery-search-input");
     const filterBar = document.getElementById("gallery-filters");
+    const facetPanel = document.getElementById("gallery-facet-panel");
+    const facetToggle = document.getElementById("gallery-facet-toggle");
+    let facetOpener = facetToggle;
+    const activeQuery = () => state.loading || state.historyLoading ? state.pendingQuery : state.query;
+    const facetItems = { authorId: new Map(), tagId: new Map() };
+    function closeFacets() {
+        authorPicker.close(); tagPicker.close();
+        facetPanel.hidden = true;
+        facetToggle.setAttribute("aria-expanded", "false");
+    }
+    function selectFacet(key, value) {
+        loadPage(0, { ...activeQuery(), [key]: value });
+    }
+    function toggleFacet(key, item) {
+        const id = String(item.id), current = window.BrowseContext.queryIds(activeQuery(), key);
+        facetItems[key].set(id, item);
+        selectFacet(key, current.includes(id) ? current.filter(value => value !== id) : [...current, id]);
+        authorPicker.sync(); tagPicker.sync();
+    }
+    function selectedFacets(key) {
+        return window.BrowseContext.queryIds(activeQuery(), key).map(id => facetItems[key].get(id)
+            || (key === "authorId" ? { id, displayName: `#${id}` } : { id, name: `#${id}` }));
+    }
+    const authorPicker = window.MetadataPicker.create({
+        prefix: "gallery-author", endpoint: "/api/authors", label: window.MetadataPicker.authorLabel,
+        multiSelect: true, selected: () => selectedFacets("authorId"),
+        choose: item => toggleFacet("authorId", item)
+    });
+    const tagPicker = window.MetadataPicker.create({
+        prefix: "gallery-tag", endpoint: "/api/tags", label: tag => tag.name,
+        multiSelect: true, selected: () => selectedFacets("tagId"),
+        choose: item => toggleFacet("tagId", item)
+    });
+    for (const [kind, picker, other] of [["author", authorPicker, tagPicker], ["tag", tagPicker, authorPicker]]) {
+        document.getElementById(`gallery-${kind}-toggle`).addEventListener("click", () => {
+            facetOpener = document.getElementById(`gallery-${kind}-toggle`);
+            other.close();
+            facetPanel.hidden = document.getElementById(`gallery-${kind}-panel`).hidden;
+        });
+        document.getElementById(`gallery-${kind}-clear`).addEventListener("click", () => selectFacet(`${kind}Id`, []));
+    }
+    facetToggle.addEventListener("click", () => {
+        facetOpener = facetToggle;
+        if (!facetPanel.hidden) { closeFacets(); return; }
+        facetPanel.hidden = false;
+        facetToggle.setAttribute("aria-expanded", "true");
+        authorPicker.open(); tagPicker.open();
+    });
+    document.getElementById("gallery-facet-close").addEventListener("click", closeFacets);
+    facetPanel.addEventListener("keydown", event => {
+        if (event.key === "Escape") { closeFacets(); facetOpener.focus(); }
+    });
+    window.addEventListener("pointerdown", event => {
+        if (!facetPanel.hidden && !facetPanel.parentNode.contains(event.target)) closeFacets();
+    });
     searchInput.value = state.query.q;
     let layoutRatios = [];
     let layoutWidth = 0;
@@ -326,37 +381,50 @@
         retryButton.hidden = !canRetry;
     }
 
-    function hasFilters(query) { return Boolean(query.q || query.authorId || query.tagId); }
+    function hasFilters(query) { return Boolean(query.q || window.BrowseContext.queryIds(query, "authorId").length || window.BrowseContext.queryIds(query, "tagId").length); }
 
     function validQuery(query) {
-        return Array.from(query.q).length <= 200 && [query.authorId, query.tagId].every(value =>
-            !value || /^[1-9]\d*$/.test(value) && BigInt(value) <= 9223372036854775807n);
+        return Array.from(query.q).length <= 200 && ["authorId", "tagId"].every(key =>
+            query[key].length <= 100 && query[key].every(value => /^[1-9]\d*$/.test(value) && BigInt(value) <= 9223372036854775807n));
     }
 
     function renderFilters(query, filters) {
+        for (const [key, values] of [["authorId", filters?.authors || (filters?.author ? [filters.author] : [])],
+            ["tagId", filters?.tags || (filters?.tag ? [filters.tag] : [])]]) {
+            values.forEach(item => facetItems[key].set(String(item.id), item));
+        }
+        authorPicker.sync(); tagPicker.sync();
         filterBar.replaceChildren();
         filterBar.hidden = !hasFilters(query);
-        const labels = {
-            q: `搜索：${query.q}`,
-            authorId: `作者：${filters?.author?.displayName || `#${query.authorId}${filters ? "（不存在）" : ""}`}`,
-            tagId: `标签：${filters?.tag?.name || `#${query.tagId}${filters ? "（不存在）" : ""}`}`
-        };
-        for (const key of ["q", "authorId", "tagId"]) {
-            if (!query[key]) continue;
+        function chipFor(key, value, label) {
             const chip = document.createElement("button");
             chip.type = "button";
             chip.className = "gallery-filter-chip";
-            chip.textContent = labels[key] + " ×";
-            chip.setAttribute("aria-label", `清除${labels[key]}`);
-            chip.addEventListener("click", () => loadPage(0, { ...query, [key]: "" }));
+            chip.textContent = label + " ×";
+            chip.setAttribute("aria-label", `清除${label}`);
+            chip.addEventListener("click", () => {
+                const current = activeQuery();
+                loadPage(0, { ...current, [key]: key === "q" ? "" : window.BrowseContext.queryIds(current, key).filter(id => id !== value) });
+            });
             filterBar.appendChild(chip);
+        }
+        if (query.q) chipFor("q", query.q, `搜索：${query.q}`);
+        for (const key of ["authorId", "tagId"]) {
+            const summaries = key === "authorId" ? filters?.authors || (filters?.author ? [filters.author] : [])
+                : filters?.tags || (filters?.tag ? [filters.tag] : []);
+            window.BrowseContext.queryIds(query, key).forEach(id => {
+                const item = summaries.find(item => String(item.id) === id) || (!filters ? facetItems[key].get(id) : null);
+                const name = item ? key === "authorId" ? window.MetadataPicker.authorLabel(item) : item.name
+                    : `#${id}${filters ? "（不存在）" : ""}`;
+                chipFor(key, id, `${key === "authorId" ? "作者" : "标签"}：${name}`);
+            });
         }
         if (hasFilters(query)) {
             const clear = document.createElement("button");
             clear.type = "button";
             clear.className = "gallery-clear-filters";
             clear.textContent = "清除全部";
-            clear.addEventListener("click", () => loadPage(0, { q: "", authorId: "", tagId: "" }));
+            clear.addEventListener("click", () => loadPage(0, { q: "", authorId: [], tagId: [] }));
             filterBar.appendChild(clear);
         }
     }
@@ -519,7 +587,7 @@
         if (page < 0) {
             return;
         }
-        query = { ...query };
+        query = window.BrowseContext.normalizeGalleryQuery(query);
         const ticket = ++requestGeneration;
         if (!options.history && options.push !== false && !state.historyLoading) browse.checkpoint();
         state.loading = true;
@@ -544,8 +612,10 @@
         try {
             if (!validQuery(query)) throw new Error("INVALID_QUERY");
             const params = new URLSearchParams({ page: String(page), size: String(pageSize) });
-            for (const key of ["q", "authorId", "tagId"]) if (query[key]) params.set(key, query[key]);
+            if (query.q) params.set("q", query.q);
+            for (const key of ["authorId", "tagId"]) query[key].forEach(id => params.append(key, id));
             const response = await fetch(`/api/illustrations?${params}`, {
+                cache: "no-store",
                 headers: { Accept: "application/json" }
             });
             if (!response.ok) {
@@ -593,6 +663,7 @@
         } finally {
             if (ticket === requestGeneration) {
                 state.loading = false;
+                authorPicker.sync(); tagPicker.sync();
                 gallery.setAttribute("aria-busy", "false");
                 gallery.inert = state.historyLoading;
                 updatePagination();
@@ -614,7 +685,7 @@
 
     searchForm.addEventListener("submit", event => {
         event.preventDefault();
-        const active = state.historyLoading ? state.pendingQuery : state.query;
+        const active = activeQuery();
         const query = { ...active, q: searchInput.value.trim() };
         if (!state.loading && window.BrowseContext.sameQuery(query, state.query) && !state.historyLoading) return;
         loadPage(0, query);
