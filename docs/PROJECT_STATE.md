@@ -5,7 +5,27 @@
 
 ## Current Version
 
-V0.5 - 图库使用体验（当前工作包：A Metadata Picker + Gallery Faceted Browse）
+V0.5 - 图库使用体验（当前工作包：B Viewer Inspector / Quick Detail Drawer）
+
+### V0.5-B｜Viewer Inspector / Quick Detail Drawer
+
+2026-10-03，分支 `v0.5-viewer-inspector`，在已封存 A 的基线上实现本工作包；实现阶段未 commit / push / merge / tag，最终封存确认见下文。不宣告 V0.5 Final Acceptance。
+
+- Viewer 新增可选 `metadataProvider`。Gallery 仅在第一次点击“作品信息”后请求既有 `GET /api/illustrations/{id}`（`cache: no-store`）；当前 Viewer 生命周期内复用已渲染 metadata / 在途请求，切换同作品 Asset 和开关面板不重复读取。重新打开时重新读取；打开另一作品或关闭 Viewer 后，旧会话的成功 / 失败响应均忽略。失败仅显示信息层的轻量状态与重试，图片加载、切图与关闭仍独立可用。
+- Detail 直接提供 `state.detail` 中的已保存数据，不读取编辑表单或 picker 草稿，也不为 Inspector 再拉详情。作者 display name / `@handle`、现有 Tag chips、安全来源链接和保留换行的备注按有值字段显示；没有占位或编辑入口。Inbox 不提供 provider，信息按钮隐藏，未改 Inbox 文件、API 或数据模型。
+- 桌面保留原右侧操作区，点击展开 320px 信息层，图片 stage 同步收缩；hover 只加强按钮提示。面板内容独立滚动，底部“查看完整详情 →”固定可用。390px 使用底部面板，844px 高度下保留约 276px 图片 stage；低高度桌面仍使用侧栏。布局修正仅针对有 provider 的 Viewer，未改变 Inbox 的响应式布局。
+- 明确关闭按钮、再次点击信息入口及 Esc 均可收起；第一次 Esc 只关闭 Inspector，第二次关闭 Viewer，收起后焦点回到信息入口。Inspector 不写 History。fit 模式按 stage 尺寸重新测量；手动倍率（含原来恰好 fit=100% 的显式 1:1）保留并重新 clamp pan，ResizeObserver 也覆盖响应式尺寸变化。面板与 stage 为兄弟节点，滚轮、点击和文字选择不触发图片拖动；面板内图片快捷键不生效。
+- Gallery 的完整详情链接继续携带当前 Asset / BrowseContext，并沿用原来的 Viewer → Detail 导航。Detail 自身打开 Viewer 时，“查看完整详情”只收起 Viewer，回到下面的现有 Detail，保留 Gallery / Inbox 来源与未保存草稿；修改点击仍有携带来源和 Asset 的原生链接。`browse-context.js` 仅为这一同页返回增加分支，未改 Gallery / Inbox 导航或来源快照结构。
+
+**自动化验证：**完整执行 `node --test (rg --files src/test/js -g '*.test.js')`，8 个测试文件，**102/102 通过，0 failures / skipped**；`git diff --check` 通过。新增 9 个用例覆盖打开 / 关闭 / Esc、懒加载与同作品缓存、切作品与重新打开、late success / failure、错误重试、空字段和不安全来源、面板事件隔离、fit / 1:1 / zoom / pan、详情链接 Asset / ctx、Gallery 关闭后的滚动 / focus、Detail 作者 / Tag / 备注 / 来源草稿隔离、同页返回和无 provider 行为；原有 Gallery、Detail、BrowseContext、Inbox、picker 与 Masonry 全部回归通过。本轮纯前端未运行 Maven / Java 测试。
+
+**浏览器验收：**临时 Spring Boot 实例直接服务本轮静态源码，连接现有 29 件收藏库，只进行读取和编辑草稿后取消；关闭 Flyway / X API，并为数据库连接设置会话只读。1280×720、1280×480、390×844 已看图检查；验证两个来源打开 Inspector、同作品切 Asset、不同作品 metadata 更新、两次 Esc、fit 随布局重算、手动 1:1 保留、Gallery → Inspector → Detail → Gallery、Detail Inspector 返回保留来源 / 草稿、Inbox 无信息入口且一次 Esc 关闭。390px 无横向溢出，最后页面 console 无 error / warn。
+
+另在临时浏览器 fixture 中使用真实本地图片与合成 metadata，验证长作者 / 16 个 Tag / 长来源 / 多行长备注的独立滚动，面板滚轮不改变图片 transform / zoom，真实 pointer drag 后开关面板保留 100% 和 pan offset；模拟 provider 失败后重试成功、3 秒延迟旧响应被新 Viewer 丢弃。上述故障和长 metadata 是模拟数据，不等同真实网络故障或真实库已有对应内容；没有修改收藏库、调用同步、保存 / 新建 / 删除。请求次数与乱序边界以 JS 自动化为依据；未做跨浏览器、物理触屏或原生 200% 缩放验收。
+
+**运行与清理：**临时 18087 / 18088 实例已关闭，日常 8080 未重启；验收中换新来源并禁用临时资源缓存，确保加载最终脚本。截图在项目外 `D:/Codex/visualizations/2026/10/03/01a10210-63b9-7c10-8760-741b8c376578/inspector-desktop.jpg` / `inspector-390.jpg`；临时脚本、fixture 和日志在 ignored `.maven/inspector`，不进入待提交 diff。日常实例需从最新源码重启后使用。
+
+**B 封存确认（2026-10-03）：**用户确认最终实机验收通过，授权最终检查正常后以 `feat: add viewer metadata inspector` 提交当前工作包。本轮未修改功能，仅补充本封存记录；完整 JS 再次执行 `node --test (rg --files src/test/js -g '*.test.js')`，102/102 通过、0 failures / skipped，`git diff --check` 通过。确认本工作包仅含 Viewer / Gallery / Detail 接入、样式、JS 测试及本文档；无后端、数据库、migration、Inbox 文件、Search / Metadata Picker 的非预期改动。上方自动化、真实浏览器与模拟 fixture 的证据边界保留。不执行 push / merge / tag，不继续下一项功能或推进 V0.5 Final Acceptance。
 
 ### V0.5-A｜Metadata Picker + Gallery Faceted Browse
 

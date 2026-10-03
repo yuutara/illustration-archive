@@ -88,6 +88,13 @@
         const groupKey = `illustration:${state.illustrationId}`;
         const key = browse.imageKey(groupKey);
         return { groupKey, title: titleFor(state.detail), sourceHref: state.detail && state.detail.sourceUrl,
+            metadataProvider: () => state.detail,
+            detailInInspectorOnly: true,
+            detailHref: key => {
+                const href = new URL(window.location.href);
+                href.searchParams.set("asset", key);
+                return href.href;
+            },
             items: assets.map(asset => ({ key: String(asset.id),
                 fullUrl: `/api/assets/${encodeURIComponent(String(asset.id))}/content`, alt: titleFor(state.detail) })),
             opener: imageButtons.get(key) || imageButtons.values().next().value };

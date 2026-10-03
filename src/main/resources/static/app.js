@@ -520,6 +520,11 @@
                     fullUrl: `/api/assets/${encodeURIComponent(String(asset.id))}/content`,
                     previewUrl: galleryImageUrl(asset), alt: title })),
                 detailHref: key => browse.detailHref(item.id, key),
+                metadataProvider: async () => {
+                    const response = await fetch(`/api/illustrations/${encodeURIComponent(String(item.id))}`, { cache: "no-store" });
+                    if (!response.ok) throw new Error("Metadata unavailable");
+                    return response.json();
+                },
                 opener: imageLink, onChange: selectAsset
             };
         }

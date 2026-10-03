@@ -40,6 +40,7 @@ function browser({ url = "http://localhost/", entries, storage = new Map(), loca
             };
         }
         get isConnected() { return this === document.body || Boolean(this.parentNode && this.parentNode.isConnected); }
+        contains(node) { return node === this || this.children.some(child => child.contains(node)); }
         addEventListener(type, listener, options) {
             if (!this.listeners.has(type)) this.listeners.set(type, []);
             this.listeners.get(type).push({ listener, once: options && options.once });

@@ -175,7 +175,9 @@
                 onChange: current => {
                     remember(config.groupKey, current);
                     if (config.onChange) config.onChange(current);
-                }, onRequestClose: requestClose, onNavigateDetail: navigateDetail });
+                }, onRequestClose: requestClose,
+                // Detail is already underneath its Viewer; retain its origin and unsaved editor.
+                onNavigateDetail: adapter.kind === "detail" ? () => requestClose() : navigateDetail });
         }
 
         function openViewer(config, opener) {

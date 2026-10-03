@@ -13,6 +13,9 @@
     let pointer = null;
     let opener = null;
     let previousOverflow = "";
+    let inspectorOpen = false;
+    let metadataSession = null;
+    let fitMode = true;
 
     function element(tag, className, text) {
         const node = document.createElement(tag);
@@ -78,12 +81,12 @@
         moreTrigger.setAttribute("aria-label", "更多查看操作");
         moreTrigger.title = "更多查看操作";
         const menu = element("div", "image-viewer-menu");
-        function selectZoom(value) {
-            zoom(value);
+        function selectZoom(value, fitting = false) {
+            zoom(value, fitting);
             more.open = false;
             moreTrigger.focus({ preventScroll: true });
         }
-        const fit = button("适应窗口", "适应窗口", () => selectZoom(fitScale));
+        const fit = button("适应窗口", "适应窗口", () => selectZoom(fitScale, true));
         const actual = button("原始尺寸", "原始尺寸", () => selectZoom(1));
         fit.appendChild(element("span", "image-viewer-shortcut", "0"));
         actual.appendChild(element("span", "image-viewer-shortcut", "1:1"));
@@ -103,19 +106,57 @@
         toolbar.append(minus, zoomLabel, plus, more);
         const links = element("div", "image-viewer-links");
         links.append(detail, source);
+        const info = button("作品信息", "作品信息", () => toggleInspector(!inspectorOpen));
+        info.classList.add("image-viewer-info");
+        info.setAttribute("aria-expanded", "false");
+        info.setAttribute("aria-controls", "image-viewer-inspector");
+        const inspector = element("section", "image-viewer-inspector");
+        inspector.id = "image-viewer-inspector";
+        inspector.hidden = true;
+        inspector.setAttribute("aria-labelledby", "image-viewer-inspector-title");
+        const inspectorHeader = element("header", "image-viewer-inspector-header");
+        const inspectorTitle = element("h3", "", "作品信息");
+        inspectorTitle.id = "image-viewer-inspector-title";
+        const inspectorClose = button("×", "收起作品信息", () => toggleInspector(false));
+        inspectorHeader.append(inspectorTitle, inspectorClose);
+        const metadata = element("div", "image-viewer-metadata");
+        const metadataStatus = element("p", "image-viewer-metadata-status");
+        metadataStatus.setAttribute("role", "status");
+        const metadataRetry = button("重试", "重新加载作品信息", loadMetadata);
+        metadataRetry.classList.add("image-viewer-info");
+        const inspectorScroll = element("div", "image-viewer-inspector-scroll");
+        inspectorScroll.append(metadataStatus, metadataRetry, metadata);
+        const fullDetail = element("a", "image-viewer-link", "查看完整详情 →");
+        fullDetail.addEventListener("click", event => {
+            if (plainClick(event) && options && options.onNavigateDetail) {
+                event.preventDefault();
+                options.onNavigateDetail(fullDetail.href);
+            }
+        });
+        inspector.append(inspectorHeader, inspectorScroll, fullDetail);
+        // This layer is outside the image stage; scrolling and selecting text stay local.
+        ["wheel", "pointerdown", "click"].forEach(type =>
+            inspector.addEventListener(type, event => event.stopPropagation()));
         const edge = element("aside", "image-viewer-edge");
-        edge.append(header, pagination, toolbar, links);
-        dialog.append(stage, edge, feedback, closeButton);
+        edge.append(header, pagination, toolbar, info, links);
+        dialog.append(stage, edge, inspector, feedback, closeButton);
         dialog.addEventListener("cancel", event => {
             event.preventDefault();
-            requestClose();
+            if (inspectorOpen) toggleInspector(false);
+            else requestClose();
         });
         dialog.addEventListener("keydown", event => {
             if (!options || event.ctrlKey || event.metaKey || event.altKey) return;
+            if (event.key === "Escape" && inspectorOpen) {
+                event.preventDefault();
+                toggleInspector(false);
+                return;
+            }
+            if (inspector.contains(event.target)) return;
             const actions = {
                 ArrowLeft: () => move(-1), ArrowRight: () => move(1),
                 "+": () => zoom(scale * 1.25), "=": () => zoom(scale * 1.25),
-                "-": () => zoom(scale / 1.25), "0": () => zoom(fitScale), "1": () => zoom(1)
+                "-": () => zoom(scale / 1.25), "0": () => zoom(fitScale, true), "1": () => zoom(1)
             };
             if (actions[event.key]) {
                 event.preventDefault();
@@ -144,15 +185,95 @@
         stage.addEventListener("pointerup", endDrag);
         stage.addEventListener("pointercancel", endDrag);
         stage.addEventListener("lostpointercapture", endDrag);
-        window.addEventListener("resize", () => {
-            if (!loaded || !options) return;
-            const wasFit = scale === fitScale;
-            measure();
-            zoom(wasFit ? fitScale : scale);
-        });
+        window.addEventListener("resize", resizeImage);
+        new ResizeObserver(resizeImage).observe(stage);
         document.body.appendChild(dialog);
         ui = { dialog, title, position, pagination, current, total, closeButton, stage, status, retry, previous, next,
-            minus, plus, fit, actual, more, zoomLabel, detail, source };
+            minus, plus, fit, actual, more, zoomLabel, detail, source, info, inspector, inspectorClose,
+            metadata, metadataStatus, metadataRetry, fullDetail, inspectorScroll };
+    }
+
+    function resizeImage() {
+        if (!loaded || !options) return;
+        if (!metadataSession) {
+            const wasFit = scale === fitScale;
+            measure();
+            zoom(wasFit ? fitScale : scale, wasFit);
+            return;
+        }
+        measure();
+        if (fitMode) { scale = fitScale; offset = { x: 0, y: 0 }; }
+        // Manual magnification survives layout changes, including 1:1.
+        applyTransform();
+    }
+
+    function toggleInspector(expanded) {
+        if (!options || !metadataSession) return;
+        inspectorOpen = expanded;
+        pointer = null;
+        ui.stage.classList.remove("is-dragging");
+        ui.dialog.classList.toggle("has-inspector", expanded);
+        ui.inspector.hidden = !expanded;
+        ui.info.setAttribute("aria-expanded", String(expanded));
+        resizeImage();
+        if (expanded) {
+            ui.inspectorClose.focus({ preventScroll: true });
+            if (metadataSession.status === "idle") loadMetadata();
+        } else ui.info.focus({ preventScroll: true });
+    }
+
+    function metadataText(value) { return typeof value === "string" ? value.trim() : ""; }
+
+    function renderMetadata(detail) {
+        ui.metadata.replaceChildren();
+        const name = metadataText(detail.author?.displayName);
+        const handle = metadataText(detail.author?.xUsername).replace(/^@+/, "");
+        if (name) ui.metadata.appendChild(element("p", "image-viewer-author", name));
+        if (handle) ui.metadata.appendChild(element("p", "image-viewer-handle", `@${handle}`));
+        const tags = element("div", "image-viewer-tags");
+        (detail.tags || []).forEach(tag => {
+            const name = metadataText(tag.name);
+            if (name) tags.appendChild(element("span", "tag-chip", name));
+        });
+        if (tags.children.length) ui.metadata.appendChild(tags);
+        const source = metadataText(detail.sourceUrl);
+        if (source) {
+            const section = element("div", "image-viewer-metadata-section");
+            const link = element("a", "image-viewer-link", source);
+            setLink(link, source);
+            if (!link.hidden) {
+                link.target = "_blank"; link.rel = "noopener noreferrer";
+                section.append(element("p", "image-viewer-field-label", "来源"), link);
+                ui.metadata.appendChild(section);
+            }
+        }
+        const note = metadataText(detail.note);
+        if (note) {
+            const section = element("div", "image-viewer-metadata-section");
+            section.append(element("p", "image-viewer-field-label", "备注"), element("p", "image-viewer-note", note));
+            ui.metadata.appendChild(section);
+        }
+    }
+
+    async function loadMetadata() {
+        const session = metadataSession;
+        if (!session || session.status === "loading" || session.status === "ready") return;
+        session.status = "loading";
+        ui.metadataStatus.textContent = "正在加载作品信息…";
+        ui.metadataRetry.hidden = true;
+        try {
+            const detail = await session.provider();
+            if (metadataSession !== session || !options) return;
+            if (!detail || typeof detail !== "object") throw new Error("Invalid metadata");
+            renderMetadata(detail);
+            session.status = "ready";
+            ui.metadataStatus.textContent = "";
+        } catch (error) {
+            if (metadataSession !== session || !options) return;
+            session.status = "error";
+            ui.metadataStatus.textContent = "作品信息加载失败";
+            ui.metadataRetry.hidden = false;
+        }
     }
 
     function plainClick(event) {
@@ -202,12 +323,13 @@
         controls();
     }
 
-    function zoom(value) {
+    function zoom(value, fitting = false) {
         if (!loaded) return;
         const newScale = Math.max(fitScale, Math.min(4, value));
         offset.x *= newScale / scale;
         offset.y *= newScale / scale;
         scale = newScale;
+        fitMode = fitting || (value !== 1 && newScale === fitScale);
         applyTransform();
     }
 
@@ -246,6 +368,7 @@
             ui.status.textContent = "";
             measure();
             scale = fitScale;
+            fitMode = true;
             applyTransform();
         });
         currentImage.addEventListener("error", () => {
@@ -259,6 +382,8 @@
         if (options.onChange) options.onChange(item.key);
         const href = typeof options.detailHref === "function" ? options.detailHref(item.key) : options.detailHref;
         setLink(ui.detail, href);
+        ui.detail.hidden = ui.detail.hidden || Boolean(options.detailInInspectorOnly);
+        setLink(ui.fullDetail, href);
     }
 
     function move(amount) {
@@ -275,6 +400,18 @@
         if (typeof ui.dialog.showModal !== "function") return false;
         if (options) close();
         options = config;
+        inspectorOpen = false;
+        metadataSession = typeof config.metadataProvider === "function"
+            ? { provider: config.metadataProvider, status: "idle" } : null;
+        ui.info.hidden = !metadataSession;
+        ui.dialog.classList.toggle("has-metadata", Boolean(metadataSession));
+        ui.info.setAttribute("aria-expanded", "false");
+        ui.inspector.hidden = true;
+        ui.dialog.classList.remove("has-inspector");
+        ui.metadata.replaceChildren();
+        ui.metadataStatus.textContent = "";
+        ui.metadataRetry.hidden = true;
+        ui.inspectorScroll.scrollTop = 0;
         index = config.items.findIndex(item => item.key === config.startKey);
         if (index < 0) index = 0;
         opener = config.opener || document.activeElement;
@@ -293,6 +430,12 @@
         if (!options) return;
         ++generation;
         options = null;
+        metadataSession = null;
+        inspectorOpen = false;
+        ui.info.setAttribute("aria-expanded", "false");
+        ui.inspector.hidden = true;
+        ui.dialog.classList.remove("has-inspector");
+        ui.metadata.replaceChildren();
         loaded = false;
         image = null;
         pointer = null;
