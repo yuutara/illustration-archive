@@ -130,3 +130,31 @@ test("LAN HTTP UUID fallback works; unsupported dialog never adds a history entr
     assert.equal(fallback.context.openViewer(fallback.config, fallback.opener), false);
     assert.equal(unsupported.window.history.length, 1);
 });
+
+test("offset locate and pixel fallback replace the current entry without changing assets or other pages", () => {
+    const env = browser(); const { context, config, opener } = setup(env);
+    context.remember(config.groupKey, "22");
+    context.locate(opener, 120, 300); context.ready(); env.flushFrames();
+    assert.equal(env.window.scrollY, 780);
+    assert.equal(context.imageKey(config.groupKey), "22");
+    assert.equal(env.window.history.length, 1);
+    context.locate(null, 0, 250); context.ready(); env.flushFrames();
+    assert.equal(env.window.scrollY, 250);
+    context.locate(opener); context.ready(); env.flushFrames();
+    assert.equal(env.window.scrollY, 900);
+});
+
+test("optional close callback receives the last media once after close, never on forward reopening", async () => {
+    const env = browser(); const calls = [];
+    const opener = env.document.getElementById("opener"); opener.dataset.browseAnchor = "inbox:7";
+    const config = { groupKey: "inbox:7", items: ["a", "b"].map(key => ({ key, fullUrl: `/${key}.jpg` })), opener };
+    const context = env.window.BrowseContext.create({ kind: "inbox", resolveViewer: () => config,
+        onViewerClose: (group, key) => calls.push([group, key]) });
+    context.ready(); context.openViewer({ ...config, startKey: "a" }, opener);
+    env.viewerButton("下一张图片").dispatch("click");
+    env.window.history.back(); await settle();
+    assert.deepEqual(calls, [["inbox:7", "b"]]);
+    env.window.history.forward(); await settle();
+    assert.equal(calls.length, 1);
+    assert.equal(env.find("image-viewer-image").src, "/b.jpg");
+});

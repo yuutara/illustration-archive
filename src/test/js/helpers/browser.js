@@ -7,6 +7,7 @@ function browser({ url = "http://localhost/", entries, storage = new Map(), stor
     const windowListeners = new Map();
     const ids = new Map();
     const frames = [];
+    const deferredTimers = new Map();
     let address = new URL(url);
     let historyEntries = entries ? structuredClone(entries) : [{ url, state: null }];
     let cursor = historyEntries.length - 1;
@@ -125,7 +126,14 @@ function browser({ url = "http://localhost/", entries, storage = new Map(), stor
         dispatch(type, event = {}) { (windowListeners.get(type) || []).forEach(listener => listener(event)); },
         scrollTo(x, y) { window.scrollY = y; },
         requestAnimationFrame(action) { frames.push(action); },
-        setTimeout(action) { return setTimeout(action, 1); },
+        getSelection() { return { isCollapsed: true }; },
+        setTimeout(action, delay) {
+            if (delay < 1000) return setTimeout(action, 1);
+            const token = {};
+            deferredTimers.set(token, action);
+            return token;
+        },
+        clearTimeout(token) { if (!deferredTimers.delete(token)) clearTimeout(token); },
         history: {
             get state() { return historyEntries[cursor].state; }, get length() { return historyEntries.length; },
             pushState(state, unused, url) {
@@ -168,6 +176,7 @@ function browser({ url = "http://localhost/", entries, storage = new Map(), stor
     function flushFrames() { while (frames.length) frames.shift()(); }
     run("image-viewer.js"); run("browse-context.js"); run("masonry-layout.js");
     return { window, document, elements: ids, storage, run, sandbox, Element, flushFrames,
+        flushTimers() { const actions = [...deferredTimers.values()]; deferredTimers.clear(); actions.forEach(action => action()); },
         resize: () => observers.forEach(callback => callback()),
         entries: () => structuredClone(historyEntries.slice(0, cursor + 1)),
         find: className => document.querySelectorAll("." + className)[0],

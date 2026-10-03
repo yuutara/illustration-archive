@@ -5,7 +5,30 @@
 
 ## Current Version
 
-V0.5 - 图库使用体验（当前工作包：F05A Gallery / Detail Presentation Polish）
+V0.5 - 图库使用体验（当前工作包：F02 Inbox Continuous Processing Flow）
+
+### V0.5-F02｜Inbox Continuous Processing Flow
+
+2026-10-03，按确认后的 Fast Lane 范围实现。保留每页 24 条、PENDING 查询与排序、当前加载页明确选中的 IDs、按 Post 独立归档结果、Duplicate 不自动 Skip，以及原有有效页回退。没有改 Java、API、数据库、事务、文件补偿或去重；没有筛选、Search、Author/Tag 导航、无限滚动、AI 或新框架。
+
+- 复用 F01 Viewer：仍从点击的 `mediaKey` 打开，切图标记当前缩略图，关闭后焦点回到最后浏览的媒体入口，保留勾选和位置。Viewer 本体未修改。
+- 整卡选中反馈、44px 选择标签和已选数量；卡片背景可切换选择，但图片、链接、按钮、结果控件、可选择文字、拖动、滚动和 pointer cancellation 不触发选择。顶部 sticky 栏显示当前页操作；窄屏使用短标签，栏高约 87px，桌面约 65px。
+- 写操作及后续 GET 期间保留旧列表。新数据成功读取后才替换卡片、更新页码与总数并清空选择；新补入项不自动勾选。Inbox 在提交新 DOM 前读取仍可见的 item ID 和偏移，尊重请求期间的滚动；原 item 消失时选后邻、前邻或首个新项，越界沿用最后有效页回退。
+- BrowseContext 仅扩展 `locate(node, top = 0, scrollY = 0)` 和可选 `onViewerClose` 回调。位置快照、旧页顺序、附近 item 规则、Archive 失败原因与选择状态均留在 `x-import.js`，不新增共享状态管理。
+- 成功摘要显示 6 秒后消失，完整最近结果可展开；空摘要不占布局，出现/消失不挤动卡片。Archive 的 FAILED/DUPLICATE 原因按 item ID 放在对应卡片中，页面生命周期内保留，支持选择此项和仅选择本页 FAILED。Skip 仅显示真实汇总，不根据单个 ID 或当页消失推断结果/原因。
+- 写入结果未知或写入完成后列表更新失败时保留画面，分别报告结果与加载错误，锁住重复写入，提供重新加载；不会自动重放 Archive/Skip。
+
+**自动化验证：**执行 `node --test src/test/js/gallery.test.js src/test/js/detail.test.js src/test/js/masonry-layout.test.js src/test/js/image-viewer.test.js src/test/js/browse-context.test.js src/test/js/x-import.test.js`，61/61 通过（0 failures、0 skipped）；`git diff --check` 通过。新增 15 个行为用例覆盖选择排除、触屏事件模拟、Viewer 当前媒体与焦点、写操作/GET 保留 DOM、未知结果、失败重新选择、Skip 汇总、锚点移除后的附近恢复、失败翻页和过期响应。纯前端范围，未运行 Maven/Java 测试；模拟 DOM 不证明真实触屏或数据库事务。
+
+**真实环境验证：**先以最新源码的本地预览连接运行中的真实后端，真实队列为 326 条 PENDING。仅操作用户指定的两条 Post：`2104577976532910511`（Inbox 435）单项 Archive 返回 SUCCESS，生成 Illustration 33 / Asset 35；`2104641917325820377`（Inbox 434）单项 Skip 返回实际 1/1。队列降到 324，无其它真实业务写入，也未调用 X sync。新作品 Detail 原图实际解码为 1152×1225，原图/缩略图 HEAD 均为 HTTP 200。真实第二页 Select Page 仅勾选 24 项、翻页清空；真实三图 Post 从第二张打开（解码宽 936px），切到第三张关闭后当前媒体与焦点一致。Gallery → Viewer → Detail → Viewer 的共享链路正常，未编辑/删除作品。
+
+随后备份并同步本次四个静态资源到现有 `target/classes/static`，四个正式 HTTP 响应均与源文件相同，没有重启 Java。旧 `localhost` 浏览器来源仍命中旧缓存，因此用新的 `127.0.0.1:8080` 来源复核最新正式资源：1280×720、1920×1080、390×844 均无横向溢出，栏高约 65/65/87px；选择、Viewer 开关、当前媒体、焦点和滚动时操作栏可达性正常。
+
+**隔离模拟 API 的真实浏览器验证：**混合 SUCCESS/DUPLICATE/FAILED、卡片原因展开、仅重选 FAILED 后提交单个 ID、部分 Skip 仅显示汇总、响应丢失不自动重放、慢写操作/GET 保留 24 个旧卡片、写入成功后 GET 503 与手动恢复、最后页回退和空队列 `Page 0 / 0` 均通过。390px 原生鼠标拖选文字和滚动未勾选卡片；提示占位修正后，同一锚点处理前 top -18.9375px、处理后及摘要消失后 -18.6667px。模拟结果不视为真实混合写入或事务/文件补偿验收。
+
+**边界：**未验证物理触屏手指滚动、跨浏览器或原生 200% 缩放；内嵌浏览器缩放快捷键未生效，640×360 等效视口无溢出不代替原生缩放。使用已打开的旧页面时需强制刷新缓存。上述证据不宣告 V0.5 Final Acceptance；此前实现与浏览器验收阶段未 commit/push/merge/tag。
+
+**收尾确认：**2026-10-03，用户确认 F02 实机验收通过，授权最终检查通过后以 `feat: improve inbox continuous processing flow` 提交本工作包。完整六项 JS 测试集再次执行，61/61 通过（0 failures、0 skipped）。不推进下一项功能或 V0.5 Final Acceptance，不 merge/tag。
 
 ### V0.5-F05A｜Gallery Browse Mode + Detail Presentation Polish
 

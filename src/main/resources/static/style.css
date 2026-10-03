@@ -1151,6 +1151,50 @@ h2 {
     --border: #d4dcd0;
     background: var(--page-background);
 }
+
+/* F02: all selection/processing presentation stays within Inbox. */
+.inbox-page .inbox-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    box-shadow: 0 3px 10px rgba(34, 42, 35, .08);
+}
+.inbox-page .inbox-selection-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 16px; }
+.inbox-page #inbox-selected-count { font-weight: 700; white-space: nowrap; }
+.inbox-page .inbox-actions { gap: 6px; }
+.inbox-page .inbox-short-label { display: none; }
+.inbox-page .inbox-actions button { min-height: 44px; }
+.inbox-page .inbox-card.is-selected { border-color: var(--accent); background: #edf4ed; box-shadow: 0 0 0 1px var(--accent); }
+.inbox-page .inbox-select-control { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; grid-column: 1 / -1; cursor: pointer; justify-self: start; padding: 0 8px; border-radius: 6px; }
+.inbox-page .inbox-select-control:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.inbox-page .inbox-checkbox { margin: 0; }
+.inbox-page .inbox-card { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+.inbox-page .inbox-media .image-open-button { position: relative; }
+.inbox-page .image-open-button.is-current-media { outline: 2px solid var(--accent); outline-offset: -2px; }
+.inbox-page .image-open-button.is-current-media::after { content: "当前图"; position: absolute; right: 4px; bottom: 4px; padding: 2px 5px; border-radius: 4px; background: var(--surface); color: var(--text); font-size: 11px; }
+.inbox-page .inbox-item-feedback { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
+.inbox-page .inbox-item-feedback p { margin: 0 0 8px; }
+.inbox-page .inbox-item-feedback summary { cursor: pointer; padding: 6px 0; }
+.inbox-page .inbox-reselect { margin-top: 8px; min-height: 44px; }
+.inbox-page .inbox-results { padding: 12px 16px; }
+.inbox-page .inbox-results > summary { cursor: pointer; font-weight: 700; }
+.inbox-page #select-failed-button { margin-top: 12px; min-height: 44px; }
+.inbox-page .inbox-results[open] > summary { margin-bottom: 10px; }
+.inbox-page .inbox-feedback { min-height: 0; margin: 0; }
+.inbox-page .inbox-feedback:empty { display: none; }
+.inbox-page .inbox-feedback:not(:empty) { position: fixed; z-index: 6; bottom: 16px; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px); padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow); }
+@media (max-width: 620px) {
+    .inbox-page .inbox-toolbar { gap: 6px; padding: 8px; }
+    .inbox-page .inbox-selection-summary { width: 100%; justify-content: space-between; font-size: .88rem; }
+    .inbox-page .inbox-actions { display: grid; width: 100%; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+    .inbox-page .inbox-actions button { min-width: 0; padding: 8px 4px; font-size: .85rem; }
+    .inbox-page .inbox-long-label { display: none; }
+    .inbox-page .inbox-short-label { display: inline; }
+}
 .gallery-document { scrollbar-gutter: stable; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .browse-toolbar { display: flex; align-items: center; gap: 20px; height: 48px; padding: 0 16px; border-bottom: 1px solid var(--border); }

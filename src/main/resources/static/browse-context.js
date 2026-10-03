@@ -156,9 +156,11 @@
                 afterClose = typeof action === "function" ? action : null;
                 window.history.back();
             } else {
+                const closedViewer = state.viewer;
                 window.ImageViewer.close();
                 state.viewer = null;
                 write(false);
+                if (closedViewer && adapter.onViewerClose) adapter.onViewerClose(closedViewer.groupKey, closedViewer.key);
                 if (typeof action === "function") action();
             }
         }
@@ -240,6 +242,7 @@
             const next = event.state && event.state.iaBrowse;
             if (!valid(next, adapter.kind)) return;
             const previousPage = state.page;
+            const closedViewer = state.viewer;
             const latestAssets = next.id === state.id ? state.assets : next.assets;
             window.ImageViewer.close();
             state = { ...next, assets: latestAssets };
@@ -251,7 +254,12 @@
             else if (next.page !== previousPage) {
                 ready = false;
                 adapter.reload(next.page);
-            } else restore();
+            } else {
+                restore();
+                if (closedViewer && !state.viewer && adapter.onViewerClose) {
+                    adapter.onViewerClose(closedViewer.groupKey, closedViewer.key);
+                }
+            }
         });
         function cancelRestore() { ++restoreGeneration; restoreCleanup(); }
         window.addEventListener("pagehide", () => { cancelRestore(); capture(); write(false); });
@@ -281,9 +289,10 @@
             initialPage: state.page,
             imageKey: group => state.assets[group], remember, openViewer, detailHref, bindDetailLink,
             bindReturnLink, invalidateSource, returnToSource,
-            locate(node) {
-                state.anchor = { key: node.dataset.browseAnchor, top: 0 };
-                state.scrollY = 0;
+            locate(node, top = 0, scrollY = 0) {
+                cancelRestore();
+                state.anchor = node ? { key: node.dataset.browseAnchor, top } : null;
+                state.scrollY = scrollY;
                 write(false);
             },
             setPage(page) {
