@@ -158,3 +158,43 @@ test("optional close callback receives the last media once after close, never on
     assert.equal(calls.length, 1);
     assert.equal(env.find("image-viewer-image").src, "/b.jpg");
 });
+
+test("Gallery source links preserve all query conditions, page and ctx without a second return parameter", () => {
+    const env=browser({url:"http://localhost/?q=%E5%A4%8F%E6%97%A5&authorId=12&tagId=7&page=2"});
+    const {context,config}=setup(env); context.ready(); context.remember(config.groupKey,"33");
+    const detail=browser({url:new URL(context.detailHref(7,"33"),"http://localhost").href,storage:env.storage});
+    const current=detail.window.BrowseContext.create({kind:"detail",resolveViewer:()=>null});
+    const back=detail.document.getElementById("back"); current.bindReturnLink(back);
+    const query=new URL(back.href,"http://localhost").searchParams;
+    assert.equal(query.get("q"),"夏日"); assert.equal(query.get("authorId"),"12");
+    assert.equal(query.get("tagId"),"7"); assert.equal(query.get("page"),"2");
+    assert.equal(query.get("returnTo"),null);
+    const returned=browser({url:new URL(back.href,"http://localhost").href,storage:env.storage});
+    assert.equal(setup(returned).context.imageKey(config.groupKey),"33");
+});
+
+test("ctx and history from a different Gallery query cannot restore its assets, anchor or Viewer", () => {
+    const env=browser({url:"http://localhost/?q=old&page=0"});
+    const {context,config,opener}=setup(env); context.remember(config.groupKey,"33"); context.openViewer(config,opener);
+    const old=env.window.history.state.iaBrowse;
+    const changed=browser({url:"http://localhost/?q=new&page=0&ctx="+old.id,storage:env.storage,
+        entries:[{url:"http://localhost/?q=new&page=0&ctx="+old.id,state:{iaBrowse:old}}]});
+    const newContext=setup(changed).context;
+    assert.equal(newContext.imageKey(config.groupKey),undefined);
+    assert.equal(changed.window.history.state.iaBrowse.viewer,null);
+    assert.equal(changed.window.history.state.iaBrowse.anchor,null);
+    assert.notEqual(changed.window.history.state.iaBrowse.id,old.id);
+});
+
+test("successful Gallery pages have separate snapshots; Back restores the original Asset and position", async () => {
+    const env=browser(); let reload;
+    const {context,config,opener}=setup(env,{reload:(page,query,options)=>{reload={page,query,options};}});
+    context.ready(); env.window.scrollY=300; context.remember(config.groupKey,"33");
+    context.setGallery({q:"new",authorId:"",tagId:""},0,true);
+    assert.equal(context.imageKey(config.groupKey),undefined);
+    env.window.history.back(); await settle();
+    assert.equal(reload.page,0); assert.equal(reload.options.history,true);
+    assert.equal(context.imageKey(config.groupKey),"33");
+    context.ready(); env.flushFrames(); assert.equal(env.window.scrollY,300);
+    assert.equal(opener.currentKey,"33");
+});

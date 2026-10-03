@@ -1,10 +1,16 @@
 package com.yuutara.illustrationarchive.service;
 
 import com.yuutara.illustrationarchive.dto.GalleryAsset;
+import com.yuutara.illustrationarchive.dto.AuthorSummary;
+import com.yuutara.illustrationarchive.dto.IllustrationGalleryFilters;
+import com.yuutara.illustrationarchive.dto.IllustrationGalleryQuery;
 import com.yuutara.illustrationarchive.dto.IllustrationGalleryItem;
 import com.yuutara.illustrationarchive.dto.IllustrationGalleryPage;
 import com.yuutara.illustrationarchive.repository.IllustrationRepository;
+import com.yuutara.illustrationarchive.repository.AuthorRepository;
+import com.yuutara.illustrationarchive.repository.TagRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
@@ -15,12 +21,18 @@ public class IllustrationGalleryService {
 	private static final int MAX_PAGE_SIZE = 100;
 
 	private final IllustrationRepository illustrationRepository;
+	private final AuthorRepository authorRepository;
+	private final TagRepository tagRepository;
 
-	public IllustrationGalleryService(IllustrationRepository illustrationRepository) {
+	public IllustrationGalleryService(IllustrationRepository illustrationRepository,
+			AuthorRepository authorRepository, TagRepository tagRepository) {
 		this.illustrationRepository = illustrationRepository;
+		this.authorRepository = authorRepository;
+		this.tagRepository = tagRepository;
 	}
 
-	public IllustrationGalleryPage getGallery(int page, int size) {
+	@Transactional(readOnly = true)
+	public IllustrationGalleryPage getGallery(int page, int size, IllustrationGalleryQuery query) {
 		if (page < 0) {
 			throw new IllegalArgumentException("Page must be greater than or equal to 0.");
 		}
@@ -29,22 +41,26 @@ public class IllustrationGalleryService {
 		}
 
 		long offset = Math.multiplyExact((long) page, (long) size);
-		long totalElements = illustrationRepository.count();
+		long totalElements = illustrationRepository.count(query);
 		int totalPages = calculateTotalPages(totalElements, size);
 
-		List<IllustrationGalleryItem> items = illustrationRepository.findGalleryPage(size, offset);
+		List<IllustrationGalleryItem> items = illustrationRepository.findGalleryPage(query, size, offset);
 		Map<Long, List<GalleryAsset>> assets = illustrationRepository
 				.findGalleryAssetsByIllustrationIds(items.stream().map(IllustrationGalleryItem::id).toList());
 		List<IllustrationGalleryItem> previewItems = items.stream().map(item -> new IllustrationGalleryItem(
 				item.id(), item.title(), item.author(), item.coverAssetId(), item.coverMimeType(),
 				item.assetCount(), item.createdAt(), assets.getOrDefault(item.id(), List.of()))).toList();
 
+		AuthorSummary author = query.authorId() == null ? null : authorRepository.findById(query.authorId())
+				.map(value -> new AuthorSummary(value.id(), value.displayName(), value.xUsername())).orElse(null);
+		var tag = query.tagId() == null ? null : tagRepository.findById(query.tagId()).orElse(null);
 		return new IllustrationGalleryPage(
 				page,
 				size,
 				totalElements,
 				totalPages,
-				previewItems
+				previewItems,
+				new IllustrationGalleryFilters(query.q(), query.authorId(), query.tagId(), author, tag)
 		);
 	}
 

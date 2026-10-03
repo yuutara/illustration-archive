@@ -25,6 +25,29 @@
         return Number.isSafeInteger(page) && page >= 0 ? page : 0;
     }
 
+    function galleryQuery(params) {
+        const exactId = name => {
+            const value = (params.get(name) || "").trim();
+            return /^\d+$/.test(value) ? BigInt(value).toString() : value;
+        };
+        return { q: (params.get("q") || "").trim(),
+            authorId: exactId("authorId"), tagId: exactId("tagId") };
+    }
+
+    function sameQuery(left, right) {
+        const empty = { q: "", authorId: "", tagId: "" };
+        left = left || empty; right = right || empty;
+        return ["q", "authorId", "tagId"].every(key => (left[key] || "") === (right[key] || ""));
+    }
+
+    function galleryHref(query, page = 0, ctx) {
+        const params = new URLSearchParams();
+        for (const key of ["q", "authorId", "tagId"]) if (query && query[key]) params.set(key, query[key]);
+        params.set("page", String(pageNumber(page)));
+        if (ctx) params.set("ctx", ctx);
+        return paths.gallery + "?" + params;
+    }
+
     function valid(state, kind) {
         return state && state.kind === kind && typeof state.id === "string" && state.assets
             && typeof state.assets === "object" && state.route === route(kind);
@@ -38,28 +61,40 @@
         const params = new URLSearchParams(window.location.search);
         const initial = window.history.state && window.history.state.iaBrowse;
         const saved = read(params.get("ctx"));
-        let state = valid(initial, adapter.kind) ? initial
-            : valid(saved, adapter.kind) ? { ...saved, viewer: null } : {
+        const initialQuery = galleryQuery(params);
+        function matchesLocation(snapshot) {
+            return valid(snapshot, adapter.kind) && (adapter.kind !== "gallery"
+                || snapshot.page === pageNumber(params.get("page")) && sameQuery(snapshot.query, initialQuery));
+        }
+        let state = matchesLocation(initial) ? initial
+            : matchesLocation(saved) ? { ...saved, viewer: null } : {
                 id: id(), kind: adapter.kind, route: route(adapter.kind), page: 0,
                 assets: {}, viewer: null, scrollY: 0, anchor: null
             };
+        if (adapter.kind === "gallery") state.query = initialQuery;
         if (adapter.kind !== "detail" && params.has("page")) state.page = pageNumber(params.get("page"));
         const currentSaved = read(state.id);
-        if (valid(currentSaved, adapter.kind) && currentSaved.page === state.page) {
-            state = { ...state, assets: currentSaved.assets, refresh: currentSaved.refresh };
+        if (valid(currentSaved, adapter.kind) && currentSaved.page === state.page
+            && (adapter.kind !== "gallery" || sameQuery(currentSaved.query, state.query))) {
+            state = { ...state, assets: currentSaved.assets, refresh: currentSaved.refresh,
+                ...(adapter.kind === "gallery" ? { scrollY: currentSaved.scrollY, anchor: currentSaved.anchor } : {}) };
         }
         let ready = false;
         let closing = false;
         let afterClose = null;
         let restoreGeneration = 0;
         let restoreCleanup = function () {};
-        const origin = saved && ["gallery", "inbox"].includes(saved.kind) && typeof saved.id === "string" ? saved : null;
+        const origin = saved && ["gallery", "inbox"].includes(saved.kind) && typeof saved.id === "string"
+            && saved.route === paths[saved.kind] ? saved : null;
         const navigation = read("navigation:" + params.get("nav"));
         const canGoBack = origin && navigation && navigation.from === origin.id
             && navigation.to === window.location.pathname + window.location.search
             && window.history.length > 1;
 
         function url() {
+            if (adapter.kind === "gallery") {
+                return galleryHref(state.query, state.page, new URLSearchParams(window.location.search).has("ctx") ? state.id : null);
+            }
             const url = new URL(window.location.href);
             if (adapter.kind !== "detail") url.searchParams.set("page", String(state.page));
             return url.pathname + url.search + url.hash;
@@ -198,6 +233,7 @@
         }
 
         function sourceUrl() {
+            if (origin && origin.kind === "gallery") return galleryHref(origin.query, origin.page, origin.id);
             return origin ? paths[origin.kind] + "?" + new URLSearchParams({ page: String(pageNumber(origin.page)), ctx: origin.id }) : "/";
         }
 
@@ -239,11 +275,22 @@
         }
 
         window.addEventListener("popstate", event => {
-            const next = event.state && event.state.iaBrowse;
-            if (!valid(next, adapter.kind)) return;
+            let next = event.state && event.state.iaBrowse;
+            if (adapter.kind === "gallery") {
+                const address = new URLSearchParams(window.location.search);
+                const query = galleryQuery(address);
+                if (!valid(next, adapter.kind) || next.page !== pageNumber(address.get("page")) || !sameQuery(next.query, query)) {
+                    next = { id: id(), kind: "gallery", route: paths.gallery, page: pageNumber(address.get("page")),
+                        query, assets: {}, viewer: null, scrollY: 0, anchor: null };
+                }
+            } else if (!valid(next, adapter.kind)) return;
             const previousPage = state.page;
+            const previousQuery = state.query;
+            const previousId = state.id;
             const closedViewer = state.viewer;
-            const latestAssets = next.id === state.id ? state.assets : next.assets;
+            const savedNext = read(next.id);
+            const latestAssets = next.id === state.id ? state.assets
+                : savedNext && savedNext.page === next.page && sameQuery(savedNext.query, next.query) ? savedNext.assets : next.assets;
             window.ImageViewer.close();
             state = { ...next, assets: latestAssets };
             closing = false;
@@ -251,9 +298,10 @@
             const action = afterClose;
             afterClose = null;
             if (action) action();
-            else if (next.page !== previousPage) {
+            else if (next.page !== previousPage || adapter.kind === "gallery"
+                && (!sameQuery(next.query, previousQuery) || next.id !== previousId || !ready)) {
                 ready = false;
-                adapter.reload(next.page);
+                adapter.reload(next.page, next.query, { history: true });
             } else {
                 restore();
                 if (closedViewer && !state.viewer && adapter.onViewerClose) {
@@ -271,9 +319,9 @@
                 state = { ...latest, refresh: false, viewer: null };
                 ready = false;
                 write(false);
-                adapter.reload(state.page);
+                adapter.reload(state.page, state.query, { history: true });
             } else {
-                if (latest && latest.page === state.page) {
+                if (latest && latest.page === state.page && (adapter.kind !== "gallery" || sameQuery(latest.query, state.query))) {
                     state.assets = latest.assets;
                     write(false);
                 }
@@ -287,8 +335,20 @@
 
         return {
             initialPage: state.page,
+            initialQuery: state.query,
             imageKey: group => state.assets[group], remember, openViewer, detailHref, bindDetailLink,
             bindReturnLink, invalidateSource, returnToSource,
+            checkpoint() { capture(); write(false); },
+            setGallery(query, page, push) {
+                cancelRestore();
+                const changed = page !== state.page || !sameQuery(query, state.query);
+                if (changed) {
+                    if (push) { capture(); write(false); }
+                    state = { id: id(), kind: "gallery", route: paths.gallery, page, query: { ...query },
+                        assets: {}, viewer: null, scrollY: 0, anchor: null };
+                }
+                write(Boolean(push && changed));
+            },
             locate(node, top = 0, scrollY = 0) {
                 cancelRestore();
                 state.anchor = node ? { key: node.dataset.browseAnchor, top } : null;
@@ -309,5 +369,5 @@
         };
     }
 
-    window.BrowseContext = { create };
+    window.BrowseContext = { create, galleryQuery, galleryHref, sameQuery };
 })();

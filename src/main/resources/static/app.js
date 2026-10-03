@@ -6,7 +6,7 @@
     const browse = window.BrowseContext.create({
         kind: "gallery",
         resolveViewer: group => cardViews.get(group)?.viewer(),
-        reload: page => loadPage(page)
+        reload: (page, query, options) => loadPage(page, query, options)
     });
     const state = {
         page: 0,
@@ -16,6 +16,12 @@
         loading: false,
         importing: false
     };
+    state.query = browse.initialQuery;
+    state.pendingQuery = state.query;
+    state.pendingOptions = { push: false };
+    state.filters = null;
+    state.historyLoading = false;
+    let requestGeneration = 0;
 
     const gallery = document.getElementById("gallery");
     const statePanel = document.getElementById("state-panel");
@@ -39,6 +45,10 @@
     const importItems = document.getElementById("import-items");
     const importToggle = document.getElementById("import-toggle");
     const importPanel = document.getElementById("import-panel");
+    const searchForm = document.getElementById("gallery-search-form");
+    const searchInput = document.getElementById("gallery-search-input");
+    const filterBar = document.getElementById("gallery-filters");
+    searchInput.value = state.query.q;
     let layoutRatios = [];
     let layoutWidth = 0;
     let resizeFrame = false;
@@ -296,24 +306,59 @@
     }
 
     function updatePagination() {
-        pageInfo.textContent = state.totalPages > 0
+        pageInfo.textContent = state.historyLoading ? "正在读取历史页面…" : state.totalPages > 0
             ? `第 ${state.page + 1} / ${state.totalPages} 页`
             : "第 0 / 0 页";
-        totalCount.textContent = state.totalElements > 0
-            ? `${state.totalElements} 件作品`
+        totalCount.textContent = state.historyLoading ? "" : state.totalElements > 0 || hasFilters(state.query)
+            ? `${hasFilters(state.query) ? "匹配 " : ""}${state.totalElements} 件作品`
             : "";
-        previousButton.disabled = state.loading || state.page <= 0;
-        nextButton.disabled = state.loading
+        previousButton.disabled = state.loading || state.historyLoading || state.page <= 0;
+        nextButton.disabled = state.loading || state.historyLoading
             || state.totalPages === 0
             || state.page >= state.totalPages - 1;
     }
 
     function showState(title, message, canRetry) {
-        gallery.hidden = gallery.children.length === 0;
+        gallery.hidden = state.historyLoading || gallery.children.length === 0;
         statePanel.hidden = false;
         stateTitle.textContent = title;
         stateMessage.textContent = message;
         retryButton.hidden = !canRetry;
+    }
+
+    function hasFilters(query) { return Boolean(query.q || query.authorId || query.tagId); }
+
+    function validQuery(query) {
+        return Array.from(query.q).length <= 200 && [query.authorId, query.tagId].every(value =>
+            !value || /^[1-9]\d*$/.test(value) && BigInt(value) <= 9223372036854775807n);
+    }
+
+    function renderFilters(query, filters) {
+        filterBar.replaceChildren();
+        filterBar.hidden = !hasFilters(query);
+        const labels = {
+            q: `搜索：${query.q}`,
+            authorId: `作者：${filters?.author?.displayName || `#${query.authorId}${filters ? "（不存在）" : ""}`}`,
+            tagId: `标签：${filters?.tag?.name || `#${query.tagId}${filters ? "（不存在）" : ""}`}`
+        };
+        for (const key of ["q", "authorId", "tagId"]) {
+            if (!query[key]) continue;
+            const chip = document.createElement("button");
+            chip.type = "button";
+            chip.className = "gallery-filter-chip";
+            chip.textContent = labels[key] + " ×";
+            chip.setAttribute("aria-label", `清除${labels[key]}`);
+            chip.addEventListener("click", () => loadPage(0, { ...query, [key]: "" }));
+            filterBar.appendChild(chip);
+        }
+        if (hasFilters(query)) {
+            const clear = document.createElement("button");
+            clear.type = "button";
+            clear.className = "gallery-clear-filters";
+            clear.textContent = "清除全部";
+            clear.addEventListener("click", () => loadPage(0, { q: "", authorId: "", tagId: "" }));
+            filterBar.appendChild(clear);
+        }
     }
 
     function showGallery(items, ratios) {
@@ -324,7 +369,8 @@
 
         if (items.length === 0) {
             gallery.style.height = "0px";
-            showState("暂无插画", "还没有可以展示的插画。", false);
+            showState(hasFilters(state.query) ? "没有匹配作品" : "暂无插画",
+                hasFilters(state.query) ? "换个关键词，或清除筛选条件。" : "还没有可以展示的插画。", false);
             return;
         }
 
@@ -415,7 +461,7 @@
             if (window.ImageViewer.plainClick(event) && browse.openViewer(viewer(), imageLink)) event.preventDefault();
         });
         imageLink.addEventListener("keydown", event => {
-            if (event.key === " " && browse.openViewer(viewer(), imageLink)) event.preventDefault();
+            if (!state.loading && event.key === " " && browse.openViewer(viewer(), imageLink)) event.preventDefault();
         });
 
         if (assets.length > 1) {
@@ -469,13 +515,25 @@
         return card;
     }
 
-    async function loadPage(page) {
-        if (state.loading || page < 0) {
+    async function loadPage(page, query = state.query, options = {}) {
+        if (page < 0) {
             return;
         }
-
+        query = { ...query };
+        const ticket = ++requestGeneration;
+        if (!options.history && options.push !== false && !state.historyLoading) browse.checkpoint();
         state.loading = true;
         state.pendingPage = page;
+        state.pendingQuery = query;
+        state.pendingOptions = options;
+        if (query.q !== state.query.q) searchInput.value = query.q;
+        // History has already changed the address; never label the old cards as that result.
+        if (options.history) state.historyLoading = true;
+        if (state.historyLoading) {
+            gallery.hidden = true;
+            searchInput.value = query.q;
+            renderFilters(query, null);
+        }
         gallery.setAttribute("aria-busy", "true");
         gallery.inert = true;
         updatePagination();
@@ -484,7 +542,10 @@
         else statePanel.hidden = true;
 
         try {
-            const response = await fetch(`/api/illustrations?page=${page}&size=${pageSize}`, {
+            if (!validQuery(query)) throw new Error("INVALID_QUERY");
+            const params = new URLSearchParams({ page: String(page), size: String(pageSize) });
+            for (const key of ["q", "authorId", "tagId"]) if (query[key]) params.set(key, query[key]);
+            const response = await fetch(`/api/illustrations?${params}`, {
                 headers: { Accept: "application/json" }
             });
             if (!response.ok) {
@@ -492,6 +553,7 @@
             }
 
             const data = await response.json();
+            if (ticket !== requestGeneration) return;
             const responsePage = Number(data.page);
             const responseTotalPages = Number(data.totalPages);
             const responseTotalElements = Number(data.totalElements);
@@ -505,26 +567,36 @@
 
             if (loadedPage > 0 && loadedPage >= totalPages) {
                 state.loading = false;
-                return await loadPage(Math.max(0, totalPages - 1));
+                return await loadPage(Math.max(0, totalPages - 1), query, options);
             }
             const items = Array.isArray(data.items) ? data.items : [];
             const ratios = await prepareRatios(items);
+            if (ticket !== requestGeneration) return;
+            browse.setGallery(query, loadedPage, !options.history && options.push !== false);
             state.page = loadedPage;
+            state.query = query;
+            state.filters = data.filters || null;
+            state.historyLoading = false;
             state.totalPages = totalPages;
             state.totalElements = Number.isInteger(responseTotalElements) && responseTotalElements >= 0 ? responseTotalElements : 0;
-            browse.setPage(state.page);
+            renderFilters(query, state.filters);
 
             showGallery(items, ratios);
             browse.ready();
             loadStatus.textContent = "";
         } catch (error) {
+            if (ticket !== requestGeneration) return;
             loadStatus.textContent = "加载失败";
-            showState("图库加载失败", "暂时无法读取图库，请稍后重试。", true);
+            showState(error.message === "INVALID_QUERY" ? "查询条件无效" : "图库加载失败",
+                error.message === "INVALID_QUERY" ? "搜索最多 200 字，作者与标签 ID 必须是有效的正整数。请修改或清除条件。"
+                    : "暂时无法读取图库，请稍后重试。", error.message !== "INVALID_QUERY");
         } finally {
-            state.loading = false;
-            gallery.setAttribute("aria-busy", "false");
-            gallery.inert = false;
-            updatePagination();
+            if (ticket === requestGeneration) {
+                state.loading = false;
+                gallery.setAttribute("aria-busy", "false");
+                gallery.inert = state.historyLoading;
+                updatePagination();
+            }
         }
     }
 
@@ -537,7 +609,15 @@
     });
 
     retryButton.addEventListener("click", function () {
-        loadPage(state.pendingPage);
+        loadPage(state.pendingPage, state.pendingQuery, state.pendingOptions);
+    });
+
+    searchForm.addEventListener("submit", event => {
+        event.preventDefault();
+        const active = state.historyLoading ? state.pendingQuery : state.query;
+        const query = { ...active, q: searchInput.value.trim() };
+        if (!state.loading && window.BrowseContext.sameQuery(query, state.query) && !state.historyLoading) return;
+        loadPage(0, query);
     });
 
     importFilesInput.addEventListener("change", function () {
@@ -553,5 +633,6 @@
         importToggle.setAttribute("aria-expanded", String(!importPanel.hidden));
     });
 
-    loadPage(browse.initialPage);
+    renderFilters(state.query, null);
+    loadPage(browse.initialPage, state.query, { push: false });
 })();

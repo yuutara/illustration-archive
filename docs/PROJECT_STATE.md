@@ -5,7 +5,31 @@
 
 ## Current Version
 
-V0.5 - 图库使用体验（当前工作包：F02 Inbox Continuous Processing Flow）
+V0.5 - 图库使用体验（当前工作包：F03 全库搜索 + Tag / Author 导航）
+
+### V0.5-F03｜全库搜索 + Tag / Author 导航
+
+2026-10-03，按用户确认的 Fast Lane 范围实现；尚未 commit / push / merge / tag，不宣告 V0.5 Final Acceptance。
+
+- 扩展现有 `GET /api/illustrations?page=0&size=24&q=...&authorId=...&tagId=...`，不新增查询 endpoint。`q` 去首尾空白、空白等同无关键词，最多 200 个 Unicode code points；对标题、备注、作者显示名 / X handle（可带 `@`）、Tag 名进行整段包含匹配。字段之间 OR，关键词与精确 Author / 单 Tag 条件之间 AND。不做分词、多 Tag、高级语法、相关度排序或新排序。
+- Author / Tag 使用正整数 ID 精确筛选；非法参数 HTTP 400，不存在的 ID 保留条件并返回零结果。返回原分页 / items 契约，附加 `filters`（规范化关键词、IDs 与可为空的 Author / Tag 摘要），使零结果也能显示条件名称。
+- JdbcTemplate 的 count / page 复用同一 WHERE 与绑定参数顺序；Tag 搜索和精确筛选使用相关 `EXISTS`，不将一对多 Tag JOIN 到外层。保留 `created_at DESC, id DESC`、封面规则与当前页 IDs 的批量 Asset 读取；`%` / `_` / `!` 按字面搜索，SQL 使用参数绑定。Service 加 `@Transactional(readOnly = true)`，没有显式隔离级别或事务配置扩张。本地 MySQL 8.0.42 默认 `REPEATABLE-READ` 已实测；其它环境沿用其配置，本轮没有证明跨请求并发写入期间的 OFFSET 稳定性。
+- Gallery 保留薄工具栏与 Masonry：搜索表单嵌在原工具栏，无条件时隐藏 chips；有条件显示 q / Author / Tag 轻量 chips，支持单项 / 全部清除。提交与清除从第 0 页开始；搜索保留精确筛选。Detail 的有效 Author / Tag 转为普通 Gallery 链接，从第 0 页展示该作者 / 标签全部作品。
+- Gallery 的 `q / authorId / tagId / page` 是 URL 中的查询状态。用户操作成功读取并准备布局后才提交 URL、总数和卡片；过期请求不能覆盖新条件，失败可重试。Back / Forward 已切换地址时隐藏旧结果并锁住分页，防止把旧作品标为新条件。输入中的下一份搜索草稿不会被在途响应覆盖。
+- 扩展现有 BrowseContext / `ctx` / `nav`：`sourceUrl()` 完整保留上述四项，查询 / 页码变化创建不同快照，错误条件的 ctx 不恢复旧 Asset / Viewer / 位置；保留当前 Asset、Detail 返回与刷新恢复。Gallery 冷刷新读取相同查询 / 页码下最新 `pagehide` 位置，避免较旧 History 快照或初次空 DOM capture 覆盖位置。不新增 `returnTo` 或第二套返回状态；实测既有机制足以完成本轮链路。
+- 未改 Archive / Storage / 去重、Flyway migration、Inbox 操作、`image-viewer.js` 或 `masonry-layout.js`；没有新增框架、搜索引擎、Collection 或 AI。
+
+**自动化验证：**完整 Java 执行 `./mvnw.cmd '-Dmaven.repo.local=C:\Users\YuanYuChou\.m2\repository' '-DargLine=-Djava.io.tmpdir=D:\IdeaProjects\illustration-archive\target\test-temp' test`（开启下述专用 MySQL 测试环境变量），284 tests、0 failures、0 errors、1 skipped（外部 LocalStack），`BUILD SUCCESS`。Windows sandbox 读取既有 AWS SDK 缓存 JAR 曾失败，允许的提升权限重跑后成功；没有为此修改产品逻辑。完整 JS 执行 `node --test src/test/js/gallery.test.js src/test/js/detail.test.js src/test/js/masonry-layout.test.js src/test/js/image-viewer.test.js src/test/js/browse-context.test.js src/test/js/x-import.test.js`，74/74 通过、0 failures / skipped。`git diff --check` 通过。
+
+**真实 MySQL 验证：**新增默认禁用的 `IllustrationGalleryMySqlTest`，仅在 `F03_MYSQL_TEST_URL` 指向全新 `illustration_archive_f03_test_<digits>` schema 时启用（另需 `F03_MYSQL_TEST_USERNAME` / `F03_MYSQL_TEST_PASSWORD`）。使用 `CREATE DATABASE`，已存在即失败；应用既有 Flyway V1–V6，创建 60 件作品、重叠 Tag、同名不同 ID 作者、同时间作品、库末备注和三 Asset 样本。经过真实 Spring 事务代理断言 read-only 事务有效，验证 count / 逐页 IDs / Assets 一致，3 页完整有序、无重复；组合条件、中文 / handle / 字面符号、零结果、未知 IDs 和越界页均通过。默认不写媒体；可选 `F03_MYSQL_TEST_MEDIA_ROOT` 在明确指定的测试目录生成合成 PNG / thumbnail，供浏览器验收。测试保留专用 schema，便于后续浏览器验证；重跑须新 schema 或显式清理自己创建的测试库。
+
+**真实浏览器验收：**最新 Java / 静态资源临时实例绑定本机 18083（上述 MySQL fixture）与 18084（现有收藏库只读查询，Flyway 关闭），没有调用 X sync 或真实业务写入。现有收藏库 29 件，默认分页 24 + 5；标题“蓝白双星”的 5 件全部不在默认第一页，搜索仍全部找回。真实作者“雪子”搜索与 Detail 作者链接返回 1 件；Detail 的 deepseek Tag 导航返回 5 件，叠加仅出现在备注中的“二创”仍匹配 5 件。1280×720 / 390×844 无横向溢出，工具栏约 48 / 44px；无条件不显示 chips，组合条件能单项清除并正确重置页码。
+
+60 件 MySQL 样本的 q + Author + Tag 得到 18 件；清 Author 后 30 件，清 Tag 后 q 得到 40 件，第二页 16 件。Back / Forward、刷新保留条件 / 页码；Gallery → Viewer → Detail 冷刷新 → 返回完整保留三项条件，无 `returnTo`。多 Asset 当前项、Viewer 起始项 / 切换 / 关闭焦点 / 刷新正常；真实库窄屏冷刷新前后 `illustration:30` top -100.8125px、scrollY 993.3333129882812 一致。零结果、不存在 IDs、非法 ID 提示及条件页码 99 → 0 的回退也通过。最终页面没有浏览器 error / warn。
+
+**验收边界与运行状态：**没有验证原生 200% 缩放、跨浏览器或物理触屏；模拟失败 / 乱序覆盖与真实浏览器 / MySQL 证据分别记录。验收临时实例和本轮创建的专用测试 schema 已清理，未重启原有 8080 Java 进程；日常实例需从最新源码重启并刷新缓存后才能使用完整 F03。验收截图 / 合成媒体留在项目外，临时启动脚本 / 日志位于 ignored `.maven/f03`，不进入待提交 diff。
+
+**F03 收尾确认（2026-10-03）：**用户确认实机验收通过，授权最终检查正常后以 `feat: add gallery search and metadata navigation` 提交本工作包。本轮未再修改功能。完整 Java 使用上述 Maven Wrapper / 缓存 / temp 参数执行 `test`，284 tests、0 failures、0 errors、2 skipped（未启用的外部 LocalStack 与专用 MySQL opt-in 测试），`BUILD SUCCESS`；此前真实 MySQL 测试已通过，保留上方证据。使用 `rg --files src/test/js` 枚举全部六个 `*.test.js`，执行 `node --test`，74/74 通过、0 failures / skipped；`git diff --check` 通过。核对全部 19 个待提交文件，仅含 F03 查询 / 导航、相关测试与本记录；Archive / Storage / 去重 / Flyway schema 无改动。只收尾 F03，不推进下一项、V0.5 Final Acceptance、merge 或 tag。
 
 ### V0.5-F02｜Inbox Continuous Processing Flow
 

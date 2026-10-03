@@ -2,6 +2,7 @@ package com.yuutara.illustrationarchive.repository;
 
 import com.yuutara.illustrationarchive.dto.AssetSummary;
 import com.yuutara.illustrationarchive.dto.GalleryAsset;
+import com.yuutara.illustrationarchive.dto.IllustrationGalleryQuery;
 import com.yuutara.illustrationarchive.dto.IllustrationGalleryItem;
 import com.yuutara.illustrationarchive.dto.TagSummary;
 import org.junit.jupiter.api.Test;
@@ -28,17 +29,45 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class IllustrationRepositoryTest {
+	private static final IllustrationGalleryQuery EMPTY = new IllustrationGalleryQuery(null, null, null);
 
 	@Test
 	void countsIllustrations() {
 		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
 		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate);
-		when(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM illustration", Long.class)).thenReturn(7L);
+		when(jdbcTemplate.queryForObject(eq("SELECT COUNT(*) FROM illustration i LEFT JOIN author a ON i.author_id = a.id "), eq(Long.class), any(Object[].class))).thenReturn(7L);
 
-		long count = repository.count();
+		long count = repository.count(EMPTY);
 
 		assertEquals(7L, count);
-		verify(jdbcTemplate).queryForObject("SELECT COUNT(*) FROM illustration", Long.class);
+		verify(jdbcTemplate).queryForObject(eq("SELECT COUNT(*) FROM illustration i LEFT JOIN author a ON i.author_id = a.id "), eq(Long.class), any(Object[].class));
+	}
+
+	@Test
+	void countAndPageSharePredicateWithLiteralWildcardsAndNoOuterTagJoin() {
+		var jdbc = mock(JdbcTemplate.class);
+		var repository = new IllustrationRepository(jdbc);
+		var query = new IllustrationGalleryQuery("100%_!\\'", 12L, 7L);
+		when(jdbc.queryForObject(anyString(), eq(Long.class), any(Object[].class))).thenReturn(0L);
+		repository.count(query);
+		repository.findGalleryPage(query, 24, 48L);
+		var countSql = ArgumentCaptor.forClass(String.class);
+		var countArgs = ArgumentCaptor.forClass(Object[].class);
+		var pageSql = ArgumentCaptor.forClass(String.class);
+		var pageArgs = ArgumentCaptor.forClass(Object[].class);
+		verify(jdbc).queryForObject(countSql.capture(), eq(Long.class), countArgs.capture());
+		verify(jdbc).query(pageSql.capture(), any(RowMapper.class), pageArgs.capture());
+		String predicate = countSql.getValue().substring(countSql.getValue().indexOf("WHERE i.author_id"));
+		assertTrue(pageSql.getValue().contains(predicate));
+		assertEquals(List.of(12L, 7L, "%100!%!_!!\\'%", "%100!%!_!!\\'%", "%100!%!_!!\\'%",
+				"%100!%!_!!\\'%", "%100!%!_!!\\'%", "%100!%!_!!\\'%"), List.of(countArgs.getValue()));
+		assertEquals(List.of(countArgs.getValue()), List.of(pageArgs.getValue()).subList(0, 8));
+		assertEquals(List.of(24, 48L), List.of(pageArgs.getValue()).subList(8, 10));
+		assertTrue(predicate.contains("EXISTS (SELECT 1 FROM illustration_tag selected_tag"));
+		assertTrue(predicate.contains("i.note LIKE ?"));
+		assertFalse(countSql.getValue().contains("LIMIT"));
+		assertFalse(pageSql.getValue().contains("LEFT JOIN illustration_tag"));
+		assertFalse(pageSql.getValue().contains("DISTINCT"));
 	}
 
 	@Test
@@ -60,7 +89,7 @@ class IllustrationRepositoryTest {
 				(ArgumentCaptor) ArgumentCaptor.forClass(RowMapper.class);
 		when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(24), eq(48L))).thenReturn(List.of());
 
-		repository.findGalleryPage(24, 48L);
+		repository.findGalleryPage(EMPTY, 24, 48L);
 
 		verify(jdbcTemplate).query(anyString(), rowMapperCaptor.capture(), eq(24), eq(48L));
 		ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
@@ -103,7 +132,7 @@ class IllustrationRepositoryTest {
 				(ArgumentCaptor) ArgumentCaptor.forClass(RowMapper.class);
 		when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(10), eq(0L))).thenReturn(List.of());
 
-		repository.findGalleryPage(10, 0L);
+		repository.findGalleryPage(EMPTY, 10, 0L);
 
 		verify(jdbcTemplate).query(anyString(), rowMapperCaptor.capture(), eq(10), eq(0L));
 		IllustrationGalleryItem item = rowMapperCaptor.getValue().mapRow(resultSet, 0);

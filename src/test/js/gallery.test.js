@@ -67,6 +67,7 @@ test("Viewer starts at arrow-selected Asset; close and refresh preserve that pre
     refreshed.sandbox.fetchImpl = async () => ({ok:true,json:async()=>({page:0,totalPages:1,items:[multi]})});
     refreshed.run("app.js"); await settle(); refreshed.flushFrames();
     assert.equal(link(refreshed).children[0].src,"/api/assets/33/thumbnail");
+    assert.equal(refreshed.window.scrollY,160);
     assert.deepEqual({...refreshed.elements.get("gallery").children[0].style},initial);
 });
 
@@ -94,6 +95,16 @@ test("modified clicks keep Detail navigation and multi-asset order stays sortOrd
     assert.equal(env.find("image-viewer-image").src, "/api/assets/11/content");
     env.viewerButton("下一张图片").dispatch("click");
     assert.equal(env.find("image-viewer-image").src, "/api/assets/22/content");
+});
+
+test("cold Gallery refresh restores the latest pagehide position even when history carries an older snapshot", async () => {
+    const env = await setup();
+    const olderEntries = env.entries();
+    env.window.scrollY = 217;
+    env.window.dispatch("pagehide");
+    const refreshed = await setup([multi], {url:env.window.location.href,entries:olderEntries,storage:env.storage});
+    assert.equal(refreshed.window.scrollY,217);
+    assert.equal(refreshed.window.history.state.iaBrowse.scrollY,217);
 });
 
 test("failed pagination preserves old page, DOM, scroll and URL; retry commits only after sizes settle", async () => {
@@ -178,4 +189,138 @@ test("timed-out dimensions commit fixed fallback frames and late loads do not re
     pendingSizes.forEach(resolve => resolve({width:300,height:3000}));
     await settle(); env.flushFrames();
     assert.deepEqual(env.elements.get("gallery").children.map(card => ({...card.style})),before);
+});
+
+test("URL query is sent to the library API; chips clear one condition and reset pagination", async () => {
+    const env = browser({url:"http://localhost/?q=%E5%A4%8F%E6%97%A5&authorId=12&tagId=7&page=1"});
+    const calls = [];
+    env.sandbox.fetchImpl = async url => {
+        calls.push(url); const p = new URL(url, "http://localhost").searchParams;
+        return {ok:true,json:async()=>({page:Number(p.get("page")),totalPages:2,totalElements:26,items:[multi],
+            filters:{author:{id:12,displayName:"Artist"},tag:{id:7,name:"风景"}}})};
+    };
+    env.run("app.js"); await settle(); env.flushFrames();
+    assert.equal(new URL(calls[0], "http://localhost").searchParams.get("q"), "夏日");
+    assert.equal(env.elements.get("total-count").textContent, "匹配 26 件作品");
+    assert.equal(env.elements.get("gallery-search-input").value, "夏日");
+    const chips = env.elements.get("gallery-filters").children;
+    assert.ok(chips[1].textContent.includes("Artist"));
+    chips[2].dispatch("click"); await settle(); env.flushFrames();
+    const address = new URL(env.window.location.href);
+    assert.equal(address.searchParams.get("tagId"), null);
+    assert.equal(address.searchParams.get("authorId"), "12");
+    assert.equal(address.searchParams.get("page"), "0");
+    assert.equal(env.window.history.length, 2);
+});
+
+test("search submission preserves exact filters; Back/Forward restore different queries on the same page", async () => {
+    const env = await setup([multi], {url:"http://localhost/?authorId=12"});
+    const calls = [];
+    env.sandbox.fetchImpl = async url => {
+        calls.push(url); const q = new URL(url,"http://localhost").searchParams.get("q");
+        return {ok:true,json:async()=>({page:0,totalPages:1,totalElements:1,items:[{...multi,id:q?8:7}]})};
+    };
+    env.window.scrollY = 123;
+    env.elements.get("gallery-search-input").value = "  summer  ";
+    env.elements.get("gallery-search-form").dispatch("submit"); await settle(); env.flushFrames();
+    assert.equal(env.window.history.length, 2);
+    assert.equal(new URL(calls[0],"http://localhost").searchParams.get("authorId"), "12");
+    assert.equal(env.window.history.state.iaBrowse.anchor, null);
+    env.window.history.back(); await settle(); env.flushFrames();
+    assert.equal(env.elements.get("gallery-search-input").value, "");
+    assert.equal(env.elements.get("gallery").children[0].dataset.browseAnchor,"illustration:7");
+    assert.equal(env.window.scrollY,123);
+    env.window.history.forward(); await settle(); env.flushFrames();
+    assert.equal(env.elements.get("gallery-search-input").value,"summer");
+    assert.equal(env.elements.get("gallery").children[0].dataset.browseAnchor,"illustration:8");
+    assert.equal(env.window.history.length,2);
+    env.elements.get("gallery-search-form").dispatch("submit"); await settle();
+    assert.equal(env.window.history.length,2);
+});
+
+test("failed search keeps applied query, cards and URL; retry applies the original draft", async () => {
+    const env = await setup(); const card = env.elements.get("gallery").children[0];
+    env.sandbox.fetchImpl = async () => ({ok:false,status:503});
+    env.elements.get("gallery-search-input").value = "failure";
+    env.elements.get("gallery-search-form").dispatch("submit"); await settle();
+    assert.equal(env.window.location.search,"?page=0");
+    assert.equal(env.elements.get("gallery").children[0],card);
+    assert.equal(env.elements.get("gallery-filters").hidden,true);
+    const calls=[];
+    env.sandbox.fetchImpl = async url => { calls.push(url); return {ok:true,json:async()=>({page:0,totalPages:0,totalElements:0,items:[]})}; };
+    env.elements.get("retry-button").dispatch("click"); await settle();
+    assert.equal(new URL(calls[0],"http://localhost").searchParams.get("q"),"failure");
+    assert.equal(env.elements.get("state-title").textContent,"没有匹配作品");
+    assert.equal(env.elements.get("total-count").textContent,"匹配 0 件作品");
+    env.elements.get("gallery-filters").children.at(-1).dispatch("click"); await settle();
+    assert.equal(env.window.location.search,"?page=0");
+    assert.equal(env.elements.get("gallery-filters").hidden,true);
+});
+
+test("obsolete search and dimension responses cannot overwrite a newer query or history entry", async () => {
+    const env = await setup(); let release;
+    env.sandbox.fetchImpl = url => new URL(url,"http://localhost").searchParams.get("q") === "slow"
+        ? new Promise(resolve => {release=resolve;})
+        : Promise.resolve({ok:true,json:async()=>({page:0,totalPages:1,totalElements:1,items:[{...multi,id:9}]})});
+    env.elements.get("gallery-search-input").value="slow";
+    env.elements.get("gallery-search-form").dispatch("submit"); await settle();
+    env.elements.get("gallery-search-input").value="fast";
+    env.elements.get("gallery-search-form").dispatch("submit"); await settle();
+    release({ok:true,json:async()=>({page:0,totalPages:1,items:[{...multi,id:8}]})}); await settle();
+    assert.equal(env.elements.get("gallery").children[0].dataset.browseAnchor,"illustration:9");
+    assert.equal(new URL(env.window.location.href).searchParams.get("q"),"fast");
+    assert.equal(env.window.history.length,2);
+});
+
+test("history load failure hides obsolete results and retry reads the target URL", async () => {
+    const env = await setup();
+    env.elements.get("gallery-search-input").value="new";
+    env.elements.get("gallery-search-form").dispatch("submit"); await settle();
+    env.sandbox.fetchImpl=async()=>({ok:false,status:503});
+    env.window.history.back(); await settle();
+    assert.equal(env.window.location.search,"?page=0");
+    assert.equal(env.elements.get("gallery").hidden,true);
+    assert.equal(env.elements.get("total-count").textContent,"");
+    assert.equal(env.elements.get("previous-button").disabled,true);
+    assert.equal(env.elements.get("next-button").disabled,true);
+    env.sandbox.fetchImpl=async()=>({ok:true,json:async()=>({page:0,totalPages:1,totalElements:1,items:[multi]})});
+    env.elements.get("retry-button").dispatch("click"); await settle();
+    assert.equal(env.elements.get("gallery").hidden,false);
+    assert.equal(env.window.history.length,2);
+});
+
+test("invalid exact-filter URL never silently queries the entire library", async () => {
+    const env=browser({url:"http://localhost/?authorId=wrong"}); let calls=0;
+    env.sandbox.fetchImpl=async()=>{calls++;};
+    env.run("app.js"); await settle();
+    assert.equal(calls,0);
+    assert.equal(env.elements.get("state-title").textContent,"查询条件无效");
+    assert.equal(env.elements.get("gallery-filters").hidden,false);
+});
+
+test("typing a new draft during a pending read is preserved when that read completes", async () => {
+    const env=await setup(); let release;
+    env.sandbox.fetchImpl=()=>new Promise(resolve=>{release=resolve;});
+    env.elements.get("gallery-search-input").value="first";
+    env.elements.get("gallery-search-form").dispatch("submit"); await settle();
+    env.elements.get("gallery-search-input").value="next draft";
+    release({ok:true,json:async()=>({page:0,totalPages:1,totalElements:1,items:[multi]})}); await settle();
+    assert.equal(env.elements.get("gallery-search-input").value,"next draft");
+    assert.equal(new URL(env.window.location.href).searchParams.get("q"),"first");
+    assert.ok(env.elements.get("gallery-filters").children[0].textContent.includes("first"));
+});
+
+test("a superseded dimension preparation cannot replace newer search cards", async () => {
+    const env=await setup(); let release;
+    env.sandbox.imageSizeImpl=url=>url.includes("441")?new Promise(resolve=>{release=resolve;}):{width:800,height:600};
+    env.sandbox.fetchImpl=async url=>({ok:true,json:async()=>({page:0,totalPages:1,totalElements:1,
+        items:[{id:new URL(url,"http://localhost").searchParams.get("q")==="slow"?44:55,
+            coverAssetId:new URL(url,"http://localhost").searchParams.get("q")==="slow"?441:551,coverMimeType:"image/png"}]})});
+    env.elements.get("gallery-search-input").value="slow";
+    env.elements.get("gallery-search-form").dispatch("submit"); await settle();
+    env.elements.get("gallery-search-input").value="fast";
+    env.elements.get("gallery-search-form").dispatch("submit"); await settle();
+    release({width:400,height:900}); await settle();
+    assert.equal(env.elements.get("gallery").children[0].dataset.browseAnchor,"illustration:55");
+    assert.equal(new URL(env.window.location.href).searchParams.get("q"),"fast");
 });

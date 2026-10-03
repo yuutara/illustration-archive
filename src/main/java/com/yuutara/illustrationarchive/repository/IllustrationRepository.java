@@ -4,6 +4,7 @@ import com.yuutara.illustrationarchive.dto.AuthorSummary;
 import com.yuutara.illustrationarchive.dto.AssetSummary;
 import com.yuutara.illustrationarchive.dto.GalleryAsset;
 import com.yuutara.illustrationarchive.dto.IllustrationGalleryItem;
+import com.yuutara.illustrationarchive.dto.IllustrationGalleryQuery;
 import com.yuutara.illustrationarchive.dto.IllustrationPatchRequest;
 import com.yuutara.illustrationarchive.dto.TagSummary;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -27,7 +28,7 @@ public class IllustrationRepository {
 			VALUES (NULL, NULL, NULL, NULL)
 			""";
 
-	private static final String COUNT_SQL = "SELECT COUNT(*) FROM illustration";
+	private static final String GALLERY_FROM_SQL = "FROM illustration i LEFT JOIN author a ON i.author_id = a.id ";
 	private static final String DELETE_BY_ID_SQL = "DELETE FROM illustration WHERE id = ?";
 
 	private static final String FIND_GALLERY_PAGE_SQL = """
@@ -54,8 +55,6 @@ public class IllustrationRepository {
 				ORDER BY candidate.sort_order ASC, candidate.id ASC
 				LIMIT 1
 			)
-			ORDER BY i.created_at DESC, i.id DESC
-			LIMIT ? OFFSET ?
 			""";
 
 	private static final String FIND_DETAIL_BASE_BY_ID_SQL = """
@@ -128,16 +127,54 @@ public class IllustrationRepository {
 		return id.longValue();
 	}
 
-	public long count() {
-		Long total = jdbcTemplate.queryForObject(COUNT_SQL, Long.class);
+	// EXISTS preserves one outer row per Illustration, even when several tags match.
+	// Both count and page use this same predicate and parameter order.
+	private GalleryPredicate galleryPredicate(IllustrationGalleryQuery query) {
+		List<String> conditions = new ArrayList<>();
+		List<Object> parameters = new ArrayList<>();
+		if (query.authorId() != null) {
+			conditions.add("i.author_id = ?");
+			parameters.add(query.authorId());
+		}
+		if (query.tagId() != null) {
+			conditions.add("EXISTS (SELECT 1 FROM illustration_tag selected_tag "
+					+ "WHERE selected_tag.illustration_id = i.id AND selected_tag.tag_id = ?)");
+			parameters.add(query.tagId());
+		}
+		if (query.q() != null) {
+			String pattern = "%" + query.q().replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%";
+			conditions.add("""
+					(i.title LIKE ? ESCAPE '!' OR i.note LIKE ? ESCAPE '!'
+					OR a.display_name LIKE ? ESCAPE '!' OR a.x_username LIKE ? ESCAPE '!'
+					OR CONCAT('@', a.x_username) LIKE ? ESCAPE '!'
+					OR EXISTS (SELECT 1 FROM illustration_tag it JOIN tag t ON t.id = it.tag_id
+					WHERE it.illustration_id = i.id AND t.name LIKE ? ESCAPE '!'))
+					""");
+			for (int index = 0; index < 6; index++) parameters.add(pattern);
+		}
+		return new GalleryPredicate(conditions.isEmpty() ? "" : "WHERE " + String.join(" AND ", conditions), parameters);
+	}
+
+	private record GalleryPredicate(String sql, List<Object> parameters) {}
+
+	public long count(IllustrationGalleryQuery query) {
+		GalleryPredicate predicate = galleryPredicate(query);
+		Long total = jdbcTemplate.queryForObject("SELECT COUNT(*) " + GALLERY_FROM_SQL + predicate.sql(),
+				Long.class, predicate.parameters().toArray());
 		if (total == null) {
 			throw new IllegalStateException("Failed to obtain illustration count.");
 		}
 		return total;
 	}
 
-	public List<IllustrationGalleryItem> findGalleryPage(int size, long offset) {
-		return jdbcTemplate.query(FIND_GALLERY_PAGE_SQL, (resultSet, rowNum) -> {
+	public List<IllustrationGalleryItem> findGalleryPage(IllustrationGalleryQuery query, int size, long offset) {
+		GalleryPredicate predicate = galleryPredicate(query);
+		List<Object> parameters = new ArrayList<>(predicate.parameters());
+		parameters.add(size);
+		parameters.add(offset);
+		String sql = FIND_GALLERY_PAGE_SQL + predicate.sql()
+				+ " ORDER BY i.created_at DESC, i.id DESC LIMIT ? OFFSET ?";
+		return jdbcTemplate.query(sql, (resultSet, rowNum) -> {
 			Long authorId = resultSet.getObject("author_id", Long.class);
 			AuthorSummary author = authorId == null
 					? null
@@ -157,7 +194,7 @@ public class IllustrationRepository {
 					resultSet.getTimestamp("illustration_created_at").toLocalDateTime(),
 					List.of()
 			);
-		}, size, offset);
+		}, parameters.toArray());
 	}
 
 	public Map<Long, List<GalleryAsset>> findGalleryAssetsByIllustrationIds(List<Long> illustrationIds) {

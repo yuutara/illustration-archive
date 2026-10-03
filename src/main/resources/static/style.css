@@ -1201,6 +1201,23 @@ h2 {
 .archive-brand { color: var(--text); font: 16px Georgia, "Microsoft YaHei", serif; text-decoration: none; white-space: nowrap; }
 .browse-toolbar .total-count, .browse-toolbar .load-status { font-size: 12px; margin: 0; }
 .browse-toolbar .load-status { margin-left: auto; }
+.gallery-page .browse-toolbar { gap: 12px; }
+.gallery-search { display: flex; align-items: center; width: min(280px, 30vw); min-width: 0; margin-left: auto; border-bottom: 1px solid var(--border); }
+.gallery-search input { width: 100%; min-width: 0; border: 0; border-radius: 0; padding: 6px 0; background: transparent; font-size: 13px; color: var(--text); }
+.gallery-search input:focus { outline: none; box-shadow: none; }
+.gallery-search:focus-within { border-color: var(--accent); }
+.gallery-search button { flex-shrink: 0; padding: 6px; border: 0; background: transparent; color: var(--text-muted); font-size: 12px; cursor: pointer; }
+.gallery-page .browse-toolbar .load-status { margin-left: 0; }
+.gallery-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 2px 0 10px; }
+.gallery-filters[hidden] { display: none; }
+.gallery-filter-chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 5px 9px; border: 1px solid var(--border); border-radius: 20px; background: var(--surface); color: var(--accent-dark); font-size: 12px; cursor: pointer; }
+.gallery-filter-chip:hover { border-color: var(--accent); }
+.gallery-clear-filters { padding: 6px; border: 0; background: transparent; color: var(--text-muted); font-size: 12px; cursor: pointer; }
+.gallery-clear-filters:hover { color: var(--accent); }
+.detail-author-link { color: inherit; text-decoration: none; }
+.detail-author-link:hover, .detail-page a.tag-chip:hover { text-decoration: underline; text-underline-offset: 3px; }
+.detail-page a.tag-chip { text-decoration: none; }
+.detail-page .detail-author-link:focus-visible, .detail-page a.tag-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .browse-import-toggle { padding: 8px 4px; border: 0; background: transparent; color: var(--text-muted); cursor: pointer; white-space: nowrap; }
 .browse-import-toggle:disabled { opacity: .55; cursor: default; }
 .browse-more { position: relative; }
@@ -1259,6 +1276,11 @@ h2 {
     .browse-toolbar .total-count { display: none; }
     .browse-toolbar .load-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
     .browse-import-toggle { margin-left: auto; font-size: 12px; }
+    .gallery-page .browse-toolbar { gap: 6px; }
+    .gallery-search { flex: 1; width: auto; }
+    .gallery-search input { font-size: 12px; }
+    .gallery-search button { padding: 6px 2px; }
+    .gallery-page .browse-import-toggle { margin-left: 0; }
     .gallery-page .page-shell { width: calc(100% - 16px); padding-top: 6px; }
     .gallery-page .pagination { flex-direction: row; justify-content: center; gap: 10px; }
     .detail-page .detail-summary h1 { font-size: 26px; }

@@ -7,6 +7,7 @@ public record IllustrationGalleryPage(
 		int size,
 		long totalElements,
 		int totalPages,
-		List<IllustrationGalleryItem> items
+		List<IllustrationGalleryItem> items,
+		IllustrationGalleryFilters filters
 ) {
 }

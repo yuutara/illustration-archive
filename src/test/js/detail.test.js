@@ -5,7 +5,7 @@ const test = require("node:test");
 
 const staticDir = path.resolve(__dirname, "../../main/resources/static");
 
-const { browser } = require("./helpers/browser");
+const { browser, settle } = require("./helpers/browser");
 
 async function loadPage(assets) {
     const env = browser({ url: "http://localhost/detail.html?id=7" });
@@ -131,7 +131,7 @@ test("Detail URL Asset locates original; viewer does not discard unsaved editor 
     assert.equal(env.elements.get("detail-edit-form").hidden, false);
 });
 
-test("reading metadata hides empty blocks and keeps static sage chip semantics and safe sources", async () => {
+test("reading metadata hides empty blocks, links tags to Gallery and keeps safe sources", async () => {
     const env = browser({url:"http://localhost/detail.html?id=7"});
     env.sandbox.fetchImpl = async () => ({ok:true,json:async()=>({id:7,title:null,author:null,note:"",sourceUrl:"javascript:alert(1)",assets:[],tags:[]})});
     env.run("detail.js"); await new Promise(setImmediate);
@@ -144,8 +144,20 @@ test("reading metadata hides empty blocks and keeps static sage chip semantics a
     await env.elements.get("detail-retry-button").dispatch("click");
     assert.equal(env.elements.get("detail-title").hidden,false);
     assert.equal(env.elements.get("detail-author-name").textContent,"Artist");
-    assert.equal(env.elements.get("detail-tags").children[0].tagName,"span");
+    assert.equal(env.elements.get("detail-tags").children[0].tagName,"a");
+    assert.equal(env.elements.get("detail-tags").children[0].href,"/?tagId=1&page=0");
     assert.equal(env.elements.get("detail-source").children[0].href,"https://example.com/art/1");
     assert.equal(env.elements.get("detail-source").children[0].textContent,"example.com ↗");
     assert.equal(env.elements.get("detail-note-section").hidden,false);
+});
+
+test("Detail Author and Tag navigation use IDs with no inherited search or source context", async () => {
+    const env=browser({url:"http://localhost/detail.html?id=7"});
+    env.sandbox.fetchImpl=async()=>({ok:true,json:async()=>({id:7,author:{id:12,displayName:"Artist",xUsername:"artist"},tags:[{id:7,name:"风景"}],assets:[]})});
+    env.run("detail.js"); await settle();
+    const author=env.elements.get("detail-author-name").children[0];
+    assert.equal(author.tagName,"a");
+    assert.equal(author.href,"/?authorId=12&page=0");
+    assert.equal(author.textContent,"Artist");
+    assert.equal(env.elements.get("detail-tags").children[0].href,"/?tagId=7&page=0");
 });

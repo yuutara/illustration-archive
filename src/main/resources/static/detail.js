@@ -753,10 +753,15 @@
 
     function renderAuthor(detail) {
         const author = detail && detail.author;
-        authorNameElement.textContent = textOrFallback(
-            author && author.displayName,
-            "作者未填写"
-        );
+        authorNameElement.replaceChildren();
+        const name = textOrFallback(author && author.displayName, "作者未填写");
+        if (author && author.id != null && /^[1-9]\d*$/.test(String(author.id))) {
+            const link = document.createElement("a");
+            link.className = "detail-author-link";
+            link.href = window.BrowseContext.galleryHref({ authorId: String(author.id) });
+            link.textContent = name;
+            authorNameElement.appendChild(link);
+        } else authorNameElement.textContent = name;
         authorNameElement.classList.toggle("is-empty", !textOrFallback(author && author.displayName, ""));
 
         const xUsername = authorHandle(author);
@@ -784,7 +789,9 @@
         document.getElementById("detail-tags-section").hidden = false;
 
         tags.forEach(function (tag) {
-            const tagElement = document.createElement("span");
+            const navigable = tag.id != null && /^[1-9]\d*$/.test(String(tag.id));
+            const tagElement = document.createElement(navigable ? "a" : "span");
+            if (navigable) tagElement.href = window.BrowseContext.galleryHref({ tagId: String(tag.id) });
             tagElement.className = "tag-chip";
             tagElement.textContent = tag.name;
             tagsElement.appendChild(tagElement);

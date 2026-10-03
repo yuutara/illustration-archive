@@ -13,6 +13,11 @@
 <body class="gallery-page">
 <header class="browse-toolbar">
     <a class="archive-brand" href="/">Illustration Archive</a>
+    <form id="gallery-search-form" class="gallery-search" role="search">
+        <label for="gallery-search-input" class="visually-hidden">搜索收藏库</label>
+        <input id="gallery-search-input" type="search" placeholder="搜索收藏库" maxlength="200" autocomplete="off">
+        <button type="submit" aria-label="搜索收藏库">搜索</button>
+    </form>
     <span id="total-count" class="total-count"></span>
     <p id="load-status" class="load-status" aria-live="polite">正在加载…</p>
     <button id="import-toggle" class="browse-import-toggle" type="button" aria-expanded="false"
@@ -24,6 +29,8 @@
 </header>
 <main class="page-shell">
     <h1 class="visually-hidden">插画图库</h1>
+
+    <div id="gallery-filters" class="gallery-filters" aria-label="当前筛选条件" hidden></div>
 
     <section id="import-panel" class="import-section" aria-labelledby="import-heading" hidden>
         <div class="section-heading">
