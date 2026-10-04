@@ -29,7 +29,7 @@ import java.util.Map;
 public class XApiClient {
 	private static final String LIKES_FIELDS = "?max_results=%d&expansions=author_id,attachments.media_keys"
 			+ "&tweet.fields=author_id,attachments,created_at,text"
-			+ "&user.fields=name,username&media.fields=media_key,type,url,width,height";
+			+ "&user.fields=name,username&media.fields=media_key,type,url,width,height,variants,preview_image_url";
 
 	private final HttpClient httpClient;
 	private final ObjectMapper objectMapper;
@@ -140,14 +140,16 @@ public class XApiClient {
 			}
 			JsonNode keys = post.path("attachments").path("media_keys");
 			List<XLikeMedia> directMedia = new ArrayList<>();
-			boolean allPhotos = keys.isArray() && !keys.isEmpty();
+			boolean allSupported = keys.isArray() && !keys.isEmpty();
 			if (keys.isArray()) {
 				for (JsonNode keyNode : keys) {
 					String key = keyNode.asText();
 					JsonNode item = media.get(key);
 					String type = item == null ? "unknown" : optionalText(item, "type");
 					String url = item == null ? null : optionalText(item, "url");
-					allPhotos &= "photo".equals(type) && url != null;
+					if ("animated_gif".equals(type)) url = selectMp4(item.path("variants"));
+					allSupported &= ("photo".equals(type) && validPhotoUrl(url))
+							|| ("animated_gif".equals(type) && url != null);
 					directMedia.add(new XLikeMedia(key, directMedia.size(), type == null ? "unknown" : type,
 							url, item == null ? null : optionalInt(item, "width"),
 							item == null ? null : optionalInt(item, "height")));
@@ -165,13 +167,39 @@ public class XApiClient {
 			candidates.add(new XLikeCandidate(requiredText(post, "id"), authorId,
 					requiredText(author, "username"), requiredText(author, "name"),
 					optionalText(post, "text"), createdAt,
-					allPhotos ? XLikeStatus.PENDING : XLikeStatus.UNSUPPORTED, List.copyOf(directMedia)));
+					allSupported ? XLikeStatus.PENDING : XLikeStatus.UNSUPPORTED, List.copyOf(directMedia)));
 		}
 		String nextToken = optionalText(response.path("meta"), "next_token");
 		if (nextToken != null && nextToken.isBlank()) {
 			nextToken = null;
 		}
 		return new XLikePage(List.copyOf(candidates), nextToken != null, nextToken);
+	}
+
+	/** Highest numeric bitrate wins; absent/invalid bitrate falls back. Ties retain API order. */
+	private String selectMp4(JsonNode variants) {
+		if (!variants.isArray()) return null;
+		String selected = null;
+		double selectedRate = -1;
+		for (JsonNode variant : variants) {
+			String url = optionalText(variant, "url");
+			if (!"video/mp4".equals(optionalText(variant, "content_type")) || !XAnimatedMediaUrl.valid(url)) continue;
+			JsonNode rate = variant.path("bit_rate");
+			double value = rate.isNumber() && rate.asDouble() >= 0 ? rate.asDouble() : -1;
+			if (selected == null || value > selectedRate) {
+				selected = url;
+				selectedRate = value;
+			}
+		}
+		return selected;
+	}
+
+	private boolean validPhotoUrl(String url) {
+		if (url == null || url.isBlank()) return false;
+		try {
+			URI uri = URI.create(url);
+			return "https".equalsIgnoreCase(uri.getScheme()) && uri.getHost() != null;
+		} catch (IllegalArgumentException failure) { return false; }
 	}
 
 	private Map<String, JsonNode> byId(JsonNode nodes, String field) {

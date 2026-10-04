@@ -6,6 +6,8 @@
     let index = 0;
     let generation = 0;
     let image = null;
+    let naturalWidth = 0;
+    let naturalHeight = 0;
     let loaded = false;
     let scale = 1;
     let fitScale = 1;
@@ -308,14 +310,14 @@
     }
 
     function measure() {
-        fitScale = Math.min(1, ui.stage.clientWidth / image.naturalWidth,
-            ui.stage.clientHeight / image.naturalHeight);
+        fitScale = Math.min(1, ui.stage.clientWidth / naturalWidth,
+            ui.stage.clientHeight / naturalHeight);
     }
 
     function applyTransform() {
         if (!loaded) return;
-        const maxX = Math.max(0, (image.naturalWidth * scale - ui.stage.clientWidth) / 2);
-        const maxY = Math.max(0, (image.naturalHeight * scale - ui.stage.clientHeight) / 2);
+        const maxX = Math.max(0, (naturalWidth * scale - ui.stage.clientWidth) / 2);
+        const maxY = Math.max(0, (naturalHeight * scale - ui.stage.clientHeight) / 2);
         offset.x = Math.max(-maxX, Math.min(maxX, offset.x));
         offset.y = Math.max(-maxY, Math.min(maxY, offset.y));
         image.style.transform = `translate(-50%, -50%) translate(${offset.x}px, ${offset.y}px) scale(${scale})`;
@@ -333,10 +335,21 @@
         applyTransform();
     }
 
+    function releaseVideo() {
+        if (image && image.tagName.toLowerCase() === "video") {
+            image.pause();
+            image.removeAttribute("src");
+            image.load();
+        }
+        image = null;
+    }
+
     function showImage() {
         if (!options) return;
         const item = options.items[index];
         const ticket = ++generation;
+        releaseVideo();
+        naturalWidth = naturalHeight = 0;
         loaded = false;
         pointer = null;
         scale = 1;
@@ -346,24 +359,36 @@
         ui.status.textContent = "正在加载图片…";
         ui.retry.hidden = true;
         ui.more.open = false;
-        if (item.previewUrl && item.previewUrl !== item.fullUrl) {
+        const isVideo = item.mimeType === "video/mp4";
+        if (!isVideo && item.previewUrl && item.previewUrl !== item.fullUrl) {
             const preview = element("img", "image-viewer-preview");
             preview.alt = "";
             preview.src = item.previewUrl;
             ui.stage.appendChild(preview);
         }
-        const currentImage = element("img", "image-viewer-image");
+        const currentImage = element(isVideo ? "video" : "img", "image-viewer-image");
+        if (isVideo) {
+            currentImage.muted = true;
+            currentImage.loop = true;
+            currentImage.autoplay = true;
+            currentImage.playsInline = true;
+            currentImage.preload = "metadata";
+            currentImage.setAttribute("aria-label", item.alt || options.title || "动画");
+        }
         currentImage.alt = item.alt || options.title || "图片";
         currentImage.draggable = false;
         currentImage.hidden = true;
-        currentImage.addEventListener("load", () => {
+        image = currentImage; // also release a still-loading video on navigation/close
+        currentImage.addEventListener(isVideo ? "loadedmetadata" : "load", () => {
             if (!options || generation !== ticket) return;
             image = currentImage;
-            loaded = image.naturalWidth > 0 && image.naturalHeight > 0;
+            naturalWidth = isVideo ? image.videoWidth : image.naturalWidth;
+            naturalHeight = isVideo ? image.videoHeight : image.naturalHeight;
+            loaded = naturalWidth > 0 && naturalHeight > 0;
             if (!loaded) return;
             ui.stage.replaceChildren(image);
-            image.style.width = `${image.naturalWidth}px`;
-            image.style.height = `${image.naturalHeight}px`;
+            image.style.width = `${naturalWidth}px`;
+            image.style.height = `${naturalHeight}px`;
             image.hidden = false;
             ui.status.textContent = "";
             measure();
@@ -373,6 +398,8 @@
         });
         currentImage.addEventListener("error", () => {
             if (!options || generation !== ticket) return;
+            loaded = false;
+            controls();
             ui.status.textContent = "图片加载失败。可以重试、切换图片或关闭。";
             ui.retry.hidden = false;
         });
@@ -437,7 +464,7 @@
         ui.dialog.classList.remove("has-inspector");
         ui.metadata.replaceChildren();
         loaded = false;
-        image = null;
+        releaseVideo();
         pointer = null;
         ui.stage.replaceChildren();
         ui.dialog.close();

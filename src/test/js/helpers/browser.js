@@ -81,6 +81,7 @@ function browser({ url = "http://localhost/", entries, storage = new Map(), loca
             const nodes = [];
             const visit = node => {
                 if (selector === "[data-browse-anchor]" && node.dataset.browseAnchor
+                    || selector === "video" && node.tagName === "video"
                     || selector === "main img" && node.tagName === "img"
                     || selector.startsWith("input[type=checkbox]") && node.tagName === "input" && node.type === "checkbox" && (!selector.includes(":checked") || node.checked)
                     || selector[0] === "." && node.classList.contains(selector.slice(1))) nodes.push(node);
@@ -100,13 +101,34 @@ function browser({ url = "http://localhost/", entries, storage = new Map(), loca
         }
         showModal() { this.open = true; }
         close() { this.open = false; }
+        pause() { this.paused = true; this.pauseCount = (this.pauseCount || 0) + 1; }
+        play() { this.paused = false; return Promise.resolve(); }
+        load() { this.loadCount = (this.loadCount || 0) + 1; }
         setPointerCapture(id) { this.capturedPointer = id; }
     }
     document.body = new Element("body");
     document.documentElement = new Element("html");
     const main = new Element("main");
     document.body.appendChild(main);
-    document.createElement = tag => new Element(tag);
+    document.createElement = tag => {
+        const node = new Element(tag);
+        if (tag === "video") {
+            Object.defineProperty(node, "src", {
+                configurable: true,
+                get() { return this.url; },
+                set(url) {
+                    this.url = url;
+                    Promise.resolve(sandbox.videoSizeImpl(url)).then(size => {
+                        node.videoWidth = size && size.width; node.videoHeight = size && size.height;
+                        if (size) node.onloadedmetadata?.(); else node.onerror?.();
+                    });
+                }
+            });
+            const remove = node.removeAttribute.bind(node);
+            node.removeAttribute = name => { if (name === "src") node.url = undefined; else remove(name); };
+        }
+        return node;
+    };
     document.getElementById = id => {
         if (!ids.has(id)) {
             const node = new Element(); node.id = id; ids.set(id, node); main.appendChild(node);
@@ -165,6 +187,13 @@ function browser({ url = "http://localhost/", entries, storage = new Map(), loca
     const sandbox = vm.createContext({ window, document, URL, URLSearchParams, structuredClone,
         encodeURIComponent, setTimeout, clearTimeout, FormData, fetch: (...args) => sandbox.fetchImpl(...args) });
     sandbox.imageSizeImpl = () => ({ width: 800, height: 600 });
+    sandbox.videoSizeImpl = () => ({ width: 800, height: 600 });
+    const intersections = [];
+    sandbox.IntersectionObserver = class {
+        constructor(callback) { this.callback = callback; this.targets = new Set(); intersections.push(this); }
+        observe(node) { this.targets.add(node); }
+        unobserve(node) { this.targets.delete(node); }
+    };
     sandbox.Image = class extends Element {
         constructor() { super("img"); }
         set src(url) {
@@ -186,6 +215,9 @@ function browser({ url = "http://localhost/", entries, storage = new Map(), loca
     function flushFrames() { while (frames.length) frames.shift()(); }
     run("image-viewer.js"); run("browse-context.js"); run("masonry-layout.js"); run("metadata-picker.js");
     return { window, document, elements: ids, storage, run, sandbox, Element, flushFrames,
+        intersect(node, isIntersecting) { intersections.forEach(observer => {
+            if (observer.targets.has(node)) observer.callback([{ target: node, isIntersecting }]);
+        }); },
         flushTimers() { const actions = [...deferredTimers.values()]; deferredTimers.clear(); actions.forEach(action => action()); },
         resize: () => observers.forEach(callback => callback()),
         entries: () => structuredClone(historyEntries.slice(0, cursor + 1)),

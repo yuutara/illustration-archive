@@ -32,7 +32,9 @@ public class IllustrationDeleteService {
 
 		for (String storageKey : storageKeys) {
 			try {
-				thumbnailService.deleteThumbnail(storageKey);
+				if (!storageKey.toLowerCase(java.util.Locale.ROOT).endsWith(".mp4")) {
+					thumbnailService.deleteThumbnail(storageKey);
+				}
 			} catch (RuntimeException exception) {
 				log.error("Failed to delete illustration thumbnail file. storageKey={}", storageKey, exception);
 			}

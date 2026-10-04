@@ -64,6 +64,20 @@ class XPostPersistenceServiceTest {
 	}
 
 	@Test
+	void mixedPhotoAndAnimatedMp4PersistMimeOrderAndSharedHashDuplicateSemantics() {
+		var gif = new XLikeMedia("g", 1, "animated_gif", "https://video.twimg.com/a.mp4", 320, 240);
+		var mp4 = new StoredFile("a.mp4", "a.mp4", "video/mp4", 20, "mp4-sha");
+		var media = List.of(media(1).get(0), gif);
+		var files = List.of(files(1).get(0), mp4);
+		assertEquals(20L, service.persist(item, media, files));
+		verify(assets).insert(20L, "a.mp4", "a.mp4", "video/mp4", 20L, 1, "mp4-sha");
+		verify(illustrations, times(1)).insertXPost(anyLong(), anyString());
+		when(assets.findIllustrationIdBySha256("mp4-sha")).thenReturn(Optional.of(20L));
+		assertThrows(XPostDuplicateException.class, () -> service.persist(item, media, files));
+		verify(items, times(1)).markImported(7, 20);
+	}
+
+	@Test
 	void stableUserIdReusesAuthorAndUpdatesRenamedProfile() {
 		when(authors.findIdByXUserId("user-1")).thenReturn(Optional.of(42L));
 		var renamed = new XLikeRepository.ImportItem(7, "99", "user-1", "newname", "New Name", XLikeStatus.PENDING);

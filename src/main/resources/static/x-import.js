@@ -182,6 +182,12 @@
         browse.locate(target || null, top, target ? snapshot.scrollY : 0);
     }
 
+    function inboxMediaUrl(itemId, media) {
+        return media.mediaType === "animated_gif"
+            ? `/api/x-import/inbox/${encodeURIComponent(String(itemId))}/media/${encodeURIComponent(media.mediaKey)}/content`
+            : media.sourceUrl;
+    }
+
     function paragraph(className, text) {
         const element = document.createElement("p");
         element.className = className;
@@ -253,7 +259,8 @@
             },
             sourceHref: `https://x.com/${encodeURIComponent(item.authorUsername)}/status/${encodeURIComponent(item.xPostId)}`,
             items: media.map((photo, index) => ({ key: photo.mediaKey,
-                fullUrl: photo.photoUrl, alt: `${item.authorDisplayName || item.authorUsername || "Post"} 的图片 ${index + 1}` }))
+                fullUrl: inboxMediaUrl(item.id, photo), mimeType: photo.mediaType === "animated_gif" ? "video/mp4" : "image/jpeg",
+                alt: `${item.authorDisplayName || item.authorUsername || "Post"} 的图片 ${index + 1}` }))
         };
         viewerItems.set(groupKey, config);
         media.forEach((photo, index) => {
@@ -266,8 +273,12 @@
             });
             config.mediaButtons.set(photo.mediaKey, openButton);
             if (photo.mediaKey === browse.imageKey(groupKey) || !config.opener) config.opener = openButton;
-            const image = document.createElement("img");
-            image.src = photo.photoUrl;
+            const image = document.createElement(photo.mediaType === "animated_gif" ? "video" : "img");
+            if (photo.mediaType === "animated_gif") {
+                image.muted = true; image.loop = true; image.autoplay = true; image.playsInline = true;
+                image.preload = "metadata";
+            }
+            image.src = inboxMediaUrl(item.id, photo);
             image.alt = `${item.authorDisplayName || item.authorUsername || "Post"} 的图片 ${index + 1}`;
             image.loading = "lazy";
             if (photo.width && photo.height) {
@@ -360,6 +371,9 @@
             totalPages = data.totalPages;
             viewerItems.clear();
             const cards = items.map(renderItem);
+            list.querySelectorAll("video").forEach(video => {
+                video.pause(); video.removeAttribute("src"); video.load();
+            });
             list.replaceChildren(...cards);
             count.textContent = `${data.totalItems} pending`;
             pageStatus.textContent = `Page ${totalPages === 0 ? 0 : page + 1} / ${totalPages}`;

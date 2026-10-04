@@ -28,12 +28,12 @@ V0.3 已正式封存，增加 X Likes 手动同步与多图归档；V0.4 计划�
 
 - 导入 JPG、JPEG、PNG、GIF 图片；按文件内容计算 SHA-256 去重。单张重复导入返回 `409 Conflict` 和已有插画 ID；批量导入逐项返回 `SUCCESS`、`DUPLICATE` 或 `FAILED`，支持部分成功。
 - 可按需对历史 Asset 执行 SHA-256 回填；新导入的 JPG/PNG 自动生成缩略图，也支持历史缩略图回填。
-- 首页图库分页浏览，默认每页 24 条。JPG/PNG 卡片使用缩略图，GIF 保持原始动画；卡片显示封面、标题和作者，并可进入详情页。
+- 首页图库分页浏览，默认每页 24 条。JPG/PNG 卡片使用缩略图，GIF 保持原始动画，X animated MP4 使用原生循环 video；卡片显示封面、标题和作者，并可进入详情页。
 - 多 Asset 卡片可左右循环预览；Artwork-first 详情页按顺序纵向展示全部原图，保持原始比例，并显示标题、作者、标签、备注和来源链接。
 - Gallery 点击当前预览图片、Inbox 点击任意媒体、Detail 点击任意原图，均打开统一 Viewer。只浏览当前作品/Post，首尾停止；Gallery 文字入口继续打开 Detail。
 - 手动同步 X Likes：Inbox 页的 Sync latest Likes 每次从第一页查最近点赞；独立的后端 history continuation 接口保存分页游标，可跨轮、跨重启继续。页面加载不会自动请求 X API，也没有 history continuation 按钮。
-- X Import Inbox 分页展示 `PENDING` 候选，按最近发现时间排序；紧凑 Grid 中仅选择当前页，可单项或批量导入、跳过，逐项显示成功、重复或失败结果。无图、GIF、视频或混合媒体等不符合“全部直接附件为带 URL 的 photo”条件的 Post 标记为 `UNSUPPORTED`；跳过和成功导入分别变为 `SKIPPED`、`IMPORTED`。
-- 将受支持的 X Post 单图或多图归档为一个 Illustration 和有序 Asset，以 SHA-256 拒绝整条 Post 中的重复图片；批量导入允许部分成功，并记录 `imported_illustration_id`。本地文件导入仍支持 GIF，X GIF/视频导入尚不支持。
+- X Import Inbox 分页展示 `PENDING` 候选，按最近发现时间排序；紧凑 Grid 中仅选择当前页，可单项或批量导入、跳过，逐项显示成功、重复或失败结果。全部附件必须为有合法 URL 的 `photo` 或有可用 X CDN MP4 variant 的 `animated_gif`；无媒体、普通 `video`、unknown 或缺少 MP4 的动画使整条 Post 为 `UNSUPPORTED`。跳过和成功导入分别变为 `SKIPPED`、`IMPORTED`。
+- 将受支持的 X Post 归档为一个 Illustration 和有序 Asset，以 SHA-256 拒绝整条 Post 中的重复媒体。X `animated_gif` 原样保存为 `video/mp4`，Inbox / Gallery / Detail / Unified Viewer 使用静音循环的原生 video；不转码、不生成 poster/thumbnail、不实现 Range。后续 Sync 再遇到旧 `UNSUPPORTED` 且解析为 `PENDING` 的 Post 时，原子恢复状态和 media rows；不重新打开 `SKIPPED` / `IMPORTED`。本地上传入口仍限 JPEG / PNG / GIF。
 - 编辑标题、来源链接、备注，并通过 PATCH 更新已有 Author 关联和 Tag 关联。
 - 搜索和创建 Author；搜索、创建、选择、移除 Tag。
 - 删除单个 Illustration，并在数据库删除事务提交后清理原图和缩略图。
@@ -46,7 +46,7 @@ Viewer 提供适应窗口、1:1、放大/缩小及拖动查看；GIF 沿用原�
 
 关闭后保留列表页码、滚动位置及当前图片；Inbox 已勾选项不会因开关 Viewer 清空。刷新当前标签页会重新读取数据，恢复有效的当前 Viewer，并重置缩放。进入 Detail 后返回来源列表；查看详情中其他 Asset 后，Gallery 卡片也同步到最后查看的图片。直接打开旧的 `detail.html?id=…` 链接仍可使用。
 
-上下文由当前浏览器标签页的 History API 和 sessionStorage 保存，不写数据库、不跨设备同步。Inbox 继续直接使用已有远程 `photoUrl`，加载失败可重试或打开来源；不保证与归档下载的分辨率一致。Import、Skip、元数据编辑和删除仍在原页面执行，翻页和数据刷新继续清空 Inbox 选择。
+上下文由当前浏览器标签页的 History API 和 sessionStorage 保存，不写数据库、不跨设备同步。Inbox photo 保持使用远程 `sourceUrl`；animated_gif 卡片及 Inbox Viewer 使用 `/api/x-import/inbox/{itemId}/media/{mediaKey}/content`，由后端按数据库 media 记录定位并流式转发 X CDN MP4，避免浏览器 hotlink 403。代理复用 HTTPS / video.twimg.com 校验，只转发完整 200 video/mp4，不接受外部 URL 参数，不落盘、不创建 Asset、不缓存、不实现 Range；Gallery / Detail 的已归档内容路径不变。加载失败可重试或打开来源，不保证 photo 与归档下载的分辨率一致。Import、Skip、元数据编辑和删除仍在原页面执行，翻页和数据刷新继续清空 Inbox 选择。
 
 Inbox 支持整卡选中反馈、当前页已选数量和 sticky 操作栏；图片点击只打开统一 Viewer，文字可选择，卡片背景可切换勾选。Archive/Skip 请求与后续列表读取期间保留旧卡片，新数据成功读取后才替换，并按 item ID 恢复附近位置；成功摘要短暂显示，最近完整结果可展开。Archive 的失败/重复原因贴近对应卡片，支持明确重新选择；Skip 仅展示后端实际处理数量。结果未知或列表更新失败时先重新加载核对状态，不自动重试写入。选择始终仅作用于当前加载页，刷新成功后清空。
 
@@ -146,7 +146,7 @@ erDiagram
 ### 文件校验与流式 IO
 
 - 文件扩展名只接受 `.jpg`、`.jpeg`、`.png`、`.gif`。
-- 文件内容还会读取并校验 JPEG、PNG、GIF 的文件魔数；扩展名与实际格式不匹配时拒绝导入。
+- 文件内容还会读取并校验 JPEG、PNG、GIF 的文件魔数；扩展名与实际格式不匹配时拒绝导入。Local / S3 Storage 额外支持供 X animated media 使用的 MP4：按 ISO BMFF box header / size 遍历并验证 `ftyp` 和 MP4 brand，支持前置 box 与 extended size；不检查 codec / duration / 解码能力，大小仍限 50 MB。
 - 单张图片的业务限制是 50 MB；`FileStorageService` 在保存过程中也会再次检查实际读取到的大小。
 - 导入使用 `InputStream`，以缓冲区流式写入临时文件，再移动到按月份组织的目标路径，不把整张图片一次性读入内存。
 
@@ -481,7 +481,7 @@ macOS/Linux：
 
 ## Roadmap
 
-- X GIF/视频等非静态图片媒体导入，以及导入来源信息的进一步整理。
+- 普通 X 视频导入、转码、poster 生成、Range / 206，以及导入来源信息的进一步整理。
 - Inbox 进一步的筛选、视觉调整，以及 history continuation 页面入口。
 - 完整的浏览器 OAuth 授权流程（当前单用户本地应用不需要）。
 - 感知哈希重复检测与合并策略。

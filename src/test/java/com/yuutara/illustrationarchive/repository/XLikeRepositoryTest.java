@@ -115,6 +115,20 @@ class XLikeRepositoryTest {
 	}
 
 	@Test
+	void reopeningOnlyUpdatesUnsupportedAndReadsIdOnlyOnSuccess() {
+		var jdbc = mock(JdbcTemplate.class);
+		when(jdbc.update(anyString(), eq("post"))).thenReturn(0, 1);
+		when(jdbc.queryForObject(anyString(), eq(Long.class), eq("post"))).thenReturn(7L);
+		var repository = new XLikeRepository(jdbc);
+		assertNull(repository.reopenUnsupported("post"));
+		assertEquals(7L, repository.reopenUnsupported("post"));
+		var sql = ArgumentCaptor.forClass(String.class);
+		verify(jdbc, org.mockito.Mockito.times(2)).update(sql.capture(), eq("post"));
+		assertTrue(sql.getValue().contains("WHERE x_post_id = ? AND status = 'UNSUPPORTED'"));
+		verify(jdbc).queryForObject(anyString(), eq(Long.class), eq("post"));
+	}
+
+	@Test
 	void skipSqlOnlyUpdatesPendingRows() {
 		JdbcTemplate jdbc = mock(JdbcTemplate.class);
 		when(jdbc.update(anyString(), eq(7L))).thenReturn(1, 0);

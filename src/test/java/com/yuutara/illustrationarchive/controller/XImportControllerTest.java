@@ -104,7 +104,7 @@ class XImportControllerTest {
 				.andExpect(jsonPath("$.items[0].postCreatedAt").value("2026-09-25T09:00:00Z"))
 				.andExpect(jsonPath("$.items[0].discoveredAt").value("2026-09-29T09:00:00Z"))
 				.andExpect(jsonPath("$.items[0].media[0].sortOrder").value(0))
-				.andExpect(jsonPath("$.items[0].media[0].photoUrl").value("https://img/1"))
+				.andExpect(jsonPath("$.items[0].media[0].sourceUrl").value("https://img/1"))
 				.andExpect(jsonPath("$.items[0].media[0].width").value(100));
 		verify(service).inbox(null, null);
 	}

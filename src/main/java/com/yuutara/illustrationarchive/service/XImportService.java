@@ -22,17 +22,19 @@ public class XImportService {
 	private final XLikeRepository items;
 	private final XLikeMediaRepository mediaRepository;
 	private final XPhotoDownloadService downloader;
+	private final XAnimatedDownloadService animatedDownloader;
 	private final XPostPersistenceService persistence;
 	private final AssetRepository assets;
 	private final FileStorage storage;
 	private final ThumbnailStorage thumbnails;
 
 	public XImportService(XLikeRepository items, XLikeMediaRepository mediaRepository,
-			XPhotoDownloadService downloader, XPostPersistenceService persistence,
+			XPhotoDownloadService downloader, XAnimatedDownloadService animatedDownloader, XPostPersistenceService persistence,
 			AssetRepository assets, FileStorage storage, ThumbnailStorage thumbnails) {
 		this.items = items;
 		this.mediaRepository = mediaRepository;
 		this.downloader = downloader;
+		this.animatedDownloader = animatedDownloader;
 		this.persistence = persistence;
 		this.assets = assets;
 		this.storage = storage;
@@ -63,8 +65,11 @@ public class XImportService {
 				throw new IllegalStateException("Only PENDING X Like items can be imported.");
 			}
 			List<XLikeMedia> media = mediaRepository.findByItemId(itemId);
-			if (media.isEmpty()) throw new IllegalStateException("X Like item has no photos.");
-			for (XLikeMedia photo : media) files.add(downloader.download(photo));
+			if (media.isEmpty()) throw new IllegalStateException("X Like item has no media.");
+			for (XLikeMedia attachment : media) {
+				files.add("animated_gif".equals(attachment.mediaType())
+						? animatedDownloader.download(attachment) : downloader.download(attachment));
+			}
 			long illustrationId = persistence.persist(item, media, files);
 			for (StoredFile file : files) {
 				if (!"image/jpeg".equals(file.mimeType()) && !"image/png".equals(file.mimeType())) continue;

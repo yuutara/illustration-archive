@@ -7,6 +7,20 @@ const staticDir = path.resolve(__dirname, "../../main/resources/static");
 
 const { browser, settle } = require("./helpers/browser");
 
+test("Detail MP4 uses looping native video and opens the common Viewer with MIME", async () => {
+    const env = browser({ url: "http://localhost/detail.html?id=7" });
+    env.sandbox.fetchImpl = async () => ({ ok: true, json: async () => ({ id: 7, title: "Animated", tags: [],
+        assets: [{ id: 11, mimeType: "video/mp4", sortOrder: 0 }, { id: 12, mimeType: "image/gif", sortOrder: 1 }] }) });
+    env.run("detail.js"); await settle();
+    const buttons = env.elements.get("detail-images").children;
+    const video = buttons[0].children[0];
+    assert.equal(video.tagName, "video"); assert.equal(video.src, "/api/assets/11/content");
+    for (const property of ["muted", "loop", "autoplay", "playsInline"]) assert.equal(video[property], true);
+    assert.equal(video.controls, undefined); assert.equal(buttons[1].children[0].tagName, "img");
+    buttons[0].dispatch("click"); assert.equal(env.find("image-viewer-image").tagName, "video");
+    assert.equal(env.find("image-viewer-info").hidden, false);
+});
+
 test("metadata drafts use author IDs and toggle tags; cancel resets both, save keeps PATCH ownership", async () => {
     const env = browser({ url: "http://localhost/detail.html?id=7" });
     const node = id => env.document.getElementById(`detail-${id}`);

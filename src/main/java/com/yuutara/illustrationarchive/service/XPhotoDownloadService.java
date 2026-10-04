@@ -51,7 +51,7 @@ public class XPhotoDownloadService {
 			throw new XPhotoDownloadException("X photo requires a media key and positive expected dimensions.");
 		}
 
-		PhotoRequest photoRequest = photoRequest(media.photoUrl());
+		PhotoRequest photoRequest = photoRequest(media.sourceUrl());
 		HttpRequest request = HttpRequest.newBuilder(photoRequest.uri())
 				.timeout(Duration.ofSeconds(60))
 				.header("Accept", "image/jpeg, image/png")

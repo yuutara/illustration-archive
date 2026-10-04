@@ -96,7 +96,7 @@
                 return href.href;
             },
             items: assets.map(asset => ({ key: String(asset.id),
-                fullUrl: `/api/assets/${encodeURIComponent(String(asset.id))}/content`, alt: titleFor(state.detail) })),
+                fullUrl: `/api/assets/${encodeURIComponent(String(asset.id))}/content`, mimeType: asset.mimeType, alt: titleFor(state.detail) })),
             opener: imageButtons.get(key) || imageButtons.values().next().value };
     }
 
@@ -596,6 +596,9 @@
 
     function renderImages(detail) {
         imageButtons.clear();
+        imagesElement.querySelectorAll("video").forEach(video => {
+            video.pause(); video.removeAttribute("src"); video.load();
+        });
         imagesElement.replaceChildren();
         const assets = orderedAssetsFor(detail);
         if (assets.length === 0) {
@@ -620,7 +623,11 @@
                 browse.openViewer({ ...viewer(), startKey: String(asset.id) }, imageContainer);
             });
             imageButtons.set(String(asset.id), imageContainer);
-            const image = document.createElement("img");
+            const image = document.createElement(asset.mimeType === "video/mp4" ? "video" : "img");
+            if (asset.mimeType === "video/mp4") {
+                image.muted = true; image.loop = true; image.autoplay = true; image.playsInline = true;
+                image.preload = "metadata";
+            }
             image.alt = assets.length === 1
                 ? titleFor(detail)
                 : `${titleFor(detail)} · 第 ${index + 1} 张`;

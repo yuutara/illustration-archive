@@ -51,7 +51,7 @@ class XApiClientTest {
 		assertEquals("two", page.candidates().get(0).authorUsername());
 		assertEquals("Artist Two", page.candidates().get(0).authorDisplayName());
 		assertEquals("single", page.candidates().get(0).postText());
-		assertEquals("https://img/1", page.candidates().get(0).media().get(0).photoUrl());
+		assertEquals("https://img/1", page.candidates().get(0).media().get(0).sourceUrl());
 		assertEquals(100, page.candidates().get(0).media().get(0).width());
 		assertEquals(XLikeStatus.PENDING, page.candidates().get(1).status());
 		assertEquals(List.of("p3", "p2"), page.candidates().get(1).media().stream().map(m -> m.mediaKey()).toList());
@@ -85,6 +85,44 @@ class XApiClientTest {
 		assertEquals(5, page.candidates().size());
 		assertTrue(page.candidates().stream().allMatch(p -> p.status() == XLikeStatus.UNSUPPORTED));
 		assertEquals(2, page.candidates().get(3).media().size());
+	}
+
+	@Test
+	void animatedVariantsAndMixedMediaKeepVideoUnsupported() throws Exception {
+		List<HttpRequest> requests = new ArrayList<>();
+		var client = client(requests, response(200, """
+				{"data":[
+				 {"id":"1","author_id":"a","attachments":{"media_keys":["single"]}},
+				 {"id":"2","author_id":"a","attachments":{"media_keys":["multi"]}},
+				 {"id":"3","author_id":"a","attachments":{"media_keys":["fallback"]}},
+				 {"id":"4","author_id":"a","attachments":{"media_keys":["bad"]}},
+				 {"id":"5","author_id":"a","attachments":{"media_keys":["photo","single"]}},
+				 {"id":"6","author_id":"a","attachments":{"media_keys":["photo","video"]}}
+				],"includes":{"users":[{"id":"a","name":"A","username":"a"}],"media":[
+				 {"media_key":"photo","type":"photo","url":"https://pbs.twimg.com/media/p.jpg"},
+				 {"media_key":"single","type":"animated_gif","variants":[{"content_type":"video/mp4","url":"https://video.twimg.com/a.mp4"}]},
+				 {"media_key":"multi","type":"animated_gif","variants":[
+				  {"content_type":"video/mp4","url":"https://video.twimg.com/fallback.mp4"},
+				  {"content_type":"video/mp4","bit_rate":100,"url":"https://video.twimg.com/low.mp4"},
+				  {"content_type":"video/mp4","bit_rate":200,"url":"https://video.twimg.com/high.mp4?tag=1"},
+				  {"content_type":"video/mp4","bit_rate":200,"url":"https://video.twimg.com/tie.mp4"},
+				  {"content_type":"video/mp4","bit_rate":999,"url":"https://evil.example/a.mp4"},
+				  {"content_type":"application/x-mpegURL","bit_rate":1000,"url":"https://video.twimg.com/a.m3u8"}]},
+				 {"media_key":"fallback","type":"animated_gif","variants":[
+				  {"content_type":"video/mp4","bit_rate":"900","url":"https://video.twimg.com/first.mp4"},
+				  {"content_type":"video/mp4","url":"https://video.twimg.com/second.mp4"}]},
+				 {"media_key":"bad","type":"animated_gif","variants":[{"content_type":"video/mp4","url":"http://video.twimg.com/a.mp4"}]},
+				 {"media_key":"video","type":"video","variants":[{"content_type":"video/mp4","url":"https://video.twimg.com/v.mp4"}]}
+				]}}
+				"""));
+		var page = client.fetchRecentLikes("1", 10, null);
+		assertEquals(List.of(XLikeStatus.PENDING, XLikeStatus.PENDING, XLikeStatus.PENDING,
+				XLikeStatus.UNSUPPORTED, XLikeStatus.PENDING, XLikeStatus.UNSUPPORTED),
+				page.candidates().stream().map(p -> p.status()).toList());
+		assertEquals("https://video.twimg.com/high.mp4?tag=1", page.candidates().get(1).media().get(0).sourceUrl());
+		assertEquals("https://video.twimg.com/first.mp4", page.candidates().get(2).media().get(0).sourceUrl());
+		assertEquals(List.of(0, 1), page.candidates().get(4).media().stream().map(m -> m.sortOrder()).toList());
+		assertTrue(requests.get(0).uri().getQuery().contains("variants,preview_image_url"));
 	}
 
 	@Test

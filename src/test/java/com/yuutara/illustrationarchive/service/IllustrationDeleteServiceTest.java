@@ -28,6 +28,18 @@ class IllustrationDeleteServiceTest {
 	Path storageRoot;
 
 	@Test
+	void deletesMp4OriginalWithoutCallingThumbnailStorage() throws IOException {
+		var database = mock(IllustrationDatabaseDeleteService.class);
+		var files = new FileStorageService(storageRoot.toString());
+		var thumbnails = mock(ThumbnailService.class);
+		writeFile("2026-10/clip.mp4", "MP4 original");
+		when(database.delete(10L)).thenReturn(List.of("2026-10/clip.mp4"));
+		new IllustrationDeleteService(database, files, thumbnails).delete(10L);
+		assertTrue(Files.notExists(storageRoot.resolve("2026-10/clip.mp4")));
+		verifyNoInteractions(thumbnails);
+	}
+
+	@Test
 	void deletesEveryStoredFileAfterDatabaseDeleteSucceeds() {
 		IllustrationDatabaseDeleteService databaseDeleteService = mock(IllustrationDatabaseDeleteService.class);
 		FileStorageService fileStorageService = mock(FileStorageService.class);

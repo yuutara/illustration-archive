@@ -45,7 +45,7 @@ public class FileStorageService implements FileStorage {
 
 		try (InputStream inputStream = new DigestInputStream(source, sha256Digest)) {
 			byte[] signature = inputStream.readNBytes(SIGNATURE_LENGTH);
-			actualFormat = detectFormat(signature);
+			actualFormat = extension.equals("mp4") ? ImageFormat.MP4 : detectFormat(signature);
 			validateExtensionMatchesFormat(extension, actualFormat);
 
 			String storageKey = createStorageKey(extension);
@@ -59,6 +59,7 @@ public class FileStorageService implements FileStorage {
 
 			temporaryFile = Files.createTempFile(monthDirectory, ".upload-", ".tmp");
 			long savedSize = writeFile(inputStream, signature, temporaryFile);
+			if (actualFormat == ImageFormat.MP4) Mp4Validation.validate(temporaryFile);
 			moveWithoutReplacing(temporaryFile, targetPath);
 			temporaryFile = null;
 
@@ -131,8 +132,8 @@ public class FileStorageService implements FileStorage {
 
 		String extension = originalFilename.substring(lastDotIndex + 1).toLowerCase(Locale.ROOT);
 		return switch (extension) {
-			case "jpg", "jpeg", "png", "gif" -> extension;
-			default -> throw new FileStorageValidationException("Only JPEG, PNG, and GIF files are supported.");
+			case "jpg", "jpeg", "png", "gif", "mp4" -> extension;
+			default -> throw new FileStorageValidationException("Only JPEG, PNG, GIF, and MP4 files are supported.");
 		};
 	}
 
@@ -246,7 +247,8 @@ public class FileStorageService implements FileStorage {
 	private enum ImageFormat {
 		JPEG("image/jpeg"),
 		PNG("image/png"),
-		GIF("image/gif");
+		GIF("image/gif"),
+		MP4("video/mp4");
 
 		private final String mimeType;
 
@@ -263,6 +265,7 @@ public class FileStorageService implements FileStorage {
 				case JPEG -> extension.equals("jpg") || extension.equals("jpeg");
 				case PNG -> extension.equals("png");
 				case GIF -> extension.equals("gif");
+				case MP4 -> extension.equals("mp4");
 			};
 		}
 	}

@@ -20,7 +20,11 @@ public class XLikeMediaRepository {
 				(x_like_item_id, media_key, sort_order, media_type, source_url, width, height)
 				VALUES (?, ?, ?, ?, ?, ?, ?)
 				""", itemId, media.mediaKey(), media.sortOrder(), media.mediaType(),
-				media.photoUrl(), media.width(), media.height());
+				media.sourceUrl(), media.width(), media.height());
+	}
+
+	public void deleteForItem(long itemId) {
+		jdbcTemplate.update("DELETE FROM x_like_media WHERE x_like_item_id = ?", itemId);
 	}
 
 	public List<PendingMedia> findForItemIds(List<Long> itemIds) {

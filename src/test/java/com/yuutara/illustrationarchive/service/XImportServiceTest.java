@@ -22,6 +22,7 @@ class XImportServiceTest {
 	private XLikeRepository items;
 	private XLikeMediaRepository media;
 	private XPhotoDownloadService downloader;
+	private XAnimatedDownloadService animatedDownloader;
 	private XPostPersistenceService persistence;
 	private AssetRepository assets;
 	private FileStorageService storage;
@@ -33,11 +34,12 @@ class XImportServiceTest {
 		items = mock(XLikeRepository.class);
 		media = mock(XLikeMediaRepository.class);
 		downloader = mock(XPhotoDownloadService.class);
+		animatedDownloader = mock(XAnimatedDownloadService.class);
 		persistence = mock(XPostPersistenceService.class);
 		assets = mock(AssetRepository.class);
 		storage = mock(FileStorageService.class);
 		thumbnails = mock(ThumbnailService.class);
-		service = new XImportService(items, media, downloader, persistence, assets, storage, thumbnails);
+		service = new XImportService(items, media, downloader, animatedDownloader, persistence, assets, storage, thumbnails);
 	}
 
 	@Test
@@ -111,6 +113,39 @@ class XImportServiceTest {
 		assertEquals(1, result.duplicateCount());
 		assertEquals(23L, result.items().get(2).illustrationId());
 		verify(storage, times(1)).delete("file0");
+	}
+
+	@Test
+	void animatedArchiveUsesMp4AndSkipsThumbnail() {
+		pending(1, 1);
+		var animated = new XLikeMedia("gif", 0, "animated_gif", "https://video.twimg.com/tweet_video/a.mp4", 100, 100);
+		var mp4 = new StoredFile("a.mp4", "a.mp4", "video/mp4", 100, "sha");
+		when(media.findByItemId(1)).thenReturn(List.of(animated));
+		when(animatedDownloader.download(animated)).thenReturn(mp4);
+		when(persistence.persist(any(), eq(List.of(animated)), eq(List.of(mp4)))).thenReturn(20L);
+		assertEquals(1, service.importSelected(List.of(1L)).successCount());
+		verifyNoInteractions(downloader, thumbnails, storage);
+	}
+
+	@Test
+	void mixedAnimatedFailureCompensatesAndMp4DatabaseFailuresCleanOriginal() {
+		var animated = new XLikeMedia("gif", 1, "animated_gif", "https://video.twimg.com/tweet_video/a.mp4", 100, 100);
+		pending(1, 1);
+		when(media.findByItemId(1)).thenReturn(List.of(photo(0), animated));
+		when(downloader.download(photo(0))).thenReturn(file(0));
+		when(animatedDownloader.download(animated)).thenThrow(new IllegalStateException("CDN"));
+		assertEquals(1, service.importSelected(List.of(1L)).failureCount());
+		verify(storage).delete("file0");
+		verifyNoInteractions(persistence);
+		var mp4 = new StoredFile("a.mp4", "a.mp4", "video/mp4", 100, "sha");
+		when(media.findByItemId(1)).thenReturn(List.of(animated));
+		doReturn(mp4).when(animatedDownloader).download(animated);
+		when(persistence.persist(any(), anyList(), anyList())).thenThrow(new IllegalStateException("DB"));
+		assertEquals(1, service.importSelected(List.of(1L)).failureCount());
+		doThrow(new XPostDuplicateException("same MP4")).when(persistence).persist(any(), anyList(), anyList());
+		assertEquals(1, service.importSelected(List.of(1L)).duplicateCount());
+		verify(storage, times(2)).delete("a.mp4");
+		verifyNoInteractions(thumbnails);
 	}
 
 	private void pending(long id, int count) {

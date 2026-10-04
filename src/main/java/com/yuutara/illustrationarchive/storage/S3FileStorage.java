@@ -38,18 +38,19 @@ public class S3FileStorage implements FileStorage {
 		}
 		String extension = originalFilename.substring(dot + 1).toLowerCase(Locale.ROOT);
 		if (!extension.equals("jpg") && !extension.equals("jpeg")
-				&& !extension.equals("png") && !extension.equals("gif")) {
-			throw new FileStorageValidationException("Only JPEG, PNG, and GIF files are supported.");
+				&& !extension.equals("png") && !extension.equals("gif") && !extension.equals("mp4")) {
+			throw new FileStorageValidationException("Only JPEG, PNG, GIF, and MP4 files are supported.");
 		}
 		Path temporaryFile = null;
 		String key = YearMonth.now() + "/" + UUID.randomUUID().toString().replace("-", "") + "." + extension;
 		MessageDigest digest = sha256Digest();
 		try (InputStream input = new DigestInputStream(source, digest)) {
 			byte[] signature = input.readNBytes(8);
-			String mimeType = detectMimeType(signature);
+			String mimeType = extension.equals("mp4") ? "video/mp4" : detectMimeType(signature);
 			if ((!mimeType.equals("image/jpeg") || !(extension.equals("jpg") || extension.equals("jpeg")))
 					&& (!mimeType.equals("image/png") || !extension.equals("png"))
-					&& (!mimeType.equals("image/gif") || !extension.equals("gif"))) {
+					&& (!mimeType.equals("image/gif") || !extension.equals("gif"))
+					&& (!mimeType.equals("video/mp4") || !extension.equals("mp4"))) {
 				throw new FileStorageValidationException("Filename extension does not match the image content.");
 			}
 			temporaryFile = Files.createTempFile("archive-s3-upload-", ".tmp");
@@ -66,6 +67,7 @@ public class S3FileStorage implements FileStorage {
 					output.write(buffer, 0, count);
 				}
 			}
+			if (mimeType.equals("video/mp4")) Mp4Validation.validate(temporaryFile);
 			try {
 				objects.put(key, temporaryFile, mimeType);
 			} catch (RuntimeException failure) {

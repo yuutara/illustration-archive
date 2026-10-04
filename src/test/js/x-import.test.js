@@ -7,6 +7,38 @@ const staticDir = path.resolve(__dirname, "../../main/resources/static");
 
 const { browser } = require("./helpers/browser");
 
+test("Inbox animated_gif card and Viewer use the local proxy without Inspector", async () => {
+    const item = inboxItem(1);
+    item.media = [{ mediaKey: "g", mediaType: "animated_gif", sourceUrl: "https://video.twimg.com/a.mp4", width: 320, height: 240 }];
+    const { env, elements } = await page([{ url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([item]) }]);
+    const video = elements.get("inbox-list").querySelectorAll("video")[0];
+    assert.equal(video.src, "/api/x-import/inbox/1/media/g/content");
+    for (const property of ["muted", "loop", "autoplay", "playsInline"]) assert.equal(video[property], true);
+    assert.equal(video.controls, undefined);
+    video.parentNode.dispatch("click");
+    assert.equal(env.find("image-viewer-image").tagName, "video");
+    assert.equal(env.find("image-viewer-image").src, "/api/x-import/inbox/1/media/g/content");
+    assert.equal(env.find("image-viewer-info").hidden, true);
+});
+
+test("Inbox photo card and Viewer keep the original sourceUrl in a mixed Post", async () => {
+    const item = inboxItem(7);
+    item.media = [
+        { mediaKey: "p", sortOrder: 0, mediaType: "photo", sourceUrl: "https://pbs.twimg.com/media/photo.png" },
+        { mediaKey: "16_123", sortOrder: 1, mediaType: "animated_gif", sourceUrl: "https://video.twimg.com/a.mp4" }
+    ];
+    const { env } = await page([{ url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([item]) }]);
+    const buttons = env.document.querySelectorAll(".image-open-button");
+    assert.equal(buttons[0].children[0].tagName, "img");
+    assert.equal(buttons[0].children[0].src, item.media[0].sourceUrl);
+    assert.equal(buttons[1].children[0].src, "/api/x-import/inbox/7/media/16_123/content");
+    buttons[0].dispatch("click");
+    assert.equal(env.find("image-viewer-image").tagName, "img");
+    assert.equal(env.find("image-viewer-image").src, item.media[0].sourceUrl);
+    env.viewerButton("下一张图片").dispatch("click");
+    assert.equal(env.find("image-viewer-image").src, "/api/x-import/inbox/7/media/16_123/content");
+});
+
 function inboxItem(id) {
     return { id, xPostId: `post-${id}`, authorDisplayName: `Artist ${id}`,
         authorUsername: `artist${id}`, postText: "", media: [] };
@@ -230,7 +262,7 @@ test("result region and Gallery link are present in the page", () => {
 
 test("Inbox clicked media opens in order, retains visible selection and never sends write requests", async () => {
     const item = { ...inboxItem(1), media: [3, 1, 2].map(number => ({ mediaKey: `media-${number}`, sortOrder: number,
-        photoUrl: `https://pbs.twimg.com/media/test-${number}.jpg` })) };
+        sourceUrl: `https://pbs.twimg.com/media/test-${number}.jpg` })) };
     const { elements, calls, env } = await page([
         { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([item]) }
     ]);
@@ -308,7 +340,7 @@ test("touch scroll, pointer cancellation, drag and a text-selection gesture neve
 
 test("viewer closes on its last media, preserving selection, position and one modal history entry", async () => {
     const item = { ...inboxItem(1), media: [1, 2, 3].map(number => ({ mediaKey: `m${number}`, sortOrder: number,
-        photoUrl: `/photo-${number}.jpg` })) };
+        sourceUrl: `/photo-${number}.jpg` })) };
     const { elements, env } = await page([{ url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([item]) }]);
     env.flushFrames();
     select(elements, 1);

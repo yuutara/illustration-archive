@@ -83,6 +83,16 @@ public class XLikeRepository {
 				""", itemId);
 	}
 
+	/** Conditional update holds the row lock until the page transaction also refreshes media. */
+	public Long reopenUnsupported(String postId) {
+		int changed = jdbcTemplate.update("""
+				UPDATE x_like_item SET status = 'PENDING', updated_at = UTC_TIMESTAMP(3)
+				WHERE x_post_id = ? AND status = 'UNSUPPORTED'
+				""", postId);
+		if (changed == 0) return null;
+		return jdbcTemplate.queryForObject("SELECT id FROM x_like_item WHERE x_post_id = ?", Long.class, postId);
+	}
+
 	public java.util.Optional<ImportItem> findForImport(long itemId, boolean lock) {
 		String sql = "SELECT id, x_post_id, x_author_id, author_username, author_display_name, status "
 				+ "FROM x_like_item WHERE id = ?" + (lock ? " FOR UPDATE" : "");

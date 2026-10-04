@@ -112,6 +112,24 @@ class XLikePersistenceServiceTest {
 		verifyNoMoreInteractions(media);
 	}
 
+	@Test
+	void newAnimatedMediaAndReopenedUnsupportedRefreshMetadataInOrder() {
+		var items = mock(XLikeRepository.class);
+		var media = mock(XLikeMediaRepository.class);
+		var animated = new XLikeMedia("gif", 0, "animated_gif", "https://video.twimg.com/tweet_video/a.mp4", 320, 240);
+		var candidate = candidate("13", XLikeStatus.PENDING, List.of(animated));
+		when(items.insertIfAbsent(candidate)).thenReturn(8L, null);
+		when(items.reopenUnsupported("13")).thenReturn(8L);
+		when(items.findStatusByPostId("13")).thenReturn(XLikeStatus.UNSUPPORTED);
+		var service = new XLikePersistenceService(items, media);
+		assertEquals(1, service.savePage(new XLikePage(List.of(candidate), false, null)).newCount());
+		assertEquals(1, service.savePage(new XLikePage(List.of(candidate), false, null)).existingCount());
+		var order = org.mockito.Mockito.inOrder(media);
+		order.verify(media).insert(8L, animated);
+		order.verify(media).deleteForItem(8L);
+		order.verify(media).insert(8L, animated);
+	}
+
 	private XLikeCandidate candidate(String id, XLikeStatus status, List<XLikeMedia> media) {
 		return new XLikeCandidate(id, "a", "author", "Author", "text",
 				Instant.parse("2026-09-25T09:00:00Z"), status, media);

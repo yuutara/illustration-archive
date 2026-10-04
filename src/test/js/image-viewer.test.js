@@ -5,6 +5,50 @@ const { browser } = require("./helpers/browser");
 const config = () => ({ groupKey: "illustration:7", title: "作品", startKey: "22",
     items: [11, 22, 33].map(id => ({ key: String(id), fullUrl: `/api/assets/${id}/content`,
         previewUrl: `/api/assets/${id}/thumbnail`, alt: `图片 ${id}` })) });
+
+test("video metadata reuses fit, zoom, pan and Inspector; stale events cannot affect another Asset", async () => {
+    const env = browser();
+    const options = { ...config(), startKey: "11", metadataProvider: () => ({ title: "Saved", tags: [] }) };
+    options.items[0].mimeType = "video/mp4";
+    env.window.ImageViewer.open(options);
+    const video = env.find("image-viewer-image");
+    assert.equal(video.tagName, "video");
+    for (const property of ["muted", "loop", "autoplay", "playsInline"]) assert.equal(video[property], true);
+    assert.equal(video.controls, undefined);
+    assert.equal(env.find("image-viewer-preview"), undefined);
+    video.videoWidth = 1000; video.videoHeight = 1000; video.dispatch("loadedmetadata");
+    assert.equal(env.find("image-viewer-zoom").textContent, "60%");
+    control(env, "1:1").dispatch("click");
+    const stage = env.find("image-viewer-stage");
+    stage.dispatch("pointerdown", { pointerId: 1, clientX: 0, clientY: 0 });
+    stage.dispatch("pointermove", { pointerId: 1, clientX: 1000, clientY: 1000 });
+    assert.ok(video.style.transform.includes("translate(100px, 200px)"));
+    env.viewerButton("作品信息").dispatch("click");
+    await new Promise(setImmediate);
+    env.find("image-viewer").dispatch("cancel");
+    assert.equal(env.find("image-viewer").open, true);
+    assert.equal(env.find("image-viewer-inspector").hidden, true);
+    control(env, "→").dispatch("click");
+    assert.equal(video.paused, true); assert.equal(video.src, undefined); assert.ok(video.loadCount > 0);
+    const image = env.find("image-viewer-image");
+    assert.equal(image.tagName, "img");
+    video.dispatch("loadedmetadata"); video.dispatch("error");
+    assert.equal(env.find("image-viewer-zoom").textContent, "");
+    load(env, 200, 100);
+    assert.equal(env.find("image-viewer-status").textContent, "");
+    control(env, "←").dispatch("click");
+    const loadingVideo = env.find("image-viewer-image");
+    loadingVideo.dispatch("error");
+    env.find("image-viewer-feedback").children[1].dispatch("click");
+    assert.equal(loadingVideo.paused, true);
+    const retry = env.find("image-viewer-image");
+    loadingVideo.dispatch("loadedmetadata"); loadingVideo.dispatch("error");
+    assert.equal(env.find("image-viewer-image"), retry);
+    env.window.ImageViewer.close();
+    retry.dispatch("loadedmetadata"); retry.dispatch("error");
+    assert.equal(retry.paused, true);
+    assert.equal(env.find("image-viewer-stage").children.length, 0);
+});
 function control(env, text) {
     const labels = { "←": "上一张图片", "→": "下一张图片", "−": "缩小图片",
         "+": "放大图片", "适应窗口": "适应窗口", "1:1": "原始尺寸" };

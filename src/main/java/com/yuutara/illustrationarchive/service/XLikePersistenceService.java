@@ -33,6 +33,13 @@ public class XLikePersistenceService {
 			if (itemId == null) {
 				existing++;
 				storedStatus = items.findStatusByPostId(candidate.xPostId());
+				Long reopened = storedStatus == XLikeStatus.UNSUPPORTED && candidate.status() == XLikeStatus.PENDING
+						? items.reopenUnsupported(candidate.xPostId()) : null;
+				if (reopened != null) {
+					media.deleteForItem(reopened);
+					for (XLikeMedia attachment : candidate.media()) media.insert(reopened, attachment);
+					storedStatus = XLikeStatus.PENDING;
+				}
 			} else {
 				added++;
 				storedStatus = candidate.status();

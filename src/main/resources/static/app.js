@@ -122,22 +122,31 @@
             : item && item.coverAssetId != null ? [{ id: item.coverAssetId, mimeType: item.coverMimeType }] : [];
     }
 
-    function measureRatio(url, timeout) {
+    function measureRatio(url, timeout, mimeType) {
         if (!url) return Promise.resolve(1);
         if (sizeCache.has(url)) return Promise.resolve(sizeCache.get(url));
         if (timeout <= 0) return Promise.resolve(1);
         return new Promise(resolve => {
-            const probe = new Image();
+            const isVideo = mimeType === "video/mp4";
+            const probe = isVideo ? document.createElement("video") : new Image();
+            if (isVideo) probe.preload = "metadata";
+            let finished = false;
             const timer = window.setTimeout(() => finish(false), timeout);
             const finish = success => {
-                clearTimeout(timer);
-                probe.onload = probe.onerror = null;
-                const ratio = success && probe.naturalWidth > 0 && probe.naturalHeight > 0
-                    ? probe.naturalWidth / probe.naturalHeight : 1;
-                if (success && probe.naturalWidth > 0 && probe.naturalHeight > 0) sizeCache.set(url, ratio);
+                if (finished) return;
+                finished = true;
+                window.clearTimeout(timer);
+                probe.onload = probe.onloadedmetadata = probe.onerror = null;
+                const width = isVideo ? probe.videoWidth : probe.naturalWidth;
+                const height = isVideo ? probe.videoHeight : probe.naturalHeight;
+                const valid = success && width > 0 && height > 0;
+                const ratio = valid ? width / height : 1;
+                if (valid) sizeCache.set(url, ratio);
+                if (isVideo) { probe.removeAttribute("src"); probe.load(); }
                 resolve(ratio);
             };
-            probe.onload = () => finish(true);
+            if (isVideo) probe.onloadedmetadata = () => finish(true);
+            else probe.onload = () => finish(true);
             probe.onerror = () => finish(false);
             probe.src = url;
         });
@@ -152,7 +161,7 @@
                 const index = next++;
                 const assets = assetsFor(items[index]);
                 const cover = assets.find(asset => asset.id === items[index].coverAssetId) || assets[0];
-                ratios[index] = await measureRatio(galleryImageUrl(cover), deadline - Date.now());
+                ratios[index] = await measureRatio(galleryImageUrl(cover), deadline - Date.now(), cover?.mimeType);
             }
         }
         await Promise.all(Array.from({ length: Math.min(4, items.length) }, worker));
@@ -354,7 +363,7 @@
         if (mimeType === "image/jpeg" || mimeType === "image/png") {
             return `/api/assets/${encodeURIComponent(String(assetId))}/thumbnail`;
         }
-        if (mimeType === "image/gif") {
+        if (mimeType === "image/gif" || mimeType === "video/mp4") {
             return `/api/assets/${encodeURIComponent(String(assetId))}/content`;
         }
         return null;
@@ -429,7 +438,26 @@
         }
     }
 
+    const galleryVideos = new Set();
+    const videoObserver = typeof IntersectionObserver === "function" ? new IntersectionObserver(entries => {
+        entries.forEach(({ target, isIntersecting }) => {
+            if (!galleryVideos.has(target)) return; // ignore already queued events for released previews
+            if (isIntersecting) {
+                if (!target.getAttribute("src")) target.src = target.dataset.sourceUrl;
+                target.play().catch(() => { /* Browser policy may defer autoplay. */ });
+            } else target.pause();
+        });
+    }, { rootMargin: "150px" }) : null;
+
+    function releaseCardMedia(node) {
+        if (!node || node.tagName.toLowerCase() !== "video") return;
+        videoObserver?.unobserve(node);
+        galleryVideos.delete(node);
+        node.pause(); node.removeAttribute("src"); node.load();
+    }
+
     function showGallery(items, ratios) {
+        galleryVideos.forEach(releaseCardMedia);
         cardViews.clear();
         gallery.replaceChildren();
         statePanel.hidden = true;
@@ -478,25 +506,38 @@
 
         const assets = assetsFor(item);
         let currentIndex = Math.max(0, assets.findIndex(asset => String(asset.id) === browse.imageKey(groupKey)));
-        const image = document.createElement("img");
-        image.alt = "";
-        image.loading = "lazy";
-        image.decoding = "async";
-        image.addEventListener("error", function () {
-            image.hidden = true;
-            fallback.hidden = false;
-        });
-        imageLink.append(image, fallback);
+        let image = null;
+        imageLink.appendChild(fallback);
         imageContainer.appendChild(imageLink);
 
         function showAsset() {
             const asset = assets[currentIndex];
             const imageUrl = galleryImageUrl(asset);
+            const decorations = Array.from(imageLink.children).filter(node => node !== image && node !== fallback);
+            releaseCardMedia(image);
+            const currentMedia = document.createElement(asset?.mimeType === "video/mp4" ? "video" : "img");
+            image = currentMedia;
+            image.alt = "";
+            image.loading = "lazy";
+            image.decoding = "async";
+            image.addEventListener("error", () => {
+                if (image !== currentMedia) return;
+                image.hidden = true;
+                fallback.hidden = false;
+            });
+            imageLink.replaceChildren(image, fallback, ...decorations);
             image.hidden = imageUrl === null;
             fallback.hidden = imageUrl !== null;
             fallback.textContent = asset ? "图片加载失败" : "暂无图片";
             if (imageUrl !== null) {
-                image.src = imageUrl;
+                if (asset.mimeType === "video/mp4") {
+                    image.muted = true; image.loop = true; image.autoplay = true; image.playsInline = true;
+                    image.preload = "none";
+                    image.dataset.sourceUrl = imageUrl;
+                    galleryVideos.add(image);
+                    if (videoObserver) videoObserver.observe(image);
+                    else image.src = imageUrl;
+                } else image.src = imageUrl;
             }
             if (asset && detailUrl) {
                 const href = browse.detailHref(item.id, String(asset.id));
@@ -518,7 +559,7 @@
                 startKey: assets[currentIndex] && String(assets[currentIndex].id),
                 items: assets.map(asset => ({ key: String(asset.id),
                     fullUrl: `/api/assets/${encodeURIComponent(String(asset.id))}/content`,
-                    previewUrl: galleryImageUrl(asset), alt: title })),
+                    previewUrl: galleryImageUrl(asset), mimeType: asset.mimeType, alt: title })),
                 detailHref: key => browse.detailHref(item.id, key),
                 metadataProvider: async () => {
                     const response = await fetch(`/api/illustrations/${encodeURIComponent(String(item.id))}`, { cache: "no-store" });

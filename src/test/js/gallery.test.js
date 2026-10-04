@@ -152,6 +152,54 @@ async function setup(items = [multi], options = {}) {
 }
 function link(env, index = 0) { return env.elements.get("gallery").children[index].children[0].children[0]; }
 
+test("MP4 cover ratio uses metadata cache and card playback waits for visibility; cycling releases video", async () => {
+    const env = browser();
+    env.sandbox.imageSizeImpl = () => { throw new Error("MP4 must not use Image"); };
+    env.sandbox.videoSizeImpl = () => ({ width: 1200, height: 600 });
+    const item = { ...multi, assets: [{ id: 11, sortOrder: 0, mimeType: "video/mp4" }, { id: 22, sortOrder: 1, mimeType: "image/png" }] };
+    env.sandbox.fetchImpl = async () => ({ ok: true, json: async () => ({ page: 0, totalPages: 1, totalElements: 1, items: [item] }) });
+    env.run("app.js"); await settle(); env.flushFrames();
+    const video = link(env).children[0], card = env.elements.get("gallery").children[0];
+    assert.equal(video.tagName, "video");
+    assert.equal(video.src, undefined); assert.equal(video.preload, "none");
+    assert.equal(video.muted, true); assert.equal(video.loop, true); assert.equal(video.playsInline, true);
+    assert.equal(video.autoplay, true); assert.equal(video.controls, undefined);
+    assert.ok(Math.abs(parseFloat(card.style.width) / parseFloat(card.style.height) - 2) < 0.01);
+    env.intersect(video, true); await settle();
+    assert.equal(video.src, "/api/assets/11/content"); assert.equal(video.paused, false);
+    env.intersect(video, false); assert.equal(video.paused, true);
+    const initial = { ...card.style };
+    card.querySelectorAll(".card-asset-button")[1].dispatch("click");
+    assert.equal(video.src, undefined); assert.ok(video.loadCount > 0);
+    assert.equal(link(env).children[0].tagName, "img");
+    assert.equal(link(env).children[0].src, "/api/assets/22/thumbnail");
+    video.dispatch("error"); assert.equal(link(env).children[1].hidden, true);
+    assert.deepEqual({ ...card.style }, initial);
+    card.querySelectorAll(".card-asset-button")[0].dispatch("click");
+    link(env).dispatch("click");
+    assert.equal(env.find("image-viewer-image").tagName, "video");
+    env.window.history.back(); await settle();
+    env.window.history.forward(); await settle();
+    assert.equal(env.find("image-viewer-image").tagName, "video");
+    const refreshed = browser({ storage: env.storage });
+    refreshed.sandbox.videoSizeImpl = () => { throw new Error("Cached ratio must avoid metadata reload"); };
+    refreshed.sandbox.fetchImpl = env.sandbox.fetchImpl;
+    refreshed.run("app.js"); await settle(); refreshed.flushFrames();
+    assert.deepEqual({ ...refreshed.elements.get("gallery").children[0].style }, initial);
+});
+
+test("failed or late video metadata reserves a frame and does not overwrite ratio cache", async () => {
+    const env = browser(); let metadata;
+    env.sandbox.videoSizeImpl = () => new Promise(resolve => { metadata = resolve; });
+    env.sandbox.fetchImpl = async () => ({ ok: true, json: async () => ({ page: 0, totalPages: 1, totalElements: 1,
+        items: [{ id: 7, coverAssetId: 11, coverMimeType: "video/mp4" }] }) });
+    env.run("app.js"); await settle(); env.flushTimers(); await settle(); env.flushFrames();
+    const card = env.elements.get("gallery").children[0], initial = { ...card.style };
+    metadata({ width: 1600, height: 400 }); await settle();
+    assert.deepEqual({ ...card.style }, initial);
+    assert.equal(env.storage.get("ia:masonry:sizes:v1"), "[]");
+});
+
 test("one Illustration is one image entry; only multiple assets get preview arrows and a total", async () => {
     const env = await setup([multi, { id: 8, coverAssetId: 40, coverMimeType: "image/gif" }]);
     assert.equal(env.elements.get("gallery").children.length, 2);

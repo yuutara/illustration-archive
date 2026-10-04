@@ -111,6 +111,18 @@ class AssetContentControllerTest {
 				.andExpect(content().bytes(originalBytes));
 	}
 
+	@Test
+	void mp4HasOriginalContentHeadersAndNoThumbnail() throws Exception {
+		byte[] bytes = {0, 0, 0, 20, 'f', 't', 'y', 'p', 'i', 's', 'o', 'm', 0, 0, 0, 0, 'm', 'p', '4', '2'};
+		write("2026-10/a.mp4", bytes);
+		var mvc = mvc(repository(16L, "2026-10/a.mp4", "video/mp4", bytes.length));
+		mvc.perform(get("/api/assets/16/content"))
+				.andExpect(status().isOk()).andExpect(content().contentType("video/mp4"))
+				.andExpect(header().string("Content-Length", String.valueOf(bytes.length)))
+				.andExpect(content().bytes(bytes));
+		mvc.perform(get("/api/assets/16/thumbnail")).andExpect(status().isNotFound());
+	}
+
 	private void assertThumbnail(long id, String filename, String mimeType, byte[] thumbnailBytes) throws Exception {
 		String storageKey = "2026-09/" + filename;
 		write("thumbnails/" + storageKey, thumbnailBytes);
