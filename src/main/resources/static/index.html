@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Illustration Archive</title>
+    <script src="/theme.js"></script>
     <link rel="stylesheet" href="/style.css">
     <script src="/image-viewer.js" defer></script>
     <script src="/browse-context.js" defer></script>
@@ -55,7 +56,10 @@
             aria-controls="import-panel">导入插画</button>
     <details class="browse-more">
         <summary aria-label="更多操作">⋯</summary>
-        <div class="browse-more-menu"><a href="/x-import.html">X Import →</a></div>
+        <div class="browse-more-menu">
+            <a href="/x-import.html">X Import →</a>
+            <button class="theme-toggle" type="button" aria-pressed="false" hidden>深色模式</button>
+        </div>
     </details>
 </header>
 <main class="page-shell">

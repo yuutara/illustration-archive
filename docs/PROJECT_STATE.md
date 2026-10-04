@@ -5,17 +5,33 @@
 
 ## Current Version
 
-V0.5 - 图库使用体验（当前工作包：F06A Inbox Animated Preview Proxy，待 Review）
+V0.5 - 图库使用体验（F06 已完成并封存；F07 Dark Mode 已完成并通过人工视觉验收）
+
+当前分支：`v0.5-dark-mode`。
+
+### V0.5-F07｜Dark Mode
+
+2026-10-05，在 `v0.5-x-animated-media` 的稳定基线上进入 `v0.5-dark-mode`。统一 Light / Dark Theme 已完成，用户确认人工视觉验收通过；尚未 commit / push，不宣告 V0.5 Final Acceptance。
+
+- 使用 `html[data-theme="light"]` / `html[data-theme="dark"]` 和 CSS custom properties。Light 保留现有配色；Dark 使用暖黑 / 墨灰背景、柔和浅色文字和低饱和鼠尾草 accent。
+- 新增共享 `theme.js`，三个页面在 `style.css` 前同步加载并尽早恢复主题。localStorage key 为 `illustration-archive.theme.v1`，仅保存 `light` / `dark`；无有效保存值默认 Light，存储异常不阻断当前页面切换。Gallery / Detail / Inbox 提供“深色模式”入口并更新 `aria-pressed`，Unified Viewer 自动跟随全局主题。
+- 人工视觉验收覆盖 Light / Dark、localStorage 持久化，以及 Gallery / Unified Viewer / Viewer Inspector / Detail / Inbox / Metadata Picker。图片、GIF、MP4 本身不加滤镜、不降低亮度。
+- 本工作包仅调整颜色主题和切换入口，不改变既有布局规则、Masonry、Viewer、媒体生命周期或业务状态逻辑；没有第三方主题库、system 自动同步、storage event 跨标签页同步、BFCache 专门同步、URL theme 参数或主题切换动画系统。
+- 实现文件：`style.css`、`index.html`、`detail.html`、`x-import.html`；新增 `theme.js`、`src/test/js/theme.test.js`。业务 JS 和既有测试 helper 未修改。
+
+**自动化验证（实现阶段）：**`node --test src/test/js/theme.test.js`，7/7 通过；`node --test (rg --files src/test/js -g '*.test.js')`，**115/115 通过，0 failures / skipped**；`git diff --check` 通过。另做源码对照检查，原有 CSS 声明在解析 Light fallback 后与基线一致；此检查与用户确认的人工视觉验收分别记录。
+
+**验收确认与证据边界：**以上人工视觉验收由用户确认。本次仅更新本文，不重新运行 JS / Maven 测试或浏览器验收；未修改代码，未 commit / push。
 
 ### V0.5-F06A｜Inbox Animated Preview Proxy
 
-2026-10-04，继续在 `v0.5-x-animated-media` 上修复 Inbox 的 CDN hotlink 403。用户已反馈 F06 核心真实端到端验收通过：animated_gif Sync 为 PENDING、Archive 成功、Gallery / Detail / Unified Viewer 的已保存 MP4 在重启后仍正常播放。该反馈是用户提供的实机证据；本轮未重新执行上述核心链路。
+2026-10-04，在 `v0.5-x-animated-media` 上修复 Inbox 的 CDN hotlink 403。F06A 已完成，用户确认实际 Inbox 预览通过，解决浏览器直接访问 `video.twimg.com` 的 403；与 F06 一同封存。以下保留实现阶段的设计和测试记录，真实验收结论来自用户确认。
 
 - 新增 `GET /api/x-import/inbox/{itemId}/media/{mediaKey}/content`。使用既有 `XLikeMediaRepository.findByItemId(itemId)` 的绑定查询，再匹配 mediaKey，必须是数据库中的 `animated_gif`。不存在 item（FK 保证无对应 media rows）、不存在 media 或非 animated_gif 均返回 404；不接受外部 URL 参数，不更新数据或状态。
 - 复用 `XAnimatedMediaUrl.parse` 对保存的 source URL 再次校验：HTTPS、精确 `video.twimg.com`、MP4 路径，禁止 userinfo / port / fragment。Java HttpClient 不跟随重定向，Accept 为 video/mp4。只接受 upstream 完整 200 且 Content-Type 为 video/mp4；上游非 200、非 MP4、非法响应长度、网络失败等返回安全的 502，不转发上游错误 body 或 Location。
 - service 只返回未消费的 upstream InputStream 与已知长度；controller 直接 `transferTo` servlet 输出流，返回 `video/mp4`，有已知长度才设置 Content-Length，Cache-Control 为 no-store。成功、校验失败或客户端写入失败都会关闭 upstream body；开始流式写入后若连接断开，不保证还能改写已经提交的 HTTP 状态。
 - Inbox 卡片及 Inbox Viewer 的 animated_gif 使用本地 proxy URL，photo 保留原 sourceUrl。没有改 Gallery / Detail / Unified Viewer 文件，没有接入 FileStorage / Asset，没有改变 Archive 语义、ordinary video 的 UNSUPPORTED 规则或 schema；无 Range / 206、缓存系统或新依赖。即使浏览器带 Range，请求仍按完整 200 转发，不把 Range 发给 upstream。
-- 本次修改文件：新增 `XAnimatedPreviewService.java`、`XAnimatedPreviewController.java`、`XAnimatedPreviewServiceTest.java`、`XAnimatedPreviewControllerTest.java`；修改 `x-import.js`、`x-import.test.js`、`README.md` 和本文。原 F06 未提交改动保留，未 stage / commit / push。
+- 实现阶段修改文件：新增 `XAnimatedPreviewService.java`、`XAnimatedPreviewController.java`、`XAnimatedPreviewServiceTest.java`、`XAnimatedPreviewControllerTest.java`；修改 `x-import.js`、`x-import.test.js`、`README.md` 和本文。
 
 **验证：**focused Maven 使用 Wrapper / 既有 cache / repo temp 参数及 `'-Dtest=XAnimatedPreviewServiceTest,XAnimatedPreviewControllerTest' test`，8/8 通过；`node --test src/test/js/x-import.test.js`，25/25 通过。最终完整命令：
 
@@ -25,11 +41,13 @@ node --test (rg --files src/test/js -g '*.test.js')
 git diff --check
 ```
 
-Maven **319 tests、0 failures、0 errors、3 skipped，BUILD SUCCESS**；skipped 仍为未启用的两个 MySQL 与 LocalStack 外部测试。JS **108/108 通过**；diff check 通过。测试覆盖 database record lookup、非 animated_gif / 缺失项、URL 安全校验、HTTP / MIME / 长度 / 网络失败、未预读 body、正常与断线关闭、完整 200 / 无 Range 转发、本地 proxy URL 和 photo 回归。HttpClient / Repository 为 mock，MockMvc / JS 为自动化证据，本轮未重启日常 Spring Boot 或访问真实 CDN；F06A 的实际 Inbox 播放待用户重启后验收。日志在 ignored `.maven/f06a-focused.log`、`f06a-test.log`、`f06a-js-focused.log`、`f06a-js.log`。首次 Maven sandbox 缓存 JAR 读取失败，提升权限后执行成功。
+F06A 完成时，Maven **319 tests、0 failures、0 errors、3 skipped，BUILD SUCCESS**；skipped 仍为未启用的两个 MySQL 与 LocalStack 外部测试。JS **108/108 通过**；diff check 通过。测试覆盖 database record lookup、非 animated_gif / 缺失项、URL 安全校验、HTTP / MIME / 长度 / 网络失败、未预读 body、正常与断线关闭、完整 200 / 无 Range 转发、本地 proxy URL 和 photo 回归。HttpClient / Repository 为 mock，MockMvc / JS 为自动化证据；实际 Inbox 播放另由用户真实验收确认通过，不以 mock 测试代替。日志在 ignored `.maven/f06a-focused.log`、`f06a-test.log`、`f06a-js-focused.log`、`f06a-js.log`。首次 Maven sandbox 缓存 JAR 读取失败，提升权限后执行成功。
 
 ### V0.5-F06｜X Animated Media Support
 
-2026-10-04，从 `v0.5-viewer-inspector` 创建并切换到 `v0.5-x-animated-media`。实现和自动化测试完成，待用户 Review；未 commit / push / merge / tag，不宣告 V0.5 Final Acceptance。
+2026-10-04，从 `v0.5-viewer-inspector` 创建并切换到 `v0.5-x-animated-media`。F06 已完成并封存，稳定基线提交为 `2e2046a`（`feat: support X animated media`）；不宣告 V0.5 Final Acceptance。
+
+**真实验收与封存确认（截至 2026-10-05）：**用户确认 X `animated_gif` → 合法 MP4 variant → Inbox → Archive → Gallery / Detail / Unified Viewer 全链路已真实验收通过，重启后已归档 MP4 仍正常播放；F06A Inbox preview proxy 已完成并解决 CDN 403。F06A 完成时的最终自动化基线为 Java **319 tests**、JS **108/108**，详细结果见上节。
 
 - Likes 请求增加 `variants,preview_image_url`，与 X 官方 Likes endpoint / Media 字段文档一致。只支持 `photo` 和 `animated_gif`；普通 `video`、unknown、无媒体或无法选择合法 MP4 的动画使整条 Post 为 `UNSUPPORTED`。DTO `photoUrl` 最小泛化为 `sourceUrl`，沿用既有 `source_url` 字段，不保存 poster。
 - MP4 variant 必须声明 `content_type=video/mp4`，URL 为 HTTPS、精确 `video.twimg.com` host、无 userinfo / 显式 port / fragment，路径以 `.mp4` 结尾。数值非负 bitrate 最大者优先；缺失或非数值 bitrate 作为 fallback，同 bitrate / fallback 保留 API 数组中首次出现的合法候选。
@@ -49,7 +67,7 @@ Maven **319 tests、0 failures、0 errors、3 skipped，BUILD SUCCESS**；skippe
 - Java 测试：`AssetContentControllerTest.java`、`XImportControllerTest.java`、`XLikeRepositoryTest.java`、`IllustrationDeleteServiceTest.java`、`XApiClientTest.java`、`XImportServiceTest.java`、`XLikePersistenceServiceTest.java`、`XPostPersistenceServiceTest.java`；新增 `XAnimatedDownloadServiceTest.java`、`AnimatedStorageContractTest.java`、`XAnimatedPersistenceMySqlTest.java`。
 - JS 测试：`detail.test.js`、`gallery.test.js`、`image-viewer.test.js`、`x-import.test.js`、`helpers/browser.js`。文档：`README.md`、本文。
 
-**最终自动化验证：**
+**F06 核心实现阶段自动化验证（F06A 之前）：**
 
 ```powershell
 .\mvnw.cmd '-Dmaven.repo.local=C:\Users\YuanYuChou\.m2\repository' '-DargLine=-Djava.io.tmpdir=D:\IdeaProjects\illustration-archive\target\test-temp' verify
@@ -59,9 +77,9 @@ git diff --check
 
 Maven **311 tests、0 failures、0 errors、3 skipped，BUILD SUCCESS**，完成 JAR 打包。跳过的是未启用的 `IllustrationGalleryMySqlTest`、`XAnimatedPersistenceMySqlTest` 和 `S3StorageLocalStackTest`。JS **107/107 通过、0 failures / skipped**；diff check 通过。集中 Java 测试亦运行过 `-Dtest=XApiClientTest,XLikePersistenceServiceTest,XImportServiceTest,AssetContentControllerTest,AnimatedStorageContractTest,XAnimatedDownloadServiceTest,IllustrationDeleteServiceTest,XLikeRepositoryTest`，49/49 通过。最初 sandbox 无法读取 AWS SDK 缓存 JAR，提升权限后正常；未以产品改动绕过环境问题。日志在 ignored `.maven/f06-focused.log`、`f06-verify.log`、`f06-js.log`。
 
-**证据边界与待验收：**Local contract 使用真实临时文件；S3 contract mock `S3ObjectStore`，不等同真实 S3。MP4 fixtures 为容器 header 测试字节，不是可播放的视频；JS 使用模拟 DOM / metadata / intersection，不等同浏览器播放。新增 opt-in MySQL 测试验证 Spring proxy 下 media replacement 失败的状态 / rows 回滚，并验证恢复及 processed 状态保留；本轮仅编译、未启用执行。启用须提供 `F06_MYSQL_TEST_URL/USERNAME/PASSWORD`；URL 只允许全新 `illustration_archive_f06_test_<digits>` schema，不得已有，完成后删除该专用 schema。
+**实现阶段测试证据边界：**Local contract 使用真实临时文件；S3 contract mock `S3ObjectStore`，不等同真实 S3。MP4 fixtures 为容器 header 测试字节，不是可播放的视频；JS 使用模拟 DOM / metadata / intersection，不等同浏览器播放。新增 opt-in MySQL 测试验证 Spring proxy 下 media replacement 失败的状态 / rows 回滚，并验证恢复及 processed 状态保留；该阶段仅编译、未启用执行。启用须提供 `F06_MYSQL_TEST_URL/USERNAME/PASSWORD`；URL 只允许全新 `illustration_archive_f06_test_<digits>` schema，不得已有，完成后删除该专用 schema。
 
-本轮未调用真实 X Sync、未写现有收藏库、未启动浏览器或真实 S3 验收。仍需真实 X animated_gif → Sync → Inbox → Archive → Gallery / Detail / Viewer、旧 UNSUPPORTED 再次 Sync 恢复、真实 MySQL 事务、S3 MP4 存取删除，以及 Chrome / Android Chrome 经既有 200 content 响应的实际播放、循环、视口加载、尺寸与触屏导航验收。若实际 200 响应无法满足短 MP4 播放，应先报告，不自动扩展 Range。
+上述核心实现阶段未调用真实 X Sync、未写现有收藏库、未启动浏览器或真实 S3 验收；后续用户已确认本节所述全链路真实验收通过并封存。本次文档更新不重新执行验收，也不将 mock 或未启用的外部测试计为真实环境证据。
 
 ### V0.5-B｜Viewer Inspector / Quick Detail Drawer
 
