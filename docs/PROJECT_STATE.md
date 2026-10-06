@@ -5,13 +5,13 @@
 
 ## Current Version
 
-V0.5 已完成并准备封版（图库使用体验；本轮 P0 交互收敛与封版验收通过）
+V0.5.0 已发布；V0.5 正式封版，项目进入 maintenance / interest-driven 状态（图库使用体验；P0 交互收敛与封版验收通过）。
 
 V0.5 实施分支：`v0.5-ai-analysis`；历史稳定基线来自 `v0.5-dark-mode`（`3faabe0 feat: add dark mode`）。
 
 ### V0.5｜交互收敛与封版验收（完成）
 
-2026-10-06，按用户批准的五项 P0 实施减法，并达到本轮指定的封版停止条件；final patch Review 已通过，没有代码 blocker。V0.5 已完成并准备封版，停止继续打磨 V0.5，不自动进入 V0.6。以下历史阶段记录保留当时证据，其中分支、commit / push 与待验收描述只反映各阶段当时状态，不代表当前状态；最新交互与验收结论以本节为准。
+2026-10-06，按用户批准的五项 P0 实施减法，并达到本轮指定的封版停止条件；final patch Review 已通过，没有代码 blocker。最终实现提交为 `396ed46 feat: complete V0.5 AI analysis and UX polish`，`v0.5.0` 已发布并指向该提交。V0.5 正式封版，项目进入 maintenance / interest-driven 状态，不自动进入 V0.6。以下历史阶段记录保留当时证据，其中分支、commit / push 与待验收描述只反映各阶段当时状态，不代表当前状态；最新交互与验收结论以本节为准。
 
 - Gallery Viewer 只保留 chrome 中一个“查看详情”，已完成 AI 结果自动带入，保留当前 Asset 和 Gallery 返回位置。删除 Inspector 的“查看完整详情”“在详情继续读”，从 Detail 打开的 Viewer 不再链接回同一 Detail。
 - Viewer 是完整 AI 阅读界面；单一“信息 / AI”入口打开 Inspector，内部切换作品信息 / AI 分析，切图保留所选视图。当前页描述、原文与译文优先显示，全篇摘要 / 角色 / 关系 / Tag 建议用原生 details 默认折叠。Detail 删除完整结果区与第二个分析按钮，顶部入口直接打开当前 Asset 的 Viewer AI 视图。结果仍临时保存在页面内存，一次性移交消费后删除，刷新后消失。
@@ -156,7 +156,7 @@ Maven **311 tests、0 failures、0 errors、3 skipped，BUILD SUCCESS**，完成
 
 ### V0.5-A｜Metadata Picker + Gallery Faceted Browse
 
-2026-10-03，按用户指定范围实现；当前分支 `v0.5-metadata-picker`。未 commit / push / merge / tag，不宣告 V0.5 Final Acceptance。
+2026-10-03，按用户指定范围实现；当时分支为 `v0.5-metadata-picker`。当时未 commit / push / merge / tag，也未宣告 V0.5 Final Acceptance。
 
 - 扩展既有 `GET /api/authors`、`GET /api/tags`：空或空白 keyword 列出现有项，`limit` 默认 20、允许 1..100，`offset` 默认 0、不得为负；非法参数 HTTP 400。仍返回数组，不新增总数查询或平行 endpoint。作者按 `display_name ASC, id ASC`、Tag 按 `name ASC, id ASC` 排序，查询使用绑定参数；作者 picker 支持带 `@` 的 handle 搜索。没有 migration 或新数据模型；用户追加授权后的 Gallery 多选查询扩展见下方收尾记录。
 - 新增小型原生 `metadata-picker.js`，仅负责列表、辅助搜索、加载更多、loading / error 和选中状态。每次展开直接读取现有项；分页按实际服务器返回条数推进 offset，不将置顶的已选项计入 offset。选中项按 ID 去重并始终置顶显示，搜索和分页也保留勾选状态；输入立即使旧请求失效，关闭后忽略在途响应，加载更多失败保留已读列表并可原位重试。
@@ -315,7 +315,7 @@ C1 用户本机真实验收：初始 credential file 的 `expires_at` 留空，�
 
 B3 验证：完整 Java 测试 266/266（含显式启用的真实 LocalStack adapter 测试）、JS 11/11 通过；独立 Compose project 成功构建镜像，MySQL/Flyway 和 `storage.type=s3` 应用启动。独立数据库中导入 PNG 后，`asset.storage_key` 为相对 key，bucket 中原图与 thumbnail 均存在；原图与缩略图 HTTP 200，原图字节与测试源文件一致，浏览器 Gallery 与 Detail 均显示图片。重复导入返回 409，bucket key 集合不增加；删除 Illustration 返回 204，Illustration/Asset 行及两个对象均消失。此前在同一独立 project 的 Local 模式导入的测试 PNG，在停止 LocalStack 并切回 Local 后，原图与缩略图仍可读取，浏览器 Gallery 正常。测试没有访问或迁移真实图库。固定的 LocalStack Community 镜像只作临时实验；实测重启后 bucket 状态丢失，不能将其与保留的 MySQL volume 作为持久图库使用。
 
-V0.4 Final Acceptance（2026-09-29）已通过：当前 HEAD `3f7943b` 的完整 Java 测试为 278 tests、0 failures、0 errors、1 skipped（需外部 LocalStack），JS 测试 15/15，`git diff --check` 通过。使用独立 Compose project、独立测试数据库和默认 Local Storage 构建并启动应用及 MySQL 8.4；空库上 Flyway V1-V6 全部成功。浏览器中的 Gallery、Detail、空 Inbox 正常，测试 PNG 导入后原图与缩略图均可读取，原图 SHA-256 与源文件一致，数据库保存相对 `storage_key`。保留两个 volume 重建容器后，Illustration 记录、原图、缩略图及六条成功 migration 记录仍在；隔离测试容器、volume 与临时文件已清理。本机现有实例也通过 Gallery / Detail / Inbox 浏览器与 HTTP 基本核对，本地 MySQL 的 V1-V6 均为成功。GitHub Actions 最新 CI #5 对同一 HEAD 显示 Success；对当前跟踪文件、历史敏感路径及忽略规则的检查未发现真实凭据提交。此次没有重新调用真实 X API 或 LocalStack。`v0.4.0` 尚未创建；文档变更待用户确认后提交、push，并以新提交的 CI 结果作为打 tag 前的最终远端证据。
+V0.4 Final Acceptance（2026-09-29）已通过：当时 HEAD `3f7943b` 的完整 Java 测试为 278 tests、0 failures、0 errors、1 skipped（需外部 LocalStack），JS 测试 15/15，`git diff --check` 通过。使用独立 Compose project、独立测试数据库和默认 Local Storage 构建并启动应用及 MySQL 8.4；空库上 Flyway V1-V6 全部成功。浏览器中的 Gallery、Detail、空 Inbox 正常，测试 PNG 导入后原图与缩略图均可读取，原图 SHA-256 与源文件一致，数据库保存相对 `storage_key`。保留两个 volume 重建容器后，Illustration 记录、原图、缩略图及六条成功 migration 记录仍在；隔离测试容器、volume 与临时文件已清理。本机现有实例也通过 Gallery / Detail / Inbox 浏览器与 HTTP 基本核对，本地 MySQL 的 V1-V6 均为成功。GitHub Actions 当时最新的 CI #5 对同一 HEAD 显示 Success；对当时跟踪文件、历史敏感路径及忽略规则的检查未发现真实凭据提交。此次没有重新调用真实 X API 或 LocalStack。在该验收记录形成时，`v0.4.0` 尚未创建；文档变更待用户确认后提交、push，并以新提交的 CI 结果作为打 tag 前的最终远端证据。此后 `v0.4.0` 已发布。
 
 V0.2 的 Final Acceptance 已完成，代码已 push，并已创建 `v0.2.0` tag。
 

@@ -10,7 +10,7 @@ Illustration Archive 解决的是“把散落在本地的插画文件整理成�
 
 本项目当前无用户鉴权，定位为 local-first 个人工具，不应直接暴露到公网或不可信局域网。
 
-V0.3 已正式封存，增加 X Likes 手动同步与多图归档；V0.4 已正式完成并发布 `v0.4.0`。V0.5 已完成本轮交互收敛与封版验收，验收范围见 `docs/PROJECT_STATE.md`。`v0.1.0`、`v0.2.0`、`v0.3.0` 和 `v0.4.0` 均已创建并 push tag。
+V0.3 已正式封存，增加 X Likes 手动同步与多图归档；V0.4 和 V0.5 已分别发布 `v0.4.0`、`v0.5.0`。V0.5 已完成交互收敛与封版验收，正式封版；项目进入 maintenance / interest-driven 状态。验收范围见 `docs/PROJECT_STATE.md`。
 
 ## 项目截图
 
@@ -495,7 +495,7 @@ macOS/Linux：
 
 ## 版本状态
 
-`v0.1.0`、`v0.2.0` 和 `v0.3.0` tag 均已创建并 push。V0.3 已正式封存，具备 X Likes 手动同步、Inbox 照片归档和多 Asset 浏览能力。V0.4 的 A1/A2/A3、B1/B2/B3、C1、D1 工作包与 Final Acceptance 已完成；`v0.4.0` 尚未发布。各项真实环境验收边界见 `docs/PROJECT_STATE.md`。
+`v0.1.0`、`v0.2.0`、`v0.3.0`、`v0.4.0` 和 `v0.5.0` tag 均已创建并 push。V0.3 已正式封存，具备 X Likes 手动同步、Inbox 照片归档和多 Asset 浏览能力。V0.4 的 A1/A2/A3、B1/B2/B3、C1、D1 工作包与 Final Acceptance 已完成，`v0.4.0` 已发布。V0.5 的交互收敛与封版验收已完成，`v0.5.0` 已发布并正式封版；项目进入 maintenance / interest-driven 状态。各项真实环境验收边界见 `docs/PROJECT_STATE.md`。
 
 当前默认仍为单机、本地文件系统存储；V0.4-B3 提供可选的 S3-compatible 本地验证模式，不包含历史数据迁移或云端部署。V0.4-C1 使用 Developer Console 手工生成的初始 OAuth 2.0 Token 并在本机按需刷新，已通过用户本机真实 X 人工验收：初始 `expires_at` 留空时自动刷新并同步成功；重启后未重新生成 token，再次同步一条重新 Like 的旧 Post，新增 1 条记录。没有浏览器授权回调、后台自动同步或用户认证。验收细节见 `docs/PROJECT_STATE.md`。
 
