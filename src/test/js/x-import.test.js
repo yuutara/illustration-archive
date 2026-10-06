@@ -96,6 +96,8 @@ test("page initialization only reads local Inbox; one success links to Detail af
     assert.match(elements.get("import-results-summary").textContent, /共 1 项：成功 1，重复 0，失败 0/);
     assert.match(resultRows(elements)[0].children[0].textContent, /post-1/);
     assert.equal(new URL(resultRows(elements)[0].children[2].href, "http://localhost").searchParams.get("id"), "42");
+    assert.equal(elements.get("inbox-success-links").hidden, false);
+    assert.equal(new URL(elements.get("inbox-success-links").children[0].href, "http://localhost").searchParams.get("id"), "42");
     assert.equal(elements.get("inbox-list").children.length, 0);
     assert.equal(resultRows(elements).length, 1);
 });

@@ -63,6 +63,9 @@
     const noteElement = document.getElementById("detail-note");
     const sourceElement = document.getElementById("detail-source");
     const metaGrid = document.getElementById("detail-meta-grid");
+    const aiOpenViewer = document.getElementById("detail-ai-open-viewer");
+    const aiHandoffStatus = document.getElementById("detail-ai-handoff-status");
+    let aiSession = null;
     const imageButtons = new Map();
     const browse = window.BrowseContext.create({
         kind: "detail", resolveViewer: group => group === `illustration:${state.illustrationId}` ? viewer() : null,
@@ -89,12 +92,7 @@
         const key = browse.imageKey(groupKey);
         return { groupKey, title: titleFor(state.detail), sourceHref: state.detail && state.detail.sourceUrl,
             metadataProvider: () => state.detail,
-            detailInInspectorOnly: true,
-            detailHref: key => {
-                const href = new URL(window.location.href);
-                href.searchParams.set("asset", key);
-                return href.href;
-            },
+            analysisSession: aiSession,
             items: assets.map(asset => ({ key: String(asset.id),
                 fullUrl: `/api/assets/${encodeURIComponent(String(asset.id))}/content`, mimeType: asset.mimeType, alt: titleFor(state.detail) })),
             opener: imageButtons.get(key) || imageButtons.values().next().value };
@@ -727,6 +725,8 @@
         state.detail = detail;
         titleElement.textContent = textOrFallback(detail && detail.title, "");
         renderImages(detail);
+        const staticCount = orderedAssetsFor(detail).filter(asset => ["image/jpeg", "image/png"].includes(asset.mimeType)).length;
+        aiOpenViewer.hidden = staticCount === 0 || staticCount > 4;
         renderAuthor(detail);
         renderTags(detail);
         noteElement.textContent = textOrFallback(detail && detail.note, "");
@@ -758,6 +758,16 @@
 
             const detail = await response.json();
             renderDetail(detail);
+            const params = new URLSearchParams(window.location.search);
+            const transfer = window.AiAnalysis.takeHandoff(params.get("nav"), state.illustrationId, orderedAssetsFor(detail));
+            if (transfer.status === "ready") {
+                aiSession.accept(transfer.result);
+                aiHandoffStatus.hidden = false;
+                aiHandoffStatus.textContent = "AI 结果已带入。可从页面顶部返回 Viewer 对照原图。";
+            } else if (transfer.status === "invalid" || params.get("aiTransfer") === "failed") {
+                aiHandoffStatus.hidden = false;
+                aiHandoffStatus.textContent = "AI 结果未能带入。可从页面顶部打开 Viewer 重新分析。";
+            }
             const assetId = new URLSearchParams(window.location.search).get("asset");
             if (assetId && !browse.imageKey(`illustration:${state.illustrationId}`)) {
                 const target = imageButtons.get(assetId);
@@ -825,6 +835,17 @@
         }
     }
 
+    function syncAiAnalysis({ status }) {
+        aiOpenViewer.textContent = status === "ready" ? "边看图边读 AI" : "边看图边分析";
+    }
+
+    aiOpenViewer.addEventListener("click", () => {
+        if (!state.detail || state.loading || state.deleting) return;
+        const assets = orderedAssetsFor(state.detail);
+        const key = browse.imageKey(`illustration:${state.illustrationId}`) || String(assets[0]?.id);
+        const opener = imageButtons.get(key);
+        if (opener) browse.openViewer({ ...viewer(), startKey: key, startPanel: "ai" }, opener);
+    });
     retryButton.addEventListener("click", loadDetail);
     editButton.addEventListener("click", startEditing);
     deleteButton.addEventListener("click", deleteIllustration);
@@ -844,5 +865,7 @@
         return;
     }
 
+    aiSession = window.AiAnalysis.forIllustration(state.illustrationId);
+    aiSession.subscribe(syncAiAnalysis);
     loadDetail();
 })();

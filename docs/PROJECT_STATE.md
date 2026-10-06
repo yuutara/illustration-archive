@@ -5,9 +5,62 @@
 
 ## Current Version
 
-V0.5 - 图库使用体验（F06 已完成并封存；F07 Dark Mode 已完成并通过人工视觉验收）
+V0.5 已完成并准备封版（图库使用体验；本轮 P0 交互收敛与封版验收通过）
 
-当前分支：`v0.5-dark-mode`。
+V0.5 实施分支：`v0.5-ai-analysis`；历史稳定基线来自 `v0.5-dark-mode`（`3faabe0 feat: add dark mode`）。
+
+### V0.5｜交互收敛与封版验收（完成）
+
+2026-10-06，按用户批准的五项 P0 实施减法，并达到本轮指定的封版停止条件；final patch Review 已通过，没有代码 blocker。V0.5 已完成并准备封版，停止继续打磨 V0.5，不自动进入 V0.6。以下历史阶段记录保留当时证据，其中分支、commit / push 与待验收描述只反映各阶段当时状态，不代表当前状态；最新交互与验收结论以本节为准。
+
+- Gallery Viewer 只保留 chrome 中一个“查看详情”，已完成 AI 结果自动带入，保留当前 Asset 和 Gallery 返回位置。删除 Inspector 的“查看完整详情”“在详情继续读”，从 Detail 打开的 Viewer 不再链接回同一 Detail。
+- Viewer 是完整 AI 阅读界面；单一“信息 / AI”入口打开 Inspector，内部切换作品信息 / AI 分析，切图保留所选视图。当前页描述、原文与译文优先显示，全篇摘要 / 角色 / 关系 / Tag 建议用原生 details 默认折叠。Detail 删除完整结果区与第二个分析按钮，顶部入口直接打开当前 Asset 的 Viewer AI 视图。结果仍临时保存在页面内存，一次性移交消费后删除，刷新后消失。
+- Gallery Header 桌面只有品牌、搜索、统一筛选与操作；作品数和 chips 在内容区。操作菜单包含本地导入、X Inbox、主题，手机搜索独占第二行。390×844 实测搜索输入约 334px；Viewer 底栏两行、144px，Inspector 300px，图片区域 328px。
+- 纯 GIF / MP4 不提供可执行分析入口。源图上限 20 MiB，处理后 JPEG 上限 3 MiB，保留 1600 万像素 / 四张静态图 / 内存 ImageIO。GeminiClient 在发送前计算实际 UTF-8 JSON bytes，限制 20,000,000 bytes；四图各达到 3 MiB 的自动化请求仍低于总量上限。失败文案提供查看原图或重新导入较小版本的动作。没有新框架、动画库、依赖、schema、队列、OCR、抽帧或分析持久化。
+
+**自动化验证：**AI 定向 Maven `GeminiClientTest,IllustrationAiAnalysisServiceTest,IllustrationAiAnalysisControllerTest` 为 **30 tests，0 failures / errors / skipped，BUILD SUCCESS**；完整 Maven `test` 为 **350 tests，0 failures / errors，3 skipped，BUILD SUCCESS**（两个 MySQL、一个 LocalStack opt-in 未启用）。最终完整 JS 为 **126/126 通过，0 failures / skipped**；`git diff --check` 通过。覆盖单一详情导航与一次性移交、当前 Asset / 刷新边界、Inspector 键盘切换与切图保留、纯动态入口、12 MiB 源图、四图实际请求大小及总量超限拒绝。
+
+实际命令：`.\mvnw.cmd '-Dmaven.repo.local=C:\Users\YuanYuChou\.m2\repository' '-DargLine=-Djava.io.tmpdir=D:\IdeaProjects\illustration-archive\target\test-temp' '-Dtest=GeminiClientTest,IllustrationAiAnalysisServiceTest,IllustrationAiAnalysisControllerTest' test`；同一缓存 / temp 参数执行完整 `test`；`node --test (rg --files src/test/js -g '*.test.js')`；`git diff --check`。没有执行 clean，避免碰触既有运行进程的锁文件。
+
+**真实浏览器与媒体验收：**最新临时后端在 18085 使用真实本机 MySQL / 原图存储及 Gemini 配置；Edge CDP 的 DOM 驱动与截图检查覆盖 1440×900 / 390×844 的 Light / Dark。Gallery → Viewer → Inspector 两个视图 → 四图切换 / 放大 → 单一详情入口 → Detail 顶部重开 AI → Gallery 已走通；移交后仍为第 4 张 Asset 39，Detail 不自动重开 Viewer，也没有完整结果区。搜索 `Cat2Sora` + Author 13 + Tag 8 得到一件作品，清除恢复全库；返回浏览位置与当前 Asset 可恢复，稳定布局无横向溢出。真实键盘 ArrowRight 切到 AI，第一次 Esc 收起 Inspector，第二次 Esc 关闭 Viewer。截图留在项目外。
+
+真实漫画作品 34 的四页 Asset 36–39 均有描述 / 原文 / 译文且映射正确；作品 25 的 JPEG **12,691,206 bytes（12.10 MiB）、4565×3040（13.88MP）** 分析成功；纯 MP4 作品 39 / Asset 44 原视频可播放，Viewer AI tab 与 Detail 顶部 AI 入口均隐藏。这些证据验证可达性与页码归属，不保证每条译文或角色判断正确，不替代物理触屏及独立 S3 环境测试。
+
+**受控真实归档：**只选择 Inbox **455**（`satomoriumi`，X Post `2106727722534027679`，一张 photo）执行一次 Archive，结果成功 1、重复 0、失败 0。新增 Illustration **40** / Asset **45**；Inbox **339 → 338**，Gallery **30 → 31**。归档后 Detail 原图 **1478×2048**、作者、来源和编辑入口正常，取消编辑未保存；返回 Gallery 可再次找到新作品。该链路使用真实 MySQL、存储与 CDN HTTP；没有额外 X sync、Skip、元数据 PATCH 或删除。
+
+**运行与证据边界：**`chrome_devtools` MCP `list_pages` 仍返回 `Unexpected server response: 404`，验收通过已确认可用的 `127.0.0.1:9222` Edge CDP 完成，没有 Computer Use。临时启动最初被 Java 25 的内部 loopback socket 错误阻塞，使用已安装 JBR 21 与短 socket 路径及现有代理启动成功；未改生产代码或全局配置来绕过环境问题。临时实例验收后关闭，既有 8080 进程保留，使用新后端大小门槛前需重启该实例。
+
+**停止边界：**本轮五项 P0 完成即停止。Picker 重复搜索按钮、Inbox 重复成功链接、来源重复和手机 Detail 管理信息顺序保留为独立 P1 记录；跨作品导航、超过四页 / 动态媒体分析、结果持久化在 V0.6 再决定，均不阻止本轮封版，不继续追加实现。
+
+### V0.5｜AI Multi-image / Comic Analysis MVP（技术边界与历史阶段记录）
+
+2026-10-05，按 Review 后收缩范围实现手动 Detail 实验，验证多图漫画分析是否有趣/有价值；2026-10-06 按 Review 将接入层替换为 Google Gemini API 免费层，完全保留图片处理、结果结构和 Detail UI。不推进 V0.5 Final Acceptance，未 commit / push。
+
+- `POST /api/illustrations/{id}/ai-analysis` → 三个核心类 `IllustrationAiAnalysisController` / `IllustrationAiAnalysisService` / `GeminiClient` → Google Gemini API `gemini-3.1-flash-lite` → 当前 Viewer Inspector 展示。只读数据库和原图，无新 migration、持久化、Author/Tag 写入、历史记录、队列、全局并发系统、多 Provider 抽象、AI framework / SDK 或新依赖。
+- Asset 内部查询按 `sort_order ASC, id ASC`；JPEG/PNG 1–4 张，超过四张或无静态图返回 422。GIF/MP4 跳过并返回 Asset ID、原作品位置和 MIME，逐图结果映射到原作品位置，不抽帧、不默默截取前四张。
+- ImageIO 在内存中一次缩放到最大边 2048px，保持比例、小图不放大、透明 PNG 白底、统一 JPEG quality 0.88；当前独立分析限制为源图 <=20 MiB / 1600 万像素、处理后 JPEG <=3 MiB（初版为 10 / 1.5 MiB，已由本轮收敛调整）。解码前读取图片尺寸并确认格式，不使用已有 600px thumbnail、不写临时/长期文件、不新增 thumbnail pipeline。
+- Java HttpClient + 现有 Jackson，非流式 Gemini REST `generateContent`；`x-goog-api-key` 只在后端请求头，`contents[].parts[]` 放有序 JPEG `inlineData`，`systemInstruction` 使用提示词，`generationConfig.responseMimeType=application/json` / `responseSchema` 请求五字段 JSON，Schema 不发送 `additionalProperties`。检查五字段、类型、页数、连续 index、数组数量及文字长度；只接受 `finishReason=STOP`，拼接最终文本 parts 并跳过 thought parts；角色身份不确定时使用描述性候选，不按作品常识猜姓名，模糊对白不补写。无自动修复、重试或其他模型 fallback。
+- 配置默认关闭，`GEMINI_API_KEY` 仅从后端环境/已忽略本地配置读取，`GEMINI_MODEL=gemini-3.1-flash-lite`、`AI_ANALYSIS_TIMEOUT_SECONDS=90`；Google Free Tier 按项目决定，模型名本身不保证免费，应用不启用计费。503 表示未配置/服务不可用，422 表示图片范围/处理失败，502 为上游请求、无效结果或截断/安全拒绝，504 超时，429 有明确额度/速率提示；不会回传上游原始错误 body 或 Key。完整上游响应等待默认 90 秒，浏览器 120 秒；Storage 读取不承诺同一整次 deadline，离页取消 fetch 不保证上游立即终止。Google 免费层内容可能用于改进产品，真实调用前应确认项目资格和适用数据条款。
+- Viewer Inspector 的四状态与五类结果显示跳过媒体，所有模型文本用 `textContent`，Tag 只展示，沿用 Light/Dark tokens；Detail 仅提供 Viewer 入口。普通重复点击由按钮和在途状态阻止；离页取消和丢弃迟到结果。结果仅当前 JS 内存，刷新消失。
+- 2026-10-06 小扩展：每页 `texts[]` 返回原文 `source`、简体中文 `translation`、位置/类型 `note`，按大致阅读顺序输出正文，模糊文字标记 `[无法辨认]`，无文字则为空数组。后端检查每页最多 40 条、原文/翻译各最多 2000 字、备注最多 200 字；Detail 在每页描述下安全展示。复用同一次 Gemini 请求，不增加 OCR、依赖或第二个模型，不改变图片处理/代理/模型。
+
+**历史自动化基线（2026-10-05，接入层替换前）：**完整 Maven `test` 337 tests、0 failures、0 errors、3 skipped，BUILD SUCCESS；完整 JS 119/119 通过；`git diff --check` 通过。此记录不作为当前 Gemini 接入的验证结果；替换后全量验证另行记录。
+
+**Gemini 接入验证（2026-10-06）：**完整 Maven `test` **339 tests、0 failures、0 errors、3 skipped，BUILD SUCCESS**；完整 JS **119/119 通过，0 failures / skipped**；`git diff --check` 通过。GeminiClient 测试覆盖 REST endpoint、后端 Key 请求头、有序 inlineData、五字段 Schema、1/4 图结果、截断、安全拒绝/缺少候选、多段最终文本/忽略 thought、HTTP 错误、非法 JSON 和超时；现有图片处理、Service、Controller、Repository 和 Detail 测试仍通过。三个 skipped 仍为两个 MySQL 与一个 LocalStack opt-in 测试。
+
+本轮完整命令沿用 `.\mvnw.cmd '-Dmaven.repo.local=C:\Users\YuanYuChou\.m2\repository' '-DargLine=-Djava.io.tmpdir=D:\IdeaProjects\illustration-archive\target\test-temp' test`、`node --test (rg --files src/test/js -g '*.test.js')`、`git diff --check`。最初 `clean test` 被既有运行时锁住的 `target/final-acceptance-tmp/hsperfdata_YuanYuChou` 阻塞，尚未进入测试；确认旧 Client class 已清除，仅删除两个残留的旧 Test class 后直接运行完整 `test` 成功，没有停止既有应用或强删锁文件。当前代码/编译产物无旧接入类；测试日志为 ignored `.maven/gemini-analysis-maven.log`、`.maven/gemini-analysis-js.log`。未调用真实 API、未 commit / push。
+
+**真实验收边界：**ImageIO 测试使用实际内存图片；Repository / HttpClient 与 MVC / JS 为自动化或模拟证据。2026-10-06 用户确认真实 Gemini 分析已成功，能够理解画面和剧情；本次新增文字识别/翻译尚待真实漫画验收。漫画小字可读性、角色/关系质量、真实 Local/S3 与浏览器 Light/Dark 展示未据此宣告通过；免费资格与额度仍按用户 Google 项目实际状态确认，不以 mock 代替真实验收。
+
+**文字识别/翻译扩展验证（2026-10-06）：**相关 Maven `GeminiClientTest,IllustrationAiAnalysisServiceTest,IllustrationAiAnalysisControllerTest` **28 tests、0 failures / errors / skipped，BUILD SUCCESS**；完整 JS **120/120 通过**；`git diff --check` 与本轮修改的未跟踪文件空白检查通过。覆盖嵌套 Schema / Prompt、原文与翻译/备注、空文字页、阅读顺序、多页归属、异常字段/条数/长度保护、DTO JSON 和安全渲染；本轮未调用真实 API、未 commit / push。
+
+本次命令：`.\mvnw.cmd '-Dmaven.repo.local=C:\Users\YuanYuChou\.m2\repository' '-DargLine=-Djava.io.tmpdir=D:\IdeaProjects\illustration-archive\target\test-temp' '-Dtest=GeminiClientTest,IllustrationAiAnalysisServiceTest,IllustrationAiAnalysisControllerTest' test`、`node --test (rg --files src/test/js -g '*.test.js')`、`git diff --check`；ignored 测试日志为 `.maven/gemini-texts-focused.log` / `.maven/gemini-texts-js.log`。
+
+### V0.5｜Viewer / AI 阅读流（初版历史记录，已由上方收敛方案替代）
+
+2026-10-06，在当前未提交的 Gemini AI MVP 上调整前端交互，不推进项目阶段。Gallery / Detail Viewer 的 Inspector 增加手动 AI 分析视图，优先显示当前 Asset 的描述及文字/翻译；同页面按作品复用分析状态。Detail 顶部可直接打开 Viewer AI 视图，原有 Detail 结果区与 Viewer 共用结果。Gallery Viewer 的普通“查看详情”与“在详情继续读”使用同一导航令牌做一次性结果移交；Detail 核对作品和 Asset，消费临时存储后分别落到普通 Detail 或同一 Asset 的 Viewer AI 面板。刷新后没有分析历史；Inbox Viewer 不显示 AI。Inspector 已保存作者/标签可进入 Gallery 筛选，Inbox 成功归档链接直接显示。
+
+本次未改变 AI API、响应结构、数据库或后端。完整 JS `node --test (rg --files src/test/js -g '*.test.js')` 为 **125/125 通过**；`git diff --check` 通过。本地模拟 API 的浏览器检查确认手机底部 Sheet 与桌面侧栏能同时显示图片和长文本，并验证“在详情继续读”移交后打开相同 Asset；模拟检查不等于真实 Gemini、MySQL、文件存储或最终人工手感验收。未 commit / push。
 
 ### V0.5-F07｜Dark Mode
 
@@ -621,4 +674,4 @@ README 已按 V0.2 最终能力收尾。V0.2 已完成 Final Acceptance，代码
 
 ### V0.4 release status
 
-V0.3 已正式封存，`v0.3.0` tag 已创建并 push。V0.4 的 A1/A2/A3、B1/B2/B3、C1、D1 计划工作包与 Final Acceptance 已按上文范围完成，具备 `v0.4.0` 的技术发布条件。`v0.4.0` 尚未创建；本轮文档变更尚未 commit / push，发布 Git 操作由用户确认后执行。
+V0.3 已正式封存，`v0.3.0` tag 已创建并 push。V0.4 的 A1/A2/A3、B1/B2/B3、C1、D1 计划工作包与 Final Acceptance 已按上文范围完成，并已正式发布 `v0.4.0`。上方发布前验收记录中的 Git 状态属于当时阶段记录。

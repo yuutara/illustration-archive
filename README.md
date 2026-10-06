@@ -8,7 +8,9 @@ Illustration Archive 解决的是“把散落在本地的插画文件整理成�
 
 项目采用 local-first 设计：默认将图片文件留在配置的本地存储目录，数据库只保存插画、作者、标签以及文件元数据。浏览器端使用 Spring Boot 静态资源目录中的原生 HTML、CSS 和 JavaScript，不需要前端构建工具。
 
-V0.3 已正式封存，增加 X Likes 手动同步与多图归档；V0.4 计划工作包与 Final Acceptance 已完成，尚未发布 `v0.4.0`。当前进入 V0.5，统一图片查看器已实现，验收边界见 `docs/PROJECT_STATE.md`。`v0.1.0`、`v0.2.0` 和 `v0.3.0` 均已创建并 push tag。
+本项目当前无用户鉴权，定位为 local-first 个人工具，不应直接暴露到公网或不可信局域网。
+
+V0.3 已正式封存，增加 X Likes 手动同步与多图归档；V0.4 已正式完成并发布 `v0.4.0`。V0.5 已完成本轮交互收敛与封版验收，验收范围见 `docs/PROJECT_STATE.md`。`v0.1.0`、`v0.2.0`、`v0.3.0` 和 `v0.4.0` 均已创建并 push tag。
 
 ## 项目截图
 
@@ -48,7 +50,7 @@ Viewer 提供适应窗口、1:1、放大/缩小及拖动查看；GIF 沿用原�
 
 上下文由当前浏览器标签页的 History API 和 sessionStorage 保存，不写数据库、不跨设备同步。Inbox photo 保持使用远程 `sourceUrl`；animated_gif 卡片及 Inbox Viewer 使用 `/api/x-import/inbox/{itemId}/media/{mediaKey}/content`，由后端按数据库 media 记录定位并流式转发 X CDN MP4，避免浏览器 hotlink 403。代理复用 HTTPS / video.twimg.com 校验，只转发完整 200 video/mp4，不接受外部 URL 参数，不落盘、不创建 Asset、不缓存、不实现 Range；Gallery / Detail 的已归档内容路径不变。加载失败可重试或打开来源，不保证 photo 与归档下载的分辨率一致。Import、Skip、元数据编辑和删除仍在原页面执行，翻页和数据刷新继续清空 Inbox 选择。
 
-Inbox 支持整卡选中反馈、当前页已选数量和 sticky 操作栏；图片点击只打开统一 Viewer，文字可选择，卡片背景可切换勾选。Archive/Skip 请求与后续列表读取期间保留旧卡片，新数据成功读取后才替换，并按 item ID 恢复附近位置；成功摘要短暂显示，最近完整结果可展开。Archive 的失败/重复原因贴近对应卡片，支持明确重新选择；Skip 仅展示后端实际处理数量。结果未知或列表更新失败时先重新加载核对状态，不自动重试写入。选择始终仅作用于当前加载页，刷新成功后清空。
+Inbox 支持整卡选中反馈、当前页已选数量和 sticky 操作栏；图片点击只打开统一 Viewer，文字可选择，卡片背景可切换勾选。Archive/Skip 请求与后续列表读取期间保留旧卡片，新数据成功读取后才替换，并按 item ID 恢复附近位置；成功摘要短暂显示，成功归档的 Detail 链接直接显示，最近完整结果仍可展开。Archive 的失败/重复原因贴近对应卡片，支持明确重新选择；Skip 仅展示后端实际处理数量。结果未知或列表更新失败时先重新加载核对状态，不自动重试写入。选择始终仅作用于当前加载页，刷新成功后清空。
 
 实现不增加前端依赖或构建步骤。已经运行的自动化检查和真实浏览器验证范围见项目状态文档；正式部署需要让应用重新加载更新后的静态资源。
 
@@ -434,6 +436,24 @@ Compose 用现有 A1 环境变量向应用注入 `jdbc:mysql://db:3306/illustrat
 `spring.application.name`、MySQL 驱动类、`spring.servlet.multipart.max-file-size=60MB` 和 `spring.servlet.multipart.max-request-size=500MB` 保留固定默认值；它们不包含机器路径或 secret。历史回填的 `illustration.maintenance.sha256-backfill` 与 `illustration.maintenance.thumbnail-backfill` 均默认关闭，只在显式设置为 `true` 的启动中运行；不要作为日常启动配置保留。
 
 HTTP multipart 配置上限不等同于图片业务校验上限：`FileStorageService` 的单张图片业务限制仍是 50 MB。
+
+### 手动 AI 多图分析（实验）
+
+Gallery 负责浏览与筛选，Header 统一提供“筛选”和“操作”；本地导入、X Inbox 与主题切换位于操作菜单，作品数及筛选条件位于内容区，手机搜索单独占一行。Viewer 的单一“信息 / AI”入口打开 Inspector，内部切换“作品信息 / AI 分析”；选择的视图在切图时保留。
+
+Viewer 是完整 AI 阅读界面：手动点击“开始分析”，优先阅读当前图的描述、原文与译文，全篇摘要、角色、关系和 Tag 建议默认折叠。切图不重新请求，同一页面关闭、重开 Viewer 后仍可阅读结果。Gallery Viewer 只保留一个“查看详情”，系统自动一次性带入已完成的结果及当前 Asset。Detail 负责归档信息和编辑，顶部入口可直接回到当前图的 Viewer AI 视图，不另行展示完整分析结果。移交记录由当前浏览器标签页的临时存储传递，Detail 校验作品和 Asset 后消费；刷新后结果消失，不建立分析历史。Inbox 和纯 GIF / MP4 作品不提供可执行 AI 入口。
+
+分析通过 `POST /api/illustrations/{id}/ai-analysis` 触发。后端只读取当前作品的 JPEG / PNG，按 `sort_order ASC, id ASC` 发送至 Google Gemini API `gemini-3.1-flash-lite`；GIF / MP4 跳过，响应中保留 Asset ID 和作品位置。没有静态图或超过 4 张时返回 422，不截取前四张。不写数据库，不自动创建 Author / Tag。
+
+默认配置为 `ai.analysis.enabled=false`、`gemini.api-key=`、`gemini.model=gemini-3.1-flash-lite`、`ai.analysis.timeout-seconds=90`。启用时在 IDEA / 启动进程环境变量设置 `AI_ANALYSIS_ENABLED=true`、`GEMINI_API_KEY`，或在被 Git 忽略的 `config/application-local.properties` 中设置对应属性；不得在提交的文件中填真实 Key。`GEMINI_MODEL`、`AI_ANALYSIS_TIMEOUT_SECONDS` 可覆盖默认值，但 MVP 只允许 `gemini-3.1-flash-lite`，没有其他模型 fallback。请使用 Google Free Tier 项目的 Key；模型名称不强制免费，请在 AI Studio 确认项目没有启用付费计费和当前免费额度。应用不配置或启用 Google 计费。
+
+分析用图由 JDK ImageIO 在内存中一次缩放：最大边 2048px、不放大小图、保持比例、透明 PNG 合成白底、JPEG quality 0.88。分析入口独立限制源图 20 MiB / 1600 万像素、处理后 JPEG 3 MiB；最多四张共 12 MiB，base64 后约 16.8 MB。发送前核对包含提示词及 Schema 的实际 UTF-8 JSON 总量，不超过 20,000,000 bytes，符合 [Gemini inline 请求边界](https://ai.google.dev/gemini-api/docs/generate-content/image-understanding)。这些限制不改变现有归档 50 MiB 上限。处理失败会提示查看原图或重新导入较小的 JPEG / PNG 版本，不展示 Asset ID 和内部阈值列表。不会使用 600px thumbnail、写临时文件、抽帧、切片或建立新 thumbnail pipeline。
+
+调用使用 Java HttpClient + Jackson 和非流式 REST `generateContent`。API Key 仅在后端 `x-goog-api-key` 请求头中，图片为多个有序的 `inlineData`（JPEG MIME + 纯 base64），系统提示词放在 `systemInstruction`。`generationConfig.responseMimeType=application/json` 和 `generationConfig.responseSchema` 请求五字段 JSON，Schema 不发送 `additionalProperties`，继续检查五字段、页数、连续页序及数组上限。只接受 `finishReason=STOP` 的完整候选，拼接最终文本 parts，不向页面暴露 thinking parts；响应 `modelVersion` 用于当前页面模型提示，缺失时使用已配置模型名。后端等待完整上游响应最多 90 秒；浏览器等待 120 秒并在离页时取消 fetch，取消浏览器请求不保证上游立即停止。没有 SDK、自动重试、队列或全局并发系统。
+
+每页 `pages[]` 保留 `index` / `description`，增加 `texts[]` 的 `source`（原文）、`translation`（简体中文）、`note`（位置或类型）。同一次 Gemini 请求按大致阅读顺序识别对话框、旁白、注释、拟声词；模糊正文用 `[无法辨认]`，不按剧情补写，没有文字时返回空数组。每页最多 40 条，原文/翻译各最多 2000 字、备注最多 200 字；仍受已有整次输出限制。Viewer 按当前 Asset 展示“画面文字 / 翻译”，所有模型文本用 `textContent`，不引入 OCR 或第二个模型。
+
+功能关闭、缺少 Key、模型配置不支持或 Gemini 服务不可用返回 503；请求失败、非法结果、截断/安全拒绝或缺少候选返回安全的 502；超时 504；额度/速率限制 429。图片内容会发送至 Google，漫画对白和角色理解可能出错；Google 官方说明免费层输入/输出可能用于改进产品。免费资格和额度按 Google 项目确认，不保证当前 Key 可调用。参考 [模型能力](https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-lite)、[免费层价格](https://ai.google.dev/gemini-api/docs/pricing)、[REST Structured Outputs](https://ai.google.dev/gemini-api/docs/generate-content/structured-output)。2026-10-06 已用真实四页漫画与 12.10 MiB JPEG 验证分析、逐页译文归属和结果移交，并完成 Edge 桌面 / 390×844 Light / Dark 走查；这不保证文字识别及剧情理解完全准确，也不替代独立 S3 部署或物理触屏验收。
 
 ### 历史 SHA-256 回填
 

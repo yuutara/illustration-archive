@@ -6,6 +6,7 @@
     const selectedCount = document.getElementById("inbox-selected-count");
     const toolbar = document.getElementById("inbox-toolbar");
     const message = document.getElementById("inbox-message");
+    const successLinks = document.getElementById("inbox-success-links");
     const statePanel = document.getElementById("inbox-state");
     const stateTitle = document.getElementById("inbox-state-title");
     const stateMessage = document.getElementById("inbox-state-message");
@@ -310,6 +311,7 @@
     function renderImportResults(result, selectedItems) {
         importResultsSummary.textContent = `共 ${result.total} 项：成功 ${result.successCount}，重复 ${result.duplicateCount}，失败 ${result.failureCount}。`;
         importResultsList.replaceChildren();
+        successLinks.replaceChildren();
         result.items.forEach(itemResult => {
             const source = selectedItems.get(itemResult.itemId);
             const name = source
@@ -325,6 +327,11 @@
                     browse.bindDetailLink(link, itemResult.illustrationId);
                     link.textContent = "查看 Illustration Detail";
                     row.appendChild(link);
+                    const directLink = document.createElement("a");
+                    directLink.className = "inbox-success-link";
+                    browse.bindDetailLink(directLink, itemResult.illustrationId);
+                    directLink.textContent = `查看已归档作品：${name}`;
+                    successLinks.appendChild(directLink);
                 }
             } else if (itemResult.status === "DUPLICATE") {
                 row.appendChild(paragraph("inbox-result-warning", "图片重复，未导入；仍在待处理列表中，可重新尝试或选择 Skip。"));
@@ -339,6 +346,7 @@
         });
         importResults.hidden = false;
         importResults.open = false;
+        successLinks.hidden = successLinks.children.length === 0;
     }
 
     async function loadInbox({ targetPage = page, preservePosition = true } = {}) {

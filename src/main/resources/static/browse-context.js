@@ -177,7 +177,8 @@
                     if (config.onChange) config.onChange(current);
                 }, onRequestClose: requestClose,
                 // Detail is already underneath its Viewer; retain its origin and unsaved editor.
-                onNavigateDetail: adapter.kind === "detail" ? () => requestClose() : navigateDetail });
+                onNavigateDetail: adapter.kind === "detail" ? () => { requestClose(); return true; }
+                    : href => navigateDetail(href, config) });
         }
 
         function openViewer(config, opener) {
@@ -216,21 +217,25 @@
             return paths.detail + "?" + query;
         }
 
-        function navigateDetail(href) {
+        function navigateDetail(href, viewerConfig) {
+            const target = new URL(href, window.location.href);
+            if (target.origin !== window.location.origin || target.pathname !== paths.detail) return false;
+            const token = id();
+            const assetKey = state.viewer?.key || target.searchParams.get("asset");
+            const handoff = viewerConfig?.prepareAnalysisHandoff?.(token, assetKey);
+            if (handoff === false) target.searchParams.set("aiTransfer", "failed");
+            target.searchParams.set("ctx", state.id);
+            target.searchParams.set("nav", token);
             const navigate = () => {
                 capture();
                 write(false);
-                const target = new URL(href, window.location.href);
-                if (target.origin !== window.location.origin || target.pathname !== paths.detail) return;
-                const token = id();
-                target.searchParams.set("ctx", state.id);
-                target.searchParams.set("nav", token);
                 const to = target.pathname + target.search;
                 store("navigation:" + token, { from: state.id, to });
                 window.location.assign(to);
             };
             if (state.viewer) requestClose(navigate);
             else navigate();
+            return true;
         }
 
         function bindDetailLink(link, illustrationId, assetKey) {

@@ -44,6 +44,7 @@
     const importFailureCount = document.getElementById("import-failure-count");
     const importItems = document.getElementById("import-items");
     const importToggle = document.getElementById("import-toggle");
+    const operations = document.getElementById("gallery-operations");
     const importPanel = document.getElementById("import-panel");
     const searchForm = document.getElementById("gallery-search-form");
     const searchInput = document.getElementById("gallery-search-input");
@@ -554,6 +555,7 @@
         }
 
         function viewer() {
+            const analysisSession = window.AiAnalysis.forIllustration(item.id);
             return {
                 groupKey, title,
                 startKey: assets[currentIndex] && String(assets[currentIndex].id),
@@ -565,6 +567,12 @@
                     const response = await fetch(`/api/illustrations/${encodeURIComponent(String(item.id))}`, { cache: "no-store" });
                     if (!response.ok) throw new Error("Metadata unavailable");
                     return response.json();
+                },
+                analysisSession,
+                prepareAnalysisHandoff: (token, assetKey) => {
+                    const snapshot = analysisSession.snapshot();
+                    if (snapshot.status !== "ready") return;
+                    return window.AiAnalysis.prepareHandoff(token, item.id, assetKey, snapshot.result);
                 },
                 opener: imageLink, onChange: selectAsset
             };
@@ -748,6 +756,8 @@
         if (state.importing) return;
         importPanel.hidden = !importPanel.hidden;
         importToggle.setAttribute("aria-expanded", String(!importPanel.hidden));
+        operations.open = false;
+        document.getElementById("gallery-operations-toggle").focus({ preventScroll: true });
     });
 
     renderFilters(state.query, null);

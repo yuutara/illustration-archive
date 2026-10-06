@@ -133,6 +133,18 @@ public class AssetRepository {
 		);
 	}
 
+	/** Internal sources for a single explicitly requested analysis, in original media order. */
+	public List<AnalysisSource> findAnalysisSources(long illustrationId) {
+		return jdbcTemplate.query("""
+				SELECT id, storage_key, mime_type, file_size, sort_order
+				FROM asset WHERE illustration_id = ?
+				ORDER BY sort_order ASC, id ASC
+				""", (rs, row) -> new AnalysisSource(rs.getLong("id"), rs.getString("storage_key"),
+				rs.getString("mime_type"), rs.getLong("file_size"), rs.getInt("sort_order")), illustrationId);
+	}
+
+	public record AnalysisSource(long id, String storageKey, String mimeType, long fileSize, int sortOrder) { }
+
 	public Optional<Long> findIdBySha256(String sha256) {
 		return jdbcTemplate.query(
 				FIND_ID_BY_SHA256_SQL,

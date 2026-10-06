@@ -145,7 +145,8 @@ function browser({ url = "http://localhost/", entries, storage = new Map(), loca
         document, location, crypto: { randomUUID }, scrollY: 0, innerHeight: 800, innerWidth: 1280,
         sessionStorage: {
             getItem(key) { if (storageDisabled) throw new Error("Storage disabled"); return storage.get(key) || null; },
-            setItem(key, value) { if (storageDisabled) throw new Error("Storage disabled"); storage.set(key, value); }
+            setItem(key, value) { if (storageDisabled) throw new Error("Storage disabled"); storage.set(key, value); },
+            removeItem(key) { if (storageDisabled) throw new Error("Storage disabled"); storage.delete(key); }
         },
         localStorage: {
             getItem(key) { if (storageDisabled) throw new Error("Storage disabled"); return localStorage.get(key) || null; },
@@ -213,7 +214,7 @@ function browser({ url = "http://localhost/", entries, storage = new Map(), loca
         vm.runInContext(readFileSync(path.resolve(__dirname, "../../../main/resources/static", file), "utf8"), sandbox);
     }
     function flushFrames() { while (frames.length) frames.shift()(); }
-    run("image-viewer.js"); run("browse-context.js"); run("masonry-layout.js"); run("metadata-picker.js");
+    run("ai-analysis.js"); run("image-viewer.js"); run("browse-context.js"); run("masonry-layout.js"); run("metadata-picker.js");
     return { window, document, elements: ids, storage, run, sandbox, Element, flushFrames,
         intersect(node, isIntersecting) { intersections.forEach(observer => {
             if (observer.targets.has(node)) observer.callback([{ target: node, isIntersecting }]);

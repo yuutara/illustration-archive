@@ -31,6 +31,27 @@ import static org.mockito.Mockito.when;
 class AssetRepositoryTest {
 
 	@Test
+	void analysisSourcesAreBoundToIllustrationAndUseStableAssetOrder() throws Exception {
+		JdbcTemplate jdbc = mock(JdbcTemplate.class);
+		var repository = new AssetRepository(jdbc);
+		when(jdbc.query(anyString(), any(RowMapper.class), eq(7L))).thenReturn(List.of());
+		repository.findAnalysisSources(7);
+		var sql = ArgumentCaptor.forClass(String.class);
+		@SuppressWarnings({"rawtypes", "unchecked"})
+		ArgumentCaptor<RowMapper<AssetRepository.AnalysisSource>> mapping = (ArgumentCaptor) ArgumentCaptor.forClass(RowMapper.class);
+		verify(jdbc).query(sql.capture(), mapping.capture(), eq(7L));
+		assertTrue(sql.getValue().contains("WHERE illustration_id = ?"));
+		assertTrue(sql.getValue().contains("ORDER BY sort_order ASC, id ASC"));
+		var rs = mock(ResultSet.class);
+		when(rs.getLong("id")).thenReturn(11L);
+		when(rs.getString("storage_key")).thenReturn("2026-10/image.png");
+		when(rs.getString("mime_type")).thenReturn("image/png");
+		when(rs.getLong("file_size")).thenReturn(123L);
+		when(rs.getInt("sort_order")).thenReturn(2);
+		assertEquals(new AssetRepository.AnalysisSource(11, "2026-10/image.png", "image/png", 123, 2), mapping.getValue().mapRow(rs, 0));
+	}
+
+	@Test
 	void insertsAssetWithSha256() throws Exception {
 		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
 		AssetRepository repository = new AssetRepository(jdbcTemplate);

@@ -11,7 +11,7 @@ function image(env) {
     const node = env.find("image-viewer-image");
     node.naturalWidth = 1000; node.naturalHeight = 1000; node.dispatch("load"); return node;
 }
-const info = env => env.viewerButton("作品信息");
+const info = env => env.find("image-viewer-info");
 
 test("lazy metadata is shared across Assets and toggles, Esc closes only Inspector first", async () => {
     const env = browser(); let calls = 0;
@@ -23,14 +23,15 @@ test("lazy metadata is shared across Assets and toggles, Esc closes only Inspect
     assert.equal(env.find("image-viewer-handle").textContent, "@artist");
     assert.equal(env.find("image-viewer-note").textContent, metadata.note);
     env.viewerButton("下一张图片").dispatch("click");
-    const full = env.find("image-viewer-inspector").children.at(-1);
+    const full = env.find("image-viewer-links").children[0];
     assert.equal(new URL(full.href).searchParams.get("asset"), "22");
     assert.equal(new URL(full.href).searchParams.get("ctx"), "origin");
+    assert.equal(env.find("image-viewer-inspector").children.length, 2);
     const dialog = env.find("image-viewer");
     assert.equal(dialog.dispatch("keydown", { key: "Escape" }).defaultPrevented, true);
     assert.equal(dialog.open, true); assert.equal(env.document.activeElement, info(env));
     info(env).dispatch("click"); await settle();
-    env.viewerButton("收起作品信息").dispatch("click");
+    env.viewerButton("收起信息面板").dispatch("click");
     info(env).dispatch("click"); info(env).dispatch("click");
     assert.equal(calls, 1); assert.equal(env.entries().length, history);
     info(env).dispatch("click"); dialog.dispatch("cancel");
@@ -107,7 +108,7 @@ test("Gallery requests only on expansion, keeps BrowseContext and focus, and loa
     info(env).dispatch("click"); await settle(); env.viewerButton("下一张图片").dispatch("click");
     assert.equal(calls.filter(url => /illustrations\//.test(url)).length, 1);
     assert.equal(env.entries().length, count);
-    const href = new URL(env.find("image-viewer-inspector").children.at(-1).href);
+    const href = new URL(env.find("image-viewer-links").children[0].href);
     assert.equal(href.searchParams.get("asset"), "22"); assert.ok(href.searchParams.get("ctx"));
     env.find("image-viewer").dispatch("cancel"); assert.equal(env.find("image-viewer").open, true);
     env.find("image-viewer").dispatch("cancel"); await settle(); env.flushFrames();
@@ -128,8 +129,8 @@ test("Detail supplies saved metadata while edit inputs and picker selections rem
     assert.equal(calls, 1); assert.equal(env.find("image-viewer-note").textContent, metadata.note);
     assert.equal(env.find("image-viewer-author").textContent, "Artist");
     assert.equal(env.find("image-viewer-links").children[0].hidden, true);
-    assert.equal(env.find("image-viewer-inspector").children.at(-1).hidden, false);
-    env.find("image-viewer-inspector").children.at(-1).dispatch("click"); await settle(); env.flushFrames();
+    assert.equal(env.find("image-viewer-inspector").children.length, 2);
+    env.viewerButton("关闭图片查看器").dispatch("click"); await settle(); env.flushFrames();
     assert.equal(env.find("image-viewer").open, false);
     assert.equal(env.window.location.assigned, undefined);
     assert.equal(env.document.getElementById("detail-note-input").value, "Unsaved note");
@@ -140,9 +141,24 @@ test("Inbox configuration without a provider has no Inspector and keeps single E
     const env = browser(); const opener = env.document.getElementById("opener"); opener.focus();
     env.window.ImageViewer.open(config(undefined)); image(env);
     assert.equal(info(env).hidden, true); info(env).dispatch("click");
+    assert.equal(env.viewerButton("AI 分析").hidden, true);
     assert.equal(env.find("image-viewer-inspector").hidden, true);
     env.find("image-viewer").dispatch("cancel"); assert.equal(env.find("image-viewer").open, false);
     assert.equal(env.document.activeElement, opener);
+});
+
+test("saved Inspector author and Tag IDs navigate to Gallery filters", async () => {
+    const env = browser();
+    env.window.ImageViewer.open(config(() => ({
+        author: { id: 5, displayName: "Artist" }, tags: [{ id: 9, name: "Landscape" }]
+    })));
+    info(env).dispatch("click"); await settle();
+    const author = env.find("image-viewer-author");
+    const tag = env.find("image-viewer-tags").children[0];
+    assert.equal(author.tagName, "a");
+    assert.equal(new URL(author.href, "http://localhost").searchParams.get("authorId"), "5");
+    assert.equal(tag.tagName, "a");
+    assert.equal(new URL(tag.href, "http://localhost").searchParams.get("tagId"), "9");
 });
 
 test("explicit 1:1 survives a smaller stage even when original fit was 100%", () => {

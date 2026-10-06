@@ -28,3 +28,9 @@ X_OAUTH_CLIENT_SECRET=
 # X_OAUTH_CREDENTIAL_FILE=./config/x-oauth-tokens.properties
 X_API_DEFAULT_PAGE_SIZE=5
 X_API_DEFAULT_MAX_PAGES=3
+
+# Optional manual Gemini analysis. Use a Free Tier project; never put a real key in this example.
+AI_ANALYSIS_ENABLED=false
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-3.1-flash-lite
+AI_ANALYSIS_TIMEOUT_SECONDS=90

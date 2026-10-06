@@ -6,6 +6,7 @@
     <title>Illustration Archive</title>
     <script src="/theme.js"></script>
     <link rel="stylesheet" href="/style.css">
+    <script src="/ai-analysis.js" defer></script>
     <script src="/image-viewer.js" defer></script>
     <script src="/browse-context.js" defer></script>
     <script src="/masonry-layout.js" defer></script>
@@ -21,9 +22,9 @@
         <button type="submit" aria-label="搜索收藏库">搜索</button>
     </form>
     <div class="gallery-facet-controls">
-        <button id="gallery-facet-toggle" class="facet-button facet-mobile" type="button" aria-expanded="false" aria-controls="gallery-facet-panel">筛选 ▾</button>
-        <button id="gallery-author-toggle" class="facet-button facet-desktop" type="button" aria-expanded="false" aria-controls="gallery-author-panel">作者 ▾</button>
-        <button id="gallery-tag-toggle" class="facet-button facet-desktop" type="button" aria-expanded="false" aria-controls="gallery-tag-panel">标签 ▾</button>
+        <button id="gallery-facet-toggle" class="facet-button" type="button" aria-expanded="false" aria-controls="gallery-facet-panel">筛选 ▾</button>
+        <button id="gallery-author-toggle" class="facet-button facet-desktop" type="button" aria-expanded="false" aria-controls="gallery-author-panel" hidden>作者 ▾</button>
+        <button id="gallery-tag-toggle" class="facet-button facet-desktop" type="button" aria-expanded="false" aria-controls="gallery-tag-panel" hidden>标签 ▾</button>
         <div id="gallery-facet-panel" class="gallery-facet-panel" hidden>
             <section id="gallery-author-panel" class="metadata-picker-panel" aria-label="筛选作者" hidden>
                 <div class="metadata-picker-heading"><strong>作者</strong><button id="gallery-author-clear" class="facet-button" type="button">不限作者</button></div>
@@ -50,14 +51,12 @@
             <button id="gallery-facet-close" class="facet-button" type="button">收起筛选</button>
         </div>
     </div>
-    <span id="total-count" class="total-count"></span>
-    <p id="load-status" class="load-status" aria-live="polite">正在加载…</p>
-    <button id="import-toggle" class="browse-import-toggle" type="button" aria-expanded="false"
-            aria-controls="import-panel">导入插画</button>
-    <details class="browse-more">
-        <summary aria-label="更多操作">⋯</summary>
+    <details id="gallery-operations" class="browse-more">
+        <summary id="gallery-operations-toggle" aria-label="操作菜单">操作 ▾</summary>
         <div class="browse-more-menu">
-            <a href="/x-import.html">X Import →</a>
+            <button id="import-toggle" class="browse-import-toggle" type="button" aria-expanded="false"
+                    aria-controls="import-panel">导入插画</button>
+            <a href="/x-import.html">X Inbox →</a>
             <button class="theme-toggle" type="button" aria-pressed="false" hidden>深色模式</button>
         </div>
     </details>
@@ -65,6 +64,10 @@
 <main class="page-shell">
     <h1 class="visually-hidden">插画图库</h1>
 
+    <div class="gallery-content-status">
+        <span id="total-count" class="total-count"></span>
+        <p id="load-status" class="load-status" aria-live="polite">正在加载…</p>
+    </div>
     <div id="gallery-filters" class="gallery-filters" aria-label="当前筛选条件" hidden></div>
 
     <section id="import-panel" class="import-section" aria-labelledby="import-heading" hidden>

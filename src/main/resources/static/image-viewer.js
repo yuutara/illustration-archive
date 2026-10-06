@@ -16,7 +16,10 @@
     let opener = null;
     let previousOverflow = "";
     let inspectorOpen = false;
+    let activePanel = "metadata";
     let metadataSession = null;
+    let analysisAvailable = false;
+    let analysisUnsubscribe = null;
     let fitMode = true;
 
     function element(tag, className, text) {
@@ -108,34 +111,68 @@
         toolbar.append(minus, zoomLabel, plus, more);
         const links = element("div", "image-viewer-links");
         links.append(detail, source);
-        const info = button("作品信息", "作品信息", () => toggleInspector(!inspectorOpen));
+        const info = button("信息 / AI", "打开作品信息与 AI 分析", () => toggleInspector(!inspectorOpen));
         info.classList.add("image-viewer-info");
         info.setAttribute("aria-expanded", "false");
         info.setAttribute("aria-controls", "image-viewer-inspector");
         const inspector = element("section", "image-viewer-inspector");
         inspector.id = "image-viewer-inspector";
         inspector.hidden = true;
-        inspector.setAttribute("aria-labelledby", "image-viewer-inspector-title");
+        inspector.setAttribute("aria-label", "作品信息与 AI 分析");
         const inspectorHeader = element("header", "image-viewer-inspector-header");
-        const inspectorTitle = element("h3", "", "作品信息");
-        inspectorTitle.id = "image-viewer-inspector-title";
-        const inspectorClose = button("×", "收起作品信息", () => toggleInspector(false));
-        inspectorHeader.append(inspectorTitle, inspectorClose);
+        const tabs = element("div", "image-viewer-inspector-tabs");
+        tabs.setAttribute("role", "tablist");
+        tabs.setAttribute("aria-label", "信息面板视图");
+        const metadataTab = button("作品信息", "作品信息", () => toggleInspector(true, "metadata"));
+        metadataTab.id = "image-viewer-metadata-tab";
+        metadataTab.classList.add("image-viewer-tab");
+        metadataTab.setAttribute("role", "tab");
+        metadataTab.setAttribute("aria-controls", "image-viewer-metadata-pane");
+        const aiTab = button("AI 分析", "AI 分析", () => toggleInspector(true, "ai"));
+        aiTab.id = "image-viewer-ai-tab";
+        aiTab.classList.add("image-viewer-tab");
+        aiTab.setAttribute("role", "tab");
+        aiTab.setAttribute("aria-controls", "image-viewer-ai-pane");
+        tabs.append(metadataTab, aiTab);
+        tabs.addEventListener("keydown", event => {
+            if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+            const available = [metadataTab, aiTab].filter(tab => !tab.hidden);
+            const current = available.indexOf(event.target);
+            if (current < 0) return;
+            event.preventDefault();
+            const next = event.key === "Home" ? 0 : event.key === "End" ? available.length - 1
+                : (current + (event.key === "ArrowRight" ? 1 : -1) + available.length) % available.length;
+            const target = available[next];
+            toggleInspector(true, target === aiTab ? "ai" : "metadata");
+            target.focus({ preventScroll: true });
+        });
+        const inspectorClose = button("×", "收起信息面板", () => toggleInspector(false));
+        inspectorHeader.append(tabs, inspectorClose);
         const metadata = element("div", "image-viewer-metadata");
         const metadataStatus = element("p", "image-viewer-metadata-status");
         metadataStatus.setAttribute("role", "status");
         const metadataRetry = button("重试", "重新加载作品信息", loadMetadata);
         metadataRetry.classList.add("image-viewer-info");
+        const metadataPane = element("div", "image-viewer-metadata-pane");
+        metadataPane.id = "image-viewer-metadata-pane";
+        metadataPane.setAttribute("role", "tabpanel");
+        metadataPane.setAttribute("aria-labelledby", metadataTab.id);
+        metadataPane.append(metadataStatus, metadataRetry, metadata);
+        const aiPane = element("div", "image-viewer-ai-pane");
+        aiPane.id = "image-viewer-ai-pane";
+        aiPane.setAttribute("role", "tabpanel");
+        aiPane.setAttribute("aria-labelledby", aiTab.id);
+        aiPane.hidden = true;
+        const aiNotice = element("p", "image-viewer-ai-notice", "静态图片将发送至第三方免费模型分析，结果仅供参考。");
+        const aiAction = button("开始分析", "开始 AI 分析", () => options?.analysisSession?.start());
+        aiAction.classList.add("image-viewer-ai-action");
+        const aiStatus = element("p", "image-viewer-ai-status");
+        aiStatus.setAttribute("role", "status");
+        const aiResult = element("div", "image-viewer-ai-result");
+        aiPane.append(aiNotice, aiAction, aiStatus, aiResult);
         const inspectorScroll = element("div", "image-viewer-inspector-scroll");
-        inspectorScroll.append(metadataStatus, metadataRetry, metadata);
-        const fullDetail = element("a", "image-viewer-link", "查看完整详情 →");
-        fullDetail.addEventListener("click", event => {
-            if (plainClick(event) && options && options.onNavigateDetail) {
-                event.preventDefault();
-                options.onNavigateDetail(fullDetail.href);
-            }
-        });
-        inspector.append(inspectorHeader, inspectorScroll, fullDetail);
+        inspectorScroll.append(metadataPane, aiPane);
+        inspector.append(inspectorHeader, inspectorScroll);
         // This layer is outside the image stage; scrolling and selecting text stay local.
         ["wheel", "pointerdown", "click"].forEach(type =>
             inspector.addEventListener(type, event => event.stopPropagation()));
@@ -192,7 +229,8 @@
         document.body.appendChild(dialog);
         ui = { dialog, title, position, pagination, current, total, closeButton, stage, status, retry, previous, next,
             minus, plus, fit, actual, more, zoomLabel, detail, source, info, inspector, inspectorClose,
-            metadata, metadataStatus, metadataRetry, fullDetail, inspectorScroll };
+            metadata, metadataStatus, metadataRetry, metadataPane, metadataTab, inspectorScroll,
+            aiTab, aiPane, aiAction, aiStatus, aiResult };
     }
 
     function resizeImage() {
@@ -209,33 +247,52 @@
         applyTransform();
     }
 
-    function toggleInspector(expanded) {
-        if (!options || !metadataSession) return;
+    function toggleInspector(expanded, panel = activePanel) {
+        if (!options || (panel === "metadata" ? !metadataSession : !analysisAvailable)) return;
+        const wasOpen = inspectorOpen;
+        const previousPanel = activePanel;
         inspectorOpen = expanded;
+        activePanel = panel;
         pointer = null;
         ui.stage.classList.remove("is-dragging");
         ui.dialog.classList.toggle("has-inspector", expanded);
         ui.inspector.hidden = !expanded;
         ui.info.setAttribute("aria-expanded", String(expanded));
+        ui.metadataTab.setAttribute("aria-selected", String(panel === "metadata"));
+        ui.aiTab.setAttribute("aria-selected", String(panel === "ai"));
+        ui.metadataTab.tabIndex = panel === "metadata" ? 0 : -1;
+        ui.aiTab.tabIndex = panel === "ai" ? 0 : -1;
+        ui.metadataPane.hidden = panel !== "metadata";
+        ui.aiPane.hidden = panel !== "ai";
+        if (!wasOpen || previousPanel !== panel) ui.inspectorScroll.scrollTop = 0;
         resizeImage();
         if (expanded) {
-            ui.inspectorClose.focus({ preventScroll: true });
-            if (metadataSession.status === "idle") loadMetadata();
+            if (!wasOpen) (panel === "ai" ? ui.aiTab : ui.metadataTab).focus({ preventScroll: true });
+            if (panel === "metadata" && metadataSession.status === "idle") loadMetadata();
+            if (panel === "ai") renderAnalysis();
         } else ui.info.focus({ preventScroll: true });
     }
 
     function metadataText(value) { return typeof value === "string" ? value.trim() : ""; }
 
+    function galleryFilterLink(label, key, id, className) {
+        const validId = id != null && /^[1-9]\d*$/.test(String(id));
+        if (!validId || !window.BrowseContext) return element("span", className, label);
+        const link = element("a", className, label);
+        link.href = window.BrowseContext.galleryHref({ [key]: String(id) });
+        return link;
+    }
+
     function renderMetadata(detail) {
         ui.metadata.replaceChildren();
         const name = metadataText(detail.author?.displayName);
         const handle = metadataText(detail.author?.xUsername).replace(/^@+/, "");
-        if (name) ui.metadata.appendChild(element("p", "image-viewer-author", name));
+        if (name) ui.metadata.appendChild(galleryFilterLink(name, "authorId", detail.author?.id, "image-viewer-author image-viewer-filter-link"));
         if (handle) ui.metadata.appendChild(element("p", "image-viewer-handle", `@${handle}`));
         const tags = element("div", "image-viewer-tags");
         (detail.tags || []).forEach(tag => {
             const name = metadataText(tag.name);
-            if (name) tags.appendChild(element("span", "tag-chip", name));
+            if (name) tags.appendChild(galleryFilterLink(name, "tagId", tag.id, "tag-chip image-viewer-filter-link"));
         });
         if (tags.children.length) ui.metadata.appendChild(tags);
         const source = metadataText(detail.sourceUrl);
@@ -276,6 +333,21 @@
             ui.metadataStatus.textContent = "作品信息加载失败";
             ui.metadataRetry.hidden = false;
         }
+    }
+
+    function renderAnalysis() {
+        if (!options?.analysisSession || !ui) return;
+        const { status, result, error } = options.analysisSession.snapshot();
+        ui.aiAction.hidden = status === "ready";
+        ui.aiAction.disabled = status === "loading";
+        ui.aiAction.textContent = status === "error" ? "重试分析" : "开始分析";
+        ui.aiStatus.textContent = status === "loading" ? "分析中…"
+            : status === "error" ? `失败：${error}` : status === "ready" ? "分析完成" : "未分析";
+        if (status === "ready") {
+            const item = options.items[index];
+            window.AiAnalysis.renderCurrent(ui.aiResult, result, item.key);
+        } else ui.aiResult.replaceChildren();
+        if (inspectorOpen && activePanel === "ai") ui.inspectorScroll.scrollTop = 0;
     }
 
     function plainClick(event) {
@@ -407,10 +479,9 @@
         currentImage.src = item.fullUrl;
         controls();
         if (options.onChange) options.onChange(item.key);
+        if (options.analysisSession) renderAnalysis();
         const href = typeof options.detailHref === "function" ? options.detailHref(item.key) : options.detailHref;
         setLink(ui.detail, href);
-        ui.detail.hidden = ui.detail.hidden || Boolean(options.detailInInspectorOnly);
-        setLink(ui.fullDetail, href);
     }
 
     function move(amount) {
@@ -430,14 +501,25 @@
         inspectorOpen = false;
         metadataSession = typeof config.metadataProvider === "function"
             ? { provider: config.metadataProvider, status: "idle" } : null;
-        ui.info.hidden = !metadataSession;
+        const staticCount = config.items.filter(item => ["image/jpeg", "image/png"].includes(item.mimeType)).length;
+        analysisAvailable = Boolean(config.analysisSession) && staticCount > 0 && staticCount <= 4;
+        activePanel = metadataSession ? "metadata" : "ai";
+        ui.info.hidden = !metadataSession && !analysisAvailable;
+        ui.info.textContent = analysisAvailable ? "信息 / AI" : "作品信息";
+        ui.info.setAttribute("aria-label", analysisAvailable ? "打开作品信息与 AI 分析" : "打开作品信息");
+        ui.info.title = ui.info.getAttribute("aria-label");
+        ui.metadataTab.hidden = !metadataSession;
+        ui.aiTab.hidden = !analysisAvailable;
         ui.dialog.classList.toggle("has-metadata", Boolean(metadataSession));
+        ui.dialog.classList.toggle("has-analysis", analysisAvailable);
         ui.info.setAttribute("aria-expanded", "false");
         ui.inspector.hidden = true;
         ui.dialog.classList.remove("has-inspector");
         ui.metadata.replaceChildren();
         ui.metadataStatus.textContent = "";
         ui.metadataRetry.hidden = true;
+        ui.aiResult.replaceChildren();
+        ui.aiStatus.textContent = "";
         ui.inspectorScroll.scrollTop = 0;
         index = config.items.findIndex(item => item.key === config.startKey);
         if (index < 0) index = 0;
@@ -449,20 +531,27 @@
         setLink(ui.source, config.sourceHref);
         ui.dialog.showModal();
         ui.closeButton.focus({ preventScroll: true });
+        if (analysisAvailable) analysisUnsubscribe = config.analysisSession.subscribe(renderAnalysis);
         showImage();
+        if (config.startPanel === "ai" && analysisAvailable) toggleInspector(true, "ai");
         return true;
     }
 
     function close() {
         if (!options) return;
         ++generation;
+        if (analysisUnsubscribe) analysisUnsubscribe();
+        analysisUnsubscribe = null;
         options = null;
         metadataSession = null;
+        analysisAvailable = false;
         inspectorOpen = false;
         ui.info.setAttribute("aria-expanded", "false");
         ui.inspector.hidden = true;
         ui.dialog.classList.remove("has-inspector");
+        ui.dialog.classList.remove("has-analysis");
         ui.metadata.replaceChildren();
+        ui.aiResult.replaceChildren();
         loaded = false;
         releaseVideo();
         pointer = null;

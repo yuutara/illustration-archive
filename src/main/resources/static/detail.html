@@ -6,6 +6,7 @@
     <title>插画详情 · Illustration Archive</title>
     <script src="/theme.js"></script>
     <link rel="stylesheet" href="/style.css">
+    <script src="/ai-analysis.js" defer></script>
     <script src="/image-viewer.js" defer></script>
     <script src="/browse-context.js" defer></script>
     <script src="/metadata-picker.js" defer></script>
@@ -16,8 +17,10 @@
     <header class="detail-header">
         <a id="detail-back-link" class="back-link" href="/">← 返回图库</a>
         <p id="detail-status" class="load-status" aria-live="polite">正在加载…</p>
+        <button id="detail-ai-open-viewer" class="secondary-button detail-ai-open-viewer" type="button" hidden>边看图边分析</button>
         <button class="theme-toggle" type="button" aria-pressed="false" hidden>深色模式</button>
     </header>
+    <p id="detail-ai-handoff-status" class="detail-ai-handoff-status" role="status" hidden></p>
 
     <div id="detail-state-panel" class="state-panel" role="status" hidden>
         <h3 id="detail-state-title"></h3>
