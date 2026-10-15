@@ -20,8 +20,18 @@
             <h1>X Import Inbox</h1>
             <p class="page-description">查看最近收藏的候选作品，选择导入或跳过。</p>
         </div>
-        <button id="sync-button" class="primary-button" type="button">Sync latest Likes</button>
+        <button id="sync-button" class="primary-button" type="button">Sync Likes</button>
     </header>
+
+    <section class="inbox-sync-panel" aria-label="Likes 同步结果与进度">
+        <h2>Likes 同步结果与进度</h2>
+        <p id="sync-result" class="import-status inbox-sync-result" role="status" aria-live="polite" hidden></p>
+        <p id="sync-progress" class="inbox-sync-progress" role="status" aria-live="polite"></p>
+        <div class="inbox-sync-recovery">
+            <button id="reset-history-button" class="secondary-button" type="button" hidden>重置失效的历史进度</button>
+            <button id="reset-recent-button" class="secondary-button" type="button" hidden>重置失效的近期追赶进度</button>
+        </div>
+    </section>
 
     <section aria-label="Inbox 操作">
         <div id="inbox-toolbar" class="inbox-toolbar" role="group" aria-label="当前页处理操作">
@@ -58,5 +68,6 @@
         </div>
     </section>
 </main>
+<p id="inbox-toast" class="inbox-toast" role="status" aria-live="polite"></p>
 </body>
 </html>

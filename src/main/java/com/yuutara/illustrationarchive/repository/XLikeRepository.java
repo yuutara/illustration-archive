@@ -21,14 +21,14 @@ public class XLikeRepository {
 	}
 	private static final String INSERT = """
 			INSERT INTO x_like_item (x_post_id, x_author_id, author_username,
-			    author_display_name, post_text, post_created_at, status, discovered_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))
+			    author_display_name, post_text, post_created_at, status, discovered_at, updated_at, likes_order)
+			VALUES (?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3), ?)
 			""";
 	private static final String FIND_PENDING_PAGE = """
 			SELECT id, x_post_id, author_display_name, author_username, post_text, post_created_at, discovered_at
 			FROM x_like_item
 			WHERE status = 'PENDING'
-			ORDER BY discovered_at DESC, id DESC
+			ORDER BY likes_order DESC, discovered_at DESC, id DESC
 			LIMIT ? OFFSET ?
 			""";
 
@@ -40,6 +40,10 @@ public class XLikeRepository {
 
 	/** The unique x_post_id key is the concurrency-safe source identity boundary. */
 	public Long insertIfAbsent(XLikeCandidate candidate) {
+		return insertIfAbsent(candidate, 0);
+	}
+
+	public Long insertIfAbsent(XLikeCandidate candidate, long likesOrder) {
 		GeneratedKeyHolder keys = new GeneratedKeyHolder();
 		try {
 			jdbcTemplate.update(connection -> {
@@ -52,6 +56,7 @@ public class XLikeRepository {
 				statement.setObject(6, candidate.postCreatedAt() == null ? null
 						: LocalDateTime.ofInstant(candidate.postCreatedAt(), ZoneOffset.UTC));
 				statement.setString(7, candidate.status().name());
+				statement.setLong(8, likesOrder);
 				return statement;
 			}, keys);
 		} catch (DuplicateKeyException e) {
@@ -63,6 +68,32 @@ public class XLikeRepository {
 			throw new IllegalStateException("Failed to obtain generated id for X Like item.");
 		}
 		return key.longValue();
+	}
+
+	public long highestLikesOrder() {
+		return jdbcTemplate.queryForObject("SELECT GREATEST(COALESCE(MAX(likes_order), 0), 0) FROM x_like_item", Long.class);
+	}
+
+	public long lowestLikesOrder() {
+		return jdbcTemplate.queryForObject("SELECT LEAST(COALESCE(MIN(likes_order), 0), 0) FROM x_like_item", Long.class);
+	}
+
+	/** Refresh observed order only; never change status, media, link or first discovery time. */
+	public void updateLikesOrder(String postId, long likesOrder, boolean history) {
+		if (history) {
+			jdbcTemplate.update("UPDATE x_like_item SET likes_order = ? WHERE x_post_id = ? AND likes_order <= 0",
+					likesOrder, postId);
+		} else {
+			// Within one scan keep the first occurrence; a later scan allocates strictly higher ranks.
+			jdbcTemplate.update("UPDATE x_like_item SET likes_order = ? WHERE x_post_id = ? AND likes_order < ?",
+					likesOrder, postId, likesOrder);
+		}
+	}
+
+	/** Correct a retry's page ranks without moving earlier pages or a fresher head probe. */
+	public void updateRecentOrder(String postId, long order, long floor, long first, long last) {
+		jdbcTemplate.update("UPDATE x_like_item SET likes_order=? WHERE x_post_id=?"
+				+ " AND (likes_order<=? OR likes_order BETWEEN ? AND ?)", order, postId, floor, last, first);
 	}
 
 	public XLikeStatus findStatusByPostId(String postId) {

@@ -6,6 +6,7 @@ import com.yuutara.illustrationarchive.dto.XLikePage;
 import com.yuutara.illustrationarchive.dto.XLikeStatus;
 import com.yuutara.illustrationarchive.repository.XLikeMediaRepository;
 import com.yuutara.illustrationarchive.repository.XLikeRepository;
+import com.yuutara.illustrationarchive.repository.XLikeSyncStateRepository;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -22,7 +23,7 @@ class XLikePersistenceServiceTest {
 	void repeatedPostDoesNotInsertSecondItemOrMediaAndCountsExistingStatus() {
 		XLikeRepository items = mock(XLikeRepository.class);
 		XLikeMediaRepository media = mock(XLikeMediaRepository.class);
-		XLikePersistenceService service = new XLikePersistenceService(items, media);
+		XLikePersistenceService service = new XLikePersistenceService(items, media, mock(XLikeSyncStateRepository.class));
 		XLikeMedia photo = new XLikeMedia("p1", 0, "photo", "https://img/1", 100, 200);
 		XLikeCandidate candidate = candidate("11", XLikeStatus.PENDING, List.of(photo));
 		when(items.insertIfAbsent(candidate)).thenReturn(7L, null);
@@ -51,7 +52,7 @@ class XLikePersistenceServiceTest {
 		XLikeCandidate candidate = candidate("12", XLikeStatus.PENDING, List.of(first, second));
 		when(items.insertIfAbsent(candidate)).thenReturn(8L);
 
-		var summary = new XLikePersistenceService(items, media).savePage(new XLikePage(List.of(candidate), false, null));
+		var summary = new XLikePersistenceService(items, media, mock(XLikeSyncStateRepository.class)).savePage(new XLikePage(List.of(candidate), false, null));
 
 		assertEquals(1, summary.fetchedCount());
 		assertEquals(1, summary.newCount());
@@ -66,7 +67,7 @@ class XLikePersistenceServiceTest {
 		XLikeCandidate candidate = candidate("13", XLikeStatus.UNSUPPORTED, List.of());
 		when(items.insertIfAbsent(candidate)).thenReturn(9L);
 
-		var summary = new XLikePersistenceService(items, media).savePage(new XLikePage(List.of(candidate), false, null));
+		var summary = new XLikePersistenceService(items, media, mock(XLikeSyncStateRepository.class)).savePage(new XLikePage(List.of(candidate), false, null));
 
 		assertEquals(1, summary.unsupportedCount());
 		verifyNoMoreInteractions(media);
@@ -81,7 +82,7 @@ class XLikePersistenceServiceTest {
 		when(items.insertIfAbsent(candidate)).thenReturn(null);
 		when(items.findStatusByPostId("11")).thenReturn(XLikeStatus.SKIPPED);
 
-		var summary = new XLikePersistenceService(items, media)
+		var summary = new XLikePersistenceService(items, media, mock(XLikeSyncStateRepository.class))
 				.savePage(new XLikePage(List.of(candidate), false, null));
 
 		assertEquals(0, summary.newCount());
@@ -100,7 +101,7 @@ class XLikePersistenceServiceTest {
 		when(items.insertIfAbsent(candidate)).thenReturn(null);
 		when(items.findStatusByPostId("12")).thenReturn(XLikeStatus.IMPORTED);
 
-		var summary = new XLikePersistenceService(items, media)
+		var summary = new XLikePersistenceService(items, media, mock(XLikeSyncStateRepository.class))
 				.savePage(new XLikePage(List.of(candidate), false, null));
 
 		assertEquals(1, summary.existingCount());
@@ -121,7 +122,7 @@ class XLikePersistenceServiceTest {
 		when(items.insertIfAbsent(candidate)).thenReturn(8L, null);
 		when(items.reopenUnsupported("13")).thenReturn(8L);
 		when(items.findStatusByPostId("13")).thenReturn(XLikeStatus.UNSUPPORTED);
-		var service = new XLikePersistenceService(items, media);
+		var service = new XLikePersistenceService(items, media, mock(XLikeSyncStateRepository.class));
 		assertEquals(1, service.savePage(new XLikePage(List.of(candidate), false, null)).newCount());
 		assertEquals(1, service.savePage(new XLikePage(List.of(candidate), false, null)).existingCount());
 		var order = org.mockito.Mockito.inOrder(media);

@@ -2,6 +2,7 @@ package com.yuutara.illustrationarchive.controller;
 
 import com.yuutara.illustrationarchive.dto.XLikeInboxPage;
 import com.yuutara.illustrationarchive.dto.XLikeSyncSummary;
+import com.yuutara.illustrationarchive.dto.XLikeSyncReport;
 import com.yuutara.illustrationarchive.service.XApiException;
 import com.yuutara.illustrationarchive.service.XLikeSyncService;
 import com.yuutara.illustrationarchive.service.XImportService;
@@ -29,6 +30,11 @@ public class XImportController {
 		this.importService = importService;
 	}
 
+	@PostMapping("/sync")
+	public XLikeSyncReport sync() {
+		return syncService.sync();
+	}
+
 	@PostMapping("/sync/recent")
 	public XLikeSyncSummary syncRecent(@RequestParam(required = false) Integer maxResults,
 			@RequestParam(required = false) Integer maxPages) {
@@ -44,6 +50,12 @@ public class XImportController {
 	@PostMapping("/sync/continuation/reset")
 	public ResponseEntity<Void> resetInvalidContinuation() {
 		syncService.resetInvalidContinuation();
+		return ResponseEntity.noContent().build();
+	}
+
+	@PostMapping("/sync/recent/reset")
+	public ResponseEntity<Void> resetInvalidRecent() {
+		syncService.resetInvalidRecent();
 		return ResponseEntity.noContent().build();
 	}
 

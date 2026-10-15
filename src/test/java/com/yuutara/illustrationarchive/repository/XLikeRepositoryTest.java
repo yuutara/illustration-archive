@@ -96,7 +96,7 @@ class XLikeRepositoryTest {
 		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
 		verify(jdbc).query(sql.capture(), mapper.capture(), eq(2), eq(4L));
 		assertTrue(sql.getValue().contains("WHERE status = 'PENDING'"));
-		assertTrue(sql.getValue().contains("ORDER BY discovered_at DESC, id DESC"));
+		assertTrue(sql.getValue().contains("ORDER BY likes_order DESC, discovered_at DESC, id DESC"));
 		assertTrue(sql.getValue().contains("LIMIT ? OFFSET ?"));
 		ArgumentCaptor<String> countSql = ArgumentCaptor.forClass(String.class);
 		verify(jdbc).queryForObject(countSql.capture(), eq(Long.class));

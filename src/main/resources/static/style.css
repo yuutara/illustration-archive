@@ -1231,9 +1231,19 @@ h2 {
 .inbox-page .inbox-results > summary { cursor: pointer; font-weight: 700; }
 .inbox-page #select-failed-button { margin-top: 12px; min-height: 44px; }
 .inbox-page .inbox-results[open] > summary { margin-bottom: 10px; }
-.inbox-page .inbox-feedback { min-height: 0; margin: 0; }
+.inbox-page .page-shell { padding-bottom: 96px; }
+.inbox-page .inbox-sync-panel { margin-bottom: 16px; padding: 12px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); overflow-wrap: anywhere; }
+.inbox-page .inbox-sync-panel h2 { margin: 0; font-size: .95rem; }
+.inbox-page .inbox-sync-result, .inbox-page .inbox-sync-progress { margin: 8px 0 0; line-height: 1.6; font-size: .88rem; }
+.inbox-page .inbox-sync-progress { color: var(--text-muted); }
+.inbox-page .inbox-sync-progress:empty { display: none; }
+.inbox-page .inbox-sync-recovery { display: flex; flex-wrap: wrap; gap: 8px; }
+.inbox-page .inbox-sync-recovery button { margin-top: 8px; min-height: 44px; }
+.inbox-page .inbox-feedback { min-height: 0; margin: 12px 0; overflow-wrap: anywhere; }
 .inbox-page .inbox-feedback:empty { display: none; }
-.inbox-page .inbox-feedback:not(:empty) { position: fixed; z-index: 6; bottom: 16px; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px); padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow); }
+.inbox-page .inbox-toast { min-height: 0; margin: 0; pointer-events: none; font-size: .88rem; line-height: 1.5; }
+.inbox-page .inbox-toast:empty { display: none; }
+.inbox-page .inbox-toast:not(:empty) { position: fixed; z-index: 6; bottom: 16px; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px); padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: var(--shadow); }
 @media (max-width: 620px) {
     .inbox-page .inbox-toolbar { gap: 6px; padding: 8px; }
     .inbox-page .inbox-selection-summary { width: 100%; justify-content: space-between; font-size: .88rem; }

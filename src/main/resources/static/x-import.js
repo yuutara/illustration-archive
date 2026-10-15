@@ -6,12 +6,18 @@
     const selectedCount = document.getElementById("inbox-selected-count");
     const toolbar = document.getElementById("inbox-toolbar");
     const message = document.getElementById("inbox-message");
+    const syncResult = document.getElementById("sync-result");
+    const toast = document.getElementById("inbox-toast");
     const successLinks = document.getElementById("inbox-success-links");
     const statePanel = document.getElementById("inbox-state");
     const stateTitle = document.getElementById("inbox-state-title");
     const stateMessage = document.getElementById("inbox-state-message");
     const retryButton = document.getElementById("inbox-retry-button");
     const syncButton = document.getElementById("sync-button");
+    const resetHistoryButton = document.getElementById("reset-history-button");
+    const resetRecentButton = document.getElementById("reset-recent-button");
+    const syncProgress = document.getElementById("sync-progress");
+    let savedSyncProgress = { recentStatus: "UNKNOWN", historyStatus: "UNKNOWN", unscannedIntervals: true };
     const previousButton = document.getElementById("inbox-previous");
     const nextButton = document.getElementById("inbox-next");
     const pageStatus = document.getElementById("inbox-page-status");
@@ -31,6 +37,7 @@
     let refreshRequired = false;
     let loadGeneration = 0;
     let messageTimer;
+    let toastTimer;
     const pageSize = 24;
     const viewerItems = new Map();
     // Only Archive returns per-item outcomes. Keep those reasons in this document,
@@ -48,11 +55,24 @@
     page = browse.initialPage;
 
     function setMessage(text, error, transient = false) {
+        setToast("");
         window.clearTimeout(messageTimer);
         message.textContent = text;
         message.classList.toggle("is-error", Boolean(error));
         message.classList.toggle("is-success", Boolean(text) && !error);
         if (transient && text && !error) messageTimer = window.setTimeout(() => setMessage("", false), 6000);
+    }
+
+    function setToast(text) {
+        window.clearTimeout(toastTimer);
+        toast.textContent = text;
+        if (text) toastTimer = window.setTimeout(() => { toast.textContent = ""; }, 6000);
+    }
+
+    function setSyncResult(text, error) {
+        syncResult.textContent = text;
+        syncResult.hidden = !text;
+        syncResult.classList.toggle("is-error", Boolean(error));
     }
 
     function showState(title, detail, retry) {
@@ -73,6 +93,8 @@
         const locked = busy || loading || refreshRequired;
         selectedCount.textContent = `本页已选 ${selectionCount} 项`;
         syncButton.disabled = locked;
+        resetHistoryButton.disabled = locked;
+        resetRecentButton.disabled = locked;
         selectAllButton.disabled = locked || items.length === 0 || selectionCount === items.length;
         clearButton.disabled = locked || selectionCount === 0;
         selectFailedButton.hidden = !items.some(item => archiveIssues.get(item.id)?.status === "FAILED");
@@ -376,6 +398,7 @@
             page = resolvedPage;
             browse.setPage(page);
             items = data.items;
+            if (data.syncProgress) renderSyncProgress(data.syncProgress);
             totalPages = data.totalPages;
             viewerItems.clear();
             const cards = items.map(renderItem);
@@ -383,7 +406,7 @@
                 video.pause(); video.removeAttribute("src"); video.load();
             });
             list.replaceChildren(...cards);
-            count.textContent = `${data.totalItems} pending`;
+            count.textContent = `Inbox 全部待处理：${data.totalItems}`;
             pageStatus.textContent = `Page ${totalPages === 0 ? 0 : page + 1} / ${totalPages}`;
             statePanel.hidden = items.length > 0;
             if (items.length === 0) showState("No pending X Likes", "可以手动同步最近的 Likes。", false);
@@ -411,15 +434,86 @@
         if (busy || loading || refreshRequired) return;
         busy = true;
         updateActions();
-        setMessage("正在同步最近最多 3 页 Likes…", false);
+        setMessage("", false);
+        setSyncResult("正在发现最新 Likes，并在预算内补齐历史…", false);
         try {
-            const response = await fetch("/api/x-import/sync/recent?maxResults=5&maxPages=3", { method: "POST", headers: { Accept: "application/json" } });
+            const response = await fetch("/api/x-import/sync", { method: "POST", headers: { Accept: "application/json" } });
             const result = await response.json();
             if (!response.ok) throw new Error(result.message || `HTTP ${response.status}`);
-            setMessage(`同步完成：请求 ${result.pagesFetched} 页，读取 ${result.fetchedCount}，新增 ${result.newCount}，已有 ${result.existingCount}，待处理 ${result.pendingCount}。${result.stoppedByMaxPages ? "已达页数上限，下次点击仍从最新 Likes 开始。" : ""}${result.stoppedByInvalidToken ? "分页游标异常，已停止。" : ""}`, false);
+            const recent = result.recent, history = result.history;
+            const reasons = {
+                NATURAL_END: "自然结束", HISTORY_COMPLETE: "历史此前已扫描完",
+                RECENT_WINDOW: "达到本次近期页数预算，下次续传", PAGE_BUDGET: "达到请求页数预算",
+                CAUGHT_UP: "已衔接上次验证范围", VERIFY_PENDING: "等待下次复核头部",
+                WAIT_RECENT_BOOTSTRAP: "等待首次近期遍历建立可信边界", INVALID_CHECKPOINT: "近期顺序进度异常，需重置",
+                SCAN_BUDGET: "达到扫描预算", NEW_BUDGET: "达到新增预算（不截断整页）",
+                INVALID_TOKEN: "分页游标失效或重复", API_FAILURE: "API 请求或解析失败",
+                API_PARTIAL: "API 返回部分数据，保留进度等待重试", SAVE_FAILURE: "本页保存失败",
+                STATE_FAILURE: "同步进度保存失败", SKIPPED_AFTER_FAILURE: "前阶段失败，未继续",
+                NOT_STARTED: "未开始"
+            };
+            const scanned = recent.scannedCount + history.scannedCount;
+            const known = recent.scanCountKnown && history.scanCountKnown;
+            const historyState = { MORE: "历史仍有剩余，下次继续", COMPLETE: "保存的历史进度已到末尾",
+                INVALID: "历史进度失效，需手动重置", UNKNOWN: "历史剩余尚未确认" };
+            renderSyncProgress({ recentStatus: result.recentStatus || "UNKNOWN", historyStatus: result.historyStatus,
+                unscannedIntervals: result.recentStatus !== "CAUGHT_UP" || result.historyStatus !== "COMPLETE" });
+            setSyncResult(`${result.partial ? "同步部分完成" : "本次同步结束"}：最新新发现 ${recent.newCount}，历史新发现 ${history.newCount}；`
+                + `已有 ${recent.existingCount + history.existingCount}（其中已归档/跳过 ${recent.processedCount + history.processedCount}），`
+                + `Unsupported ${recent.unsupportedCount + history.unsupportedCount}；扫描${known ? "" : "至少"} ${scanned} 条，`
+                + `Likes 请求 ${recent.pagesRequested + history.pagesRequested} 页，保存 ${recent.pagesSaved + history.pagesSaved} 页。`
+                + `最新：${reasons[recent.stopReason] || recent.stopReason}；历史：${reasons[history.stopReason] || history.stopReason}。`
+                + `${historyState[result.historyStatus] || "历史剩余尚未确认"}。`, result.partial);
+            setToast(result.partial ? "同步部分完成，请查看上方结果。" : "本次同步结束，详情见上方结果。");
             await loadInbox({ targetPage: 0, preservePosition: false });
         } catch (error) {
-            setMessage(`同步失败：${error.message}`, true);
+            setSyncResult(`同步失败：${error.message}`, true);
+            setToast("同步失败，请查看上方结果。");
+            await loadInbox({ preservePosition: true });
+        } finally {
+            busy = false;
+            updateActions();
+        }
+    }
+
+    function renderSyncProgress(progress) {
+        savedSyncProgress = progress;
+        resetHistoryButton.hidden = progress.historyStatus !== "INVALID";
+        resetRecentButton.hidden = progress.recentStatus !== "INVALID";
+        const recent = { UNKNOWN: "近期范围尚未验证", ACTIVE: "近期追赶未完成，下次 Sync 继续",
+            VERIFY: "近期已到衔接边界，下次 Sync 复核头部", CAUGHT_UP: "近期已衔接上次验证范围（按 API 观察）",
+            INVALID: "近期追赶中断，需手动重置游标" };
+        const history = { UNKNOWN: "历史范围尚未验证", MORE: "历史仍有剩余", COMPLETE: "保存的历史进度已到末尾",
+            INVALID: "历史游标失效，可直接重置" };
+        syncProgress.textContent = `${recent[progress.recentStatus] || recent.UNKNOWN}；${history[progress.historyStatus] || history.UNKNOWN}。`
+            + (progress.unscannedIntervals ? "仍有待扫描或待验证区间。" : "本次观察范围已衔接。");
+    }
+
+    async function resetRecent() {
+        if (busy || loading || refreshRequired || resetRecentButton.hidden) return;
+        busy = true;
+        updateActions();
+        try {
+            const response = await fetch("/api/x-import/sync/recent/reset", { method: "POST" });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            renderSyncProgress({ ...savedSyncProgress, recentStatus: "ACTIVE", unscannedIntervals: true });
+            setMessage("近期游标已重置，下次从头重新衔接已验证范围；已保存帖子保留。本次未请求 X API。", false);
+        } catch (error) { setMessage(`近期重置失败：${error.message}`, true); }
+        finally { busy = false; updateActions(); }
+    }
+
+    async function resetHistory() {
+        if (busy || loading || refreshRequired || resetHistoryButton.hidden) return;
+        busy = true;
+        updateActions();
+        try {
+            const response = await fetch("/api/x-import/sync/continuation/reset", { method: "POST" });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            resetHistoryButton.hidden = true;
+            renderSyncProgress({ recentStatus: "ACTIVE", historyStatus: "UNKNOWN", unscannedIntervals: true });
+            setMessage("历史游标已重置，下次 Sync 将从头分批核对至末尾；已保存帖子保留。本次未请求 X API。", false);
+        } catch (error) {
+            setMessage(`历史重置失败：${error.message}`, true);
         } finally {
             busy = false;
             updateActions();
@@ -488,6 +582,8 @@
     }
 
     syncButton.addEventListener("click", syncLatest);
+    resetHistoryButton.addEventListener("click", resetHistory);
+    resetRecentButton.addEventListener("click", resetRecent);
     skipButton.addEventListener("click", () => processSelected("skip"));
     importButton.addEventListener("click", () => processSelected("import"));
     previousButton.addEventListener("click", async () => {

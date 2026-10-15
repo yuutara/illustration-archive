@@ -2,5 +2,8 @@ package com.yuutara.illustrationarchive.dto;
 
 import java.util.List;
 
-public record XLikePage(List<XLikeCandidate> candidates, boolean hasMore, String nextToken) {
+public record XLikePage(List<XLikeCandidate> candidates, boolean hasMore, String nextToken, int upstreamErrorCount) {
+	public XLikePage(List<XLikeCandidate> candidates, boolean hasMore, String nextToken) {
+		this(candidates, hasMore, nextToken, 0);
+	}
 }
