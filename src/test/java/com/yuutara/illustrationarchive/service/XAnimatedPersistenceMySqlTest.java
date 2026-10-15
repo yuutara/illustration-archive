@@ -55,6 +55,8 @@ class XAnimatedPersistenceMySqlTest {
 				context.registerBean(PlatformTransactionManager.class, () -> new DataSourceTransactionManager(dataSource));
 				context.registerBean(XLikeRepository.class, () -> items);
 				context.registerBean(XLikeMediaRepository.class, () -> media);
+				context.registerBean(com.yuutara.illustrationarchive.repository.XLikeSyncStateRepository.class,
+						() -> new com.yuutara.illustrationarchive.repository.XLikeSyncStateRepository(jdbc));
 				context.registerBean(XLikePersistenceService.class);
 				context.refresh();
 				var service = context.getBean(XLikePersistenceService.class);

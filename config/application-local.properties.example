@@ -29,6 +29,15 @@ X_OAUTH_CLIENT_SECRET=
 X_API_DEFAULT_PAGE_SIZE=5
 X_API_DEFAULT_MAX_PAGES=3
 
+# Sync button budget; existing history keeps its saved page size.
+# Recent resumes up to RECENT_MAX_PAGES; an optional head probe also consumes the shared budget.
+# MAX_SCANNED reserves max_results for every Likes HTTP attempt, including retries.
+X_SYNC_RECENT_PAGE_SIZE=25
+X_SYNC_RECENT_MAX_PAGES=2
+X_SYNC_MAX_PAGES=6
+X_SYNC_MAX_SCANNED=100
+X_SYNC_MAX_NEW=50
+
 # Optional manual Gemini analysis. Use a Free Tier project; never put a real key in this example.
 AI_ANALYSIS_ENABLED=false
 GEMINI_API_KEY=

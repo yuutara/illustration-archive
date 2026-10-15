@@ -4,6 +4,7 @@ import com.yuutara.illustrationarchive.dto.XLikeInboxItem;
 import com.yuutara.illustrationarchive.dto.XLikeInboxPage;
 import com.yuutara.illustrationarchive.dto.XLikeMedia;
 import com.yuutara.illustrationarchive.dto.XLikeSyncSummary;
+import com.yuutara.illustrationarchive.dto.XLikeSyncReport;
 import com.yuutara.illustrationarchive.service.XApiException;
 import com.yuutara.illustrationarchive.service.XLikeSyncService;
 import com.yuutara.illustrationarchive.service.XImportService;
@@ -27,6 +28,23 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class XImportControllerTest {
+	@Test
+	void combinedSyncReturnsStageCountsAndPartialCompletionWithoutExposingTokens() throws Exception {
+		var service = mock(XLikeSyncService.class);
+		var recent = new XLikeSyncReport.Phase(2, 2, 30, 50, 5, 25, 2, 1, true, true, "RECENT_WINDOW", null);
+		var history = new XLikeSyncReport.Phase(1, 0, 0, 5, 0, 0, 0, 0, false, true, "API_FAILURE", 429);
+		when(service.sync()).thenReturn(new XLikeSyncReport(recent, history, 6, 100, 50, true, "MORE", "ACTIVE"));
+		mvc(service).perform(post("/api/x-import/sync"))
+				.andExpect(status().isOk()).andExpect(jsonPath("$.recent.newCount").value(5))
+				.andExpect(jsonPath("$.history.pagesRequested").value(1))
+				.andExpect(jsonPath("$.history.pagesSaved").value(0))
+				.andExpect(jsonPath("$.history.upstreamStatus").value(429))
+				.andExpect(jsonPath("$.partial").value(true))
+				.andExpect(jsonPath("$.historyStatus").value("MORE"))
+				.andExpect(jsonPath("$.recentStatus").value("ACTIVE"))
+				.andExpect(content().string(not(containsString("nextToken"))));
+		verify(service).sync();
+	}
 	@Test
 	void importEndpointReturnsPerPostSummary() throws Exception {
 		XImportService imports = mock(XImportService.class);
@@ -80,6 +98,23 @@ class XImportControllerTest {
 		mvc(service).perform(post("/api/x-import/sync/continuation/reset"))
 				.andExpect(status().isNoContent());
 		verify(service).resetInvalidContinuation();
+	}
+
+	@Test
+	void localInboxExposesInvalidProgressAndRecentResetRequiresNoSync() throws Exception {
+		var service = mock(XLikeSyncService.class);
+		when(service.inbox(null, null)).thenReturn(new XLikeInboxPage(List.of(), 0, 24, 351, 15,
+				new XLikeSyncReport.Progress("INVALID", "INVALID", true)));
+		mvc(service).perform(get("/api/x-import/inbox"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.syncProgress.recentStatus").value("INVALID"))
+				.andExpect(jsonPath("$.syncProgress.historyStatus").value("INVALID"))
+				.andExpect(jsonPath("$.syncProgress.unscannedIntervals").value(true))
+				.andExpect(content().string(not(containsString("nextToken"))))
+				.andExpect(content().string(not(containsString("anchorIds"))));
+		mvc(service).perform(post("/api/x-import/sync/recent/reset")).andExpect(status().isNoContent());
+		verify(service).resetInvalidRecent();
+		org.mockito.Mockito.verify(service, org.mockito.Mockito.never()).sync();
 	}
 
 	@Test

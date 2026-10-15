@@ -27,6 +27,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anySet;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.doAnswer;
@@ -42,7 +46,7 @@ class XLikeSyncServiceTest {
 		XLikeRepository items = mock(XLikeRepository.class);
 		XLikeMediaRepository media = mock(XLikeMediaRepository.class);
 		XLikeSyncService service = new XLikeSyncService(mock(XApiClient.class),
-				mock(XLikePersistenceService.class), items, media, mock(XLikeSyncStateRepository.class), 5, 3);
+				mock(XLikePersistenceService.class), items, media, mock(XLikeSyncStateRepository.class), 5, 3, new XLikeSyncBudget(25, 2, 6, 100, 50));
 		Instant recent = Instant.parse("2026-09-25T09:00:00Z");
 		Instant older = Instant.parse("2026-09-24T09:00:00Z");
 		when(items.countPending()).thenReturn(3L);
@@ -69,7 +73,7 @@ class XLikeSyncServiceTest {
 		XLikeRepository items = mock(XLikeRepository.class);
 		XLikeMediaRepository media = mock(XLikeMediaRepository.class);
 		XLikeSyncService service = new XLikeSyncService(mock(XApiClient.class),
-				mock(XLikePersistenceService.class), items, media, mock(XLikeSyncStateRepository.class), 5, 3);
+				mock(XLikePersistenceService.class), items, media, mock(XLikeSyncStateRepository.class), 5, 3, new XLikeSyncBudget(25, 2, 6, 100, 50));
 		assertThrows(IllegalArgumentException.class, () -> service.inbox(-1, 24));
 		assertThrows(IllegalArgumentException.class, () -> service.inbox(0, 0));
 		assertThrows(IllegalArgumentException.class, () -> service.inbox(0, 101));
@@ -94,7 +98,7 @@ class XLikeSyncServiceTest {
 		XApiClient client = mock(XApiClient.class);
 		XLikePersistenceService persistence = mock(XLikePersistenceService.class);
 		XLikeSyncService service = new XLikeSyncService(client, persistence,
-				mock(XLikeRepository.class), mock(XLikeMediaRepository.class), mock(XLikeSyncStateRepository.class), 5, 3);
+				mock(XLikeRepository.class), mock(XLikeMediaRepository.class), mock(XLikeSyncStateRepository.class), 5, 3, new XLikeSyncBudget(25, 2, 6, 100, 50));
 
 		assertThrows(IllegalArgumentException.class, () -> service.syncRecent(4, 1));
 		assertThrows(IllegalArgumentException.class, () -> service.syncRecent(101, 1));
@@ -109,7 +113,7 @@ class XLikeSyncServiceTest {
 		XLikePersistenceService persistence = mock(XLikePersistenceService.class);
 		XLikePage page = new XLikePage(List.of(), false, null);
 		when(client.fetchRecentLikes("999", 5, null)).thenReturn(page);
-		when(persistence.savePage(page)).thenReturn(new XLikeSyncSummary(1, 2, 1, 1, 1, 0, false, false, false));
+		when(persistence.saveOrderedPage(eq(page), anyLong(), anyBoolean(), anySet())).thenReturn(new XLikeSyncSummary(1, 2, 1, 1, 1, 0, false, false, false));
 
 		XLikeSyncSummary summary = service(client, persistence).syncRecent(null, null);
 
@@ -134,8 +138,8 @@ class XLikeSyncServiceTest {
 		XLikePage second = new XLikePage(List.of(), false, null);
 		when(client.fetchRecentLikes("999", 5, null)).thenReturn(first);
 		when(client.fetchRecentLikes("999", 5, "second")).thenReturn(second);
-		when(persistence.savePage(first)).thenReturn(new XLikeSyncSummary(1, 3, 2, 1, 2, 1, true, false, false));
-		when(persistence.savePage(second)).thenReturn(new XLikeSyncSummary(1, 2, 1, 1, 1, 0, false, false, false));
+		when(persistence.saveOrderedPage(eq(first), anyLong(), anyBoolean(), anySet())).thenReturn(new XLikeSyncSummary(1, 3, 2, 1, 2, 1, true, false, false));
+		when(persistence.saveOrderedPage(eq(second), anyLong(), anyBoolean(), anySet())).thenReturn(new XLikeSyncSummary(1, 2, 1, 1, 1, 0, false, false, false));
 
 		XLikeSyncSummary summary = service(client, persistence, memory.repo).syncRecent(5, 2);
 
@@ -160,7 +164,7 @@ class XLikeSyncServiceTest {
 		XLikeMediaRepository media = mock(XLikeMediaRepository.class);
 		MemoryContinuation memory = new MemoryContinuation();
 		Map<String, XLikeStatus> stored = new HashMap<>();
-		when(items.insertIfAbsent(any(XLikeCandidate.class))).thenAnswer(call -> {
+		when(items.insertIfAbsent(any(XLikeCandidate.class), anyLong())).thenAnswer(call -> {
 			XLikeCandidate candidate = call.getArgument(0);
 			if (stored.containsKey(candidate.xPostId())) {
 				return null;
@@ -180,7 +184,7 @@ class XLikeSyncServiceTest {
 		when(client.fetchRecentLikes("999", 5, "last-page"))
 				.thenReturn(new XLikePage(List.of(second), false, null));
 		XLikeSyncService service = new XLikeSyncService(client,
-				new XLikePersistenceService(items, media), items, media, memory.repo, 5, 3);
+				new XLikePersistenceService(items, media, mock(XLikeSyncStateRepository.class)), items, media, memory.repo, 5, 3, new XLikeSyncBudget(25, 2, 6, 100, 50));
 
 		XLikeSyncSummary initial = service.syncRecent(5, 2);
 		assertEquals(2, initial.newCount());
@@ -228,10 +232,10 @@ class XLikeSyncServiceTest {
 		when(client.resolveUserId()).thenReturn("999");
 		when(client.fetchRecentLikes("999", 5, null)).thenReturn(new XLikePage(List.of(candidate), true, "next"));
 		when(client.fetchRecentLikes("999", 5, "next")).thenReturn(new XLikePage(List.of(candidate), false, null));
-		when(items.insertIfAbsent(candidate)).thenReturn(7L, null);
+		when(items.insertIfAbsent(eq(candidate), anyLong())).thenReturn(7L, null);
 		when(items.findStatusByPostId("11")).thenReturn(XLikeStatus.PENDING);
 		XLikeSyncService service = new XLikeSyncService(client,
-				new XLikePersistenceService(items, media), items, media, mock(XLikeSyncStateRepository.class), 5, 3);
+				new XLikePersistenceService(items, media, mock(XLikeSyncStateRepository.class)), items, media, mock(XLikeSyncStateRepository.class), 5, 3, new XLikeSyncBudget(25, 2, 6, 100, 50));
 
 		XLikeSyncSummary summary = service.syncRecent(5, 3);
 
@@ -252,8 +256,8 @@ class XLikeSyncServiceTest {
 		XLikePage second = new XLikePage(List.of(), true, "third");
 		when(client.fetchRecentLikes("999", 5, null)).thenReturn(first);
 		when(client.fetchRecentLikes("999", 5, "second")).thenReturn(second);
-		when(persistence.savePage(first)).thenReturn(new XLikeSyncSummary(1, 1, 1, 0, 1, 0, true, false, false));
-		when(persistence.savePage(second)).thenReturn(new XLikeSyncSummary(1, 1, 1, 0, 1, 0, true, false, false));
+		when(persistence.saveOrderedPage(eq(first), anyLong(), anyBoolean(), anySet())).thenReturn(new XLikeSyncSummary(1, 1, 1, 0, 1, 0, true, false, false));
+		when(persistence.saveOrderedPage(eq(second), anyLong(), anyBoolean(), anySet())).thenReturn(new XLikeSyncSummary(1, 1, 1, 0, 1, 0, true, false, false));
 
 		XLikeSyncSummary summary = service(client, persistence).syncRecent(5, 2);
 
@@ -275,7 +279,7 @@ class XLikeSyncServiceTest {
 		when(client.resolveUserId()).thenReturn("999");
 		XLikePage first = page(1, 5, "latest-page-2");
 		when(client.fetchRecentLikes("999", 6, null)).thenReturn(first);
-		when(persistence.savePage(first)).thenReturn(new XLikeSyncSummary(1, 5, 0, 5, 0, 0, true, false, false));
+		when(persistence.saveOrderedPage(eq(first), anyLong(), anyBoolean(), anySet())).thenReturn(new XLikeSyncSummary(1, 5, 0, 5, 0, 0, true, false, false));
 
 		XLikeSyncSummary summary = service(client, persistence, memory.repo).syncRecent(6, 1);
 
@@ -298,7 +302,7 @@ class XLikeSyncServiceTest {
 		when(client.resolveUserId()).thenReturn("999");
 		XLikePage last = page(16, 17, null);
 		when(client.fetchRecentLikes("999", 5, "saved-history")).thenReturn(last);
-		when(persistence.savePage(last)).thenReturn(new XLikeSyncSummary(1, 2, 2, 0, 0, 2, false, false, false));
+		when(persistence.saveOrderedPage(eq(last), anyLong(), anyBoolean(), anySet())).thenReturn(new XLikeSyncSummary(1, 2, 2, 0, 0, 2, false, false, false));
 
 		XLikeSyncSummary summary = service(client, persistence, memory.repo).syncContinuation(5, 1);
 
@@ -318,7 +322,7 @@ class XLikeSyncServiceTest {
 			XLikePersistenceService persistence = mock(XLikePersistenceService.class);
 			XLikePage first = new XLikePage(List.of(), true, token);
 			when(client.fetchRecentLikes("999", 5, null)).thenReturn(first);
-			when(persistence.savePage(first)).thenReturn(new XLikeSyncSummary(1, 0, 0, 0, 0, 0, true, false, false));
+			when(persistence.saveOrderedPage(eq(first), anyLong(), anyBoolean(), anySet())).thenReturn(new XLikeSyncSummary(1, 0, 0, 0, 0, 0, true, false, false));
 			if (token.isEmpty()) {
 				XLikeSyncSummary summary = service(client, persistence).syncRecent(5, 3);
 				assertEquals(1, summary.pagesFetched());
@@ -353,7 +357,7 @@ class XLikeSyncServiceTest {
 		when(client.fetchRecentLikes("999", 5, "page-2")).thenReturn(second);
 		when(client.fetchRecentLikes("999", 5, "page-3")).thenReturn(third);
 		when(client.fetchRecentLikes("999", 5, "page-4")).thenReturn(fourth);
-		when(persistence.savePage(any(XLikePage.class))).thenAnswer(call -> {
+		when(persistence.saveOrderedPage(any(XLikePage.class), anyLong(), anyBoolean(), anySet())).thenAnswer(call -> {
 			XLikePage page = call.getArgument(0);
 			int count = page.candidates().size();
 			return new XLikeSyncSummary(1, count, count, 0, count, 0, page.hasMore(), false, false);
@@ -388,7 +392,7 @@ class XLikeSyncServiceTest {
 		XLikePage repeated = page(2, 2, "same");
 		when(client.fetchRecentLikes("999", 5, null)).thenReturn(first);
 		when(client.fetchRecentLikes("999", 5, "same")).thenReturn(repeated);
-		when(persistence.savePage(any(XLikePage.class))).thenReturn(new XLikeSyncSummary(1, 1, 1, 0, 1, 0, true, false, false));
+		when(persistence.saveOrderedPage(any(XLikePage.class), anyLong(), anyBoolean(), anySet())).thenReturn(new XLikeSyncSummary(1, 1, 1, 0, 1, 0, true, false, false));
 
 		service(client, persistence, memory.repo).syncContinuation(5, 1);
 		XLikeSyncSummary invalid = service(client, persistence, memory.repo).syncContinuation(5, 3);
@@ -447,7 +451,7 @@ class XLikeSyncServiceTest {
 		when(client.resolveUserId()).thenReturn("999");
 		XLikePage page = page(6, 10, "next");
 		when(client.fetchRecentLikes("999", 5, "saved")).thenReturn(page);
-		when(persistence.savePage(page)).thenThrow(new IllegalStateException("database failure"));
+		when(persistence.saveOrderedPage(eq(page), anyLong(), anyBoolean(), anySet())).thenThrow(new IllegalStateException("database failure"));
 
 		assertThrows(IllegalStateException.class,
 				() -> service(client, persistence, memory.repo).syncContinuation(5, 3));
@@ -497,20 +501,20 @@ class XLikeSyncServiceTest {
 	private XLikeSyncService service(XApiClient client, XLikePersistenceService persistence,
 			XLikeSyncStateRepository state) {
 		return new XLikeSyncService(client, persistence, mock(XLikeRepository.class),
-				mock(XLikeMediaRepository.class), state, 5, 3);
+				mock(XLikeMediaRepository.class), state, 5, 3, new XLikeSyncBudget(25, 2, 6, 100, 50));
 	}
 
 	private XLikeSyncService service(XApiClient client, XLikePersistenceService persistence) {
 		when(client.resolveUserId()).thenReturn("999");
 		return new XLikeSyncService(client, persistence, mock(XLikeRepository.class),
-				mock(XLikeMediaRepository.class), mock(XLikeSyncStateRepository.class), 5, 3);
+				mock(XLikeMediaRepository.class), mock(XLikeSyncStateRepository.class), 5, 3, new XLikeSyncBudget(25, 2, 6, 100, 50));
 	}
 
 	@Test
 	void skipCountsOnlyPendingTransitionsAndDeduplicatesIds() {
 		XLikeRepository items = mock(XLikeRepository.class);
 		XLikeSyncService service = new XLikeSyncService(mock(XApiClient.class),
-				mock(XLikePersistenceService.class), items, mock(XLikeMediaRepository.class), mock(XLikeSyncStateRepository.class), 5, 3);
+				mock(XLikePersistenceService.class), items, mock(XLikeMediaRepository.class), mock(XLikeSyncStateRepository.class), 5, 3, new XLikeSyncBudget(25, 2, 6, 100, 50));
 		when(items.skipIfPending(1L)).thenReturn(1);
 		when(items.skipIfPending(2L)).thenReturn(1);
 		// An already skipped, unsupported or unknown id returns zero from the conditional SQL update.

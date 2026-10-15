@@ -65,6 +65,10 @@ public class XApiClient {
 	}
 
 	public XLikePage fetchRecentLikes(String userId, int maxResults, String paginationToken) {
+		return fetchRecentLikes(userId, maxResults, paginationToken, () -> { });
+	}
+
+	public XLikePage fetchRecentLikes(String userId, int maxResults, String paginationToken, Runnable beforeRequest) {
 		if (maxResults < 5 || maxResults > 100) {
 			throw new IllegalArgumentException("maxResults must be between 5 and 100.");
 		}
@@ -78,15 +82,31 @@ public class XApiClient {
 		if (paginationToken != null) {
 			path += "&pagination_token=" + URLEncoder.encode(paginationToken, StandardCharsets.UTF_8);
 		}
-		JsonNode response = get(path);
-		return normalize(response);
+		JsonNode response = get(path, beforeRequest);
+		try {
+			XLikePage page = normalize(response);
+			if (page.candidates().size() > maxResults) {
+				throw new XApiException("X returned more Likes than the requested page size.", null);
+			}
+			return page;
+		} catch (XApiException failure) {
+			JsonNode data = response.path("data");
+			throw new XApiException(failure.getMessage(), failure.upstreamStatus(), data.isArray() ? data.size() : null);
+		}
 	}
 
 	private JsonNode get(String path) {
+		return get(path, () -> { });
+	}
+
+	private JsonNode get(String path, Runnable beforeRequest) {
 		String accessToken = tokens.currentAccessToken();
+		beforeRequest.run();
 		HttpResponse<String> response = send(path, accessToken);
 		if (response.statusCode() == 401) {
-			response = send(path, tokens.refreshAfterRejection(accessToken));
+			String refreshed = tokens.refreshAfterRejection(accessToken);
+			beforeRequest.run();
+			response = send(path, refreshed);
 		}
 		int status = response.statusCode();
 		if (status == 401) {
@@ -173,7 +193,15 @@ public class XApiClient {
 		if (nextToken != null && nextToken.isBlank()) {
 			nextToken = null;
 		}
-		return new XLikePage(List.copyOf(candidates), nextToken != null, nextToken);
+		JsonNode errors = response.path("errors");
+		int errorCount = errors.isArray() ? errors.size() : errors.isMissingNode() || errors.isNull() ? 0 : 1;
+		JsonNode declaredCount = response.path("meta").path("result_count");
+		if (!declaredCount.isMissingNode() && !declaredCount.isNull()
+				&& (!declaredCount.isNumber() || declaredCount.asInt() != candidates.size())) {
+			errorCount++;
+		}
+		return new XLikePage(List.copyOf(candidates), nextToken != null, nextToken,
+				errorCount);
 	}
 
 	/** Highest numeric bitrate wins; absent/invalid bitrate falls back. Ties retain API order. */

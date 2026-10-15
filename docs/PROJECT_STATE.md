@@ -9,9 +9,23 @@ V0.5.0 已发布；V0.5 正式封版，项目进入 maintenance / interest-drive
 
 V0.5 实施分支：`v0.5-ai-analysis`；历史稳定基线来自 `v0.5-dark-mode`（`3faabe0 feat: add dark mode`）。
 
+### V0.5 maintenance｜X Likes 同步一致性改进（Review 与首次真实验收通过）
+
+2026-10-14，在独立 `codex/x-likes-sync-consistency` 修复分支实施，`v0.5.0` 标签不变，不推进 V0.6，不 commit / push。保留前轮预算、History 游标、API 顺序和状态幂等能力；Review 后增加 Recent 持久化续传、完整有序边界衔接与延后头部复核，消除固定近期窗口与旧 History 游标之间的永久空档。初次无可信边界时从头分批扫到 API 末尾；History COMPLETE 不阻止新增追赶。Inbox 只读响应提供两种进度，重新打开页面即可重置 Invalid；不把观察到的衔接当成 X 的快照一致性保证。开发阶段先在隔离测试库验证 V7，后续真实验收见下。设计与技术限制见 [X Likes 同步一致性说明](X_LIKES_SYNC_CONSISTENCY.md)。
+
+**真实验收（2026-10-15，用户确认）：**最终 Patch 已通过 Review，核心功能完成首次受控真实验收。Flyway V7 已在真实 MySQL 成功迁移；SQL 备份成功导出，并在隔离 MySQL 容器完成实际恢复验证。**备份创建时数据库已经是 V7，不是迁移前 V6 备份。**原有 **351 Pending、14 Imported、4 Skipped、21 Unsupported** 均保留，Gallery 原有 **31 件作品**正常显示。
+
+首次受控真实 X Sync 成功，最新发现 **35 条**、历史新发现 **0 条**；Inbox Pending **351 → 384**。此前遗漏的 X Post **`2109573113432399935`** 已由真实 X API 找回并入库为 **PENDING**。验收时 **Recent 追赶与 History 补齐均未完成**，不能据此宣称整个 X Likes 已完整同步。以上真实环境结果来自用户验收确认，本次文档收尾未重新执行迁移、恢复或 Sync。
+
+**UI 修复与模拟验收：**通知重叠问题已修复：完整同步结果与近期 / 历史状态移到按钮下方的页面结果区，底部只保留单条简短 Toast。Codex 使用独立 Mock 页面完成 **1280×720 桌面和 390×844 手机宽度**的换行、滚动及按钮可达性检查，无通知重叠、横向溢出或分页 / 归档按钮遮挡；这属于模拟页面验收，不是额外的真实 X API 验证。
+
+**最终自动化结果（沿用实现阶段记录，本次未重跑）：**Java **385 tests，382 passed，0 failures / errors，3 skipped，BUILD SUCCESS**（含 13 项追赶测试与已启用的隔离 MySQL V6→V7 / 排序 / Spring 事务 / 去重测试；skipped 为未启用的旧 Gallery / animated MySQL 与 LocalStack 测试）；JavaScript **133/133 passed**。稳定 Mock 输入使用完整 ID 集合断言，覆盖新增 5 / 80 / 150 条、移动列表和快照游标、追赶期间插入新 Likes、重启、History 状态、失败与显式重置。这些场景不能全部视为已完成真实 API 验收；API 不提供严格点赞时间，也不能保证与网页版绝对同序。
+
+公开复现说明：下方历史测试命令已省略个人 Maven 缓存路径，并把临时目录改为项目相对路径；历史测试结果与验收边界仍属于各自阶段，不表示本次重新运行。
+
 ### V0.5｜交互收敛与封版验收（完成）
 
-2026-10-06，按用户批准的五项 P0 实施减法，并达到本轮指定的封版停止条件；final patch Review 已通过，没有代码 blocker。最终实现提交为 `396ed46 feat: complete V0.5 AI analysis and UX polish`，`v0.5.0` 已发布并指向该提交。V0.5 正式封版，项目进入 maintenance / interest-driven 状态，不自动进入 V0.6。以下历史阶段记录保留当时证据，其中分支、commit / push 与待验收描述只反映各阶段当时状态，不代表当前状态；最新交互与验收结论以本节为准。
+2026-10-06，按用户批准的五项 P0 实施减法，并达到本轮指定的封版停止条件；final patch Review 已通过，没有代码 blocker。最终实现提交为 `396ed46 feat: complete V0.5 AI analysis and UX polish`，`v0.5.0` 已发布并指向该提交。V0.5 正式封版，项目进入 maintenance / interest-driven 状态，不自动进入 V0.6。以下历史阶段记录保留当时证据，其中分支、commit / push 与待验收描述只反映各阶段当时状态，不代表当前状态；V0.5 封版结论以本节为准，后续 maintenance 以相应最新记录为准。
 
 - Gallery Viewer 只保留 chrome 中一个“查看详情”，已完成 AI 结果自动带入，保留当前 Asset 和 Gallery 返回位置。删除 Inspector 的“查看完整详情”“在详情继续读”，从 Detail 打开的 Viewer 不再链接回同一 Detail。
 - Viewer 是完整 AI 阅读界面；单一“信息 / AI”入口打开 Inspector，内部切换作品信息 / AI 分析，切图保留所选视图。当前页描述、原文与译文优先显示，全篇摘要 / 角色 / 关系 / Tag 建议用原生 details 默认折叠。Detail 删除完整结果区与第二个分析按钮，顶部入口直接打开当前 Asset 的 Viewer AI 视图。结果仍临时保存在页面内存，一次性移交消费后删除，刷新后消失。
@@ -20,7 +34,7 @@ V0.5 实施分支：`v0.5-ai-analysis`；历史稳定基线来自 `v0.5-dark-mod
 
 **自动化验证：**AI 定向 Maven `GeminiClientTest,IllustrationAiAnalysisServiceTest,IllustrationAiAnalysisControllerTest` 为 **30 tests，0 failures / errors / skipped，BUILD SUCCESS**；完整 Maven `test` 为 **350 tests，0 failures / errors，3 skipped，BUILD SUCCESS**（两个 MySQL、一个 LocalStack opt-in 未启用）。最终完整 JS 为 **126/126 通过，0 failures / skipped**；`git diff --check` 通过。覆盖单一详情导航与一次性移交、当前 Asset / 刷新边界、Inspector 键盘切换与切图保留、纯动态入口、12 MiB 源图、四图实际请求大小及总量超限拒绝。
 
-实际命令：`.\mvnw.cmd '-Dmaven.repo.local=C:\Users\YuanYuChou\.m2\repository' '-DargLine=-Djava.io.tmpdir=D:\IdeaProjects\illustration-archive\target\test-temp' '-Dtest=GeminiClientTest,IllustrationAiAnalysisServiceTest,IllustrationAiAnalysisControllerTest' test`；同一缓存 / temp 参数执行完整 `test`；`node --test (rg --files src/test/js -g '*.test.js')`；`git diff --check`。没有执行 clean，避免碰触既有运行进程的锁文件。
+实际命令：`.\mvnw.cmd '-DargLine=-Djava.io.tmpdir=target/test-temp' '-Dtest=GeminiClientTest,IllustrationAiAnalysisServiceTest,IllustrationAiAnalysisControllerTest' test`；同一缓存 / temp 参数执行完整 `test`；`node --test (rg --files src/test/js -g '*.test.js')`；`git diff --check`。没有执行 clean，避免碰触既有运行进程的锁文件。
 
 **真实浏览器与媒体验收：**最新临时后端在 18085 使用真实本机 MySQL / 原图存储及 Gemini 配置；Edge CDP 的 DOM 驱动与截图检查覆盖 1440×900 / 390×844 的 Light / Dark。Gallery → Viewer → Inspector 两个视图 → 四图切换 / 放大 → 单一详情入口 → Detail 顶部重开 AI → Gallery 已走通；移交后仍为第 4 张 Asset 39，Detail 不自动重开 Viewer，也没有完整结果区。搜索 `Cat2Sora` + Author 13 + Tag 8 得到一件作品，清除恢复全库；返回浏览位置与当前 Asset 可恢复，稳定布局无横向溢出。真实键盘 ArrowRight 切到 AI，第一次 Esc 收起 Inspector，第二次 Esc 关闭 Viewer。截图留在项目外。
 
@@ -48,13 +62,13 @@ V0.5 实施分支：`v0.5-ai-analysis`；历史稳定基线来自 `v0.5-dark-mod
 
 **Gemini 接入验证（2026-10-06）：**完整 Maven `test` **339 tests、0 failures、0 errors、3 skipped，BUILD SUCCESS**；完整 JS **119/119 通过，0 failures / skipped**；`git diff --check` 通过。GeminiClient 测试覆盖 REST endpoint、后端 Key 请求头、有序 inlineData、五字段 Schema、1/4 图结果、截断、安全拒绝/缺少候选、多段最终文本/忽略 thought、HTTP 错误、非法 JSON 和超时；现有图片处理、Service、Controller、Repository 和 Detail 测试仍通过。三个 skipped 仍为两个 MySQL 与一个 LocalStack opt-in 测试。
 
-本轮完整命令沿用 `.\mvnw.cmd '-Dmaven.repo.local=C:\Users\YuanYuChou\.m2\repository' '-DargLine=-Djava.io.tmpdir=D:\IdeaProjects\illustration-archive\target\test-temp' test`、`node --test (rg --files src/test/js -g '*.test.js')`、`git diff --check`。最初 `clean test` 被既有运行时锁住的 `target/final-acceptance-tmp/hsperfdata_YuanYuChou` 阻塞，尚未进入测试；确认旧 Client class 已清除，仅删除两个残留的旧 Test class 后直接运行完整 `test` 成功，没有停止既有应用或强删锁文件。当前代码/编译产物无旧接入类；测试日志为 ignored `.maven/gemini-analysis-maven.log`、`.maven/gemini-analysis-js.log`。未调用真实 API、未 commit / push。
+本轮完整命令沿用 `.\mvnw.cmd '-DargLine=-Djava.io.tmpdir=target/test-temp' test`、`node --test (rg --files src/test/js -g '*.test.js')`、`git diff --check`。最初 `clean test` 被既有运行时锁住的 `target/final-acceptance-tmp/hsperfdata_<user>` 阻塞，尚未进入测试；确认旧 Client class 已清除，仅删除两个残留的旧 Test class 后直接运行完整 `test` 成功，没有停止既有应用或强删锁文件。当前代码/编译产物无旧接入类；测试日志为 ignored `.maven/gemini-analysis-maven.log`、`.maven/gemini-analysis-js.log`。未调用真实 API、未 commit / push。
 
 **真实验收边界：**ImageIO 测试使用实际内存图片；Repository / HttpClient 与 MVC / JS 为自动化或模拟证据。2026-10-06 用户确认真实 Gemini 分析已成功，能够理解画面和剧情；本次新增文字识别/翻译尚待真实漫画验收。漫画小字可读性、角色/关系质量、真实 Local/S3 与浏览器 Light/Dark 展示未据此宣告通过；免费资格与额度仍按用户 Google 项目实际状态确认，不以 mock 代替真实验收。
 
 **文字识别/翻译扩展验证（2026-10-06）：**相关 Maven `GeminiClientTest,IllustrationAiAnalysisServiceTest,IllustrationAiAnalysisControllerTest` **28 tests、0 failures / errors / skipped，BUILD SUCCESS**；完整 JS **120/120 通过**；`git diff --check` 与本轮修改的未跟踪文件空白检查通过。覆盖嵌套 Schema / Prompt、原文与翻译/备注、空文字页、阅读顺序、多页归属、异常字段/条数/长度保护、DTO JSON 和安全渲染；本轮未调用真实 API、未 commit / push。
 
-本次命令：`.\mvnw.cmd '-Dmaven.repo.local=C:\Users\YuanYuChou\.m2\repository' '-DargLine=-Djava.io.tmpdir=D:\IdeaProjects\illustration-archive\target\test-temp' '-Dtest=GeminiClientTest,IllustrationAiAnalysisServiceTest,IllustrationAiAnalysisControllerTest' test`、`node --test (rg --files src/test/js -g '*.test.js')`、`git diff --check`；ignored 测试日志为 `.maven/gemini-texts-focused.log` / `.maven/gemini-texts-js.log`。
+本次命令：`.\mvnw.cmd '-DargLine=-Djava.io.tmpdir=target/test-temp' '-Dtest=GeminiClientTest,IllustrationAiAnalysisServiceTest,IllustrationAiAnalysisControllerTest' test`、`node --test (rg --files src/test/js -g '*.test.js')`、`git diff --check`；ignored 测试日志为 `.maven/gemini-texts-focused.log` / `.maven/gemini-texts-js.log`。
 
 ### V0.5｜Viewer / AI 阅读流（初版历史记录，已由上方收敛方案替代）
 
@@ -89,7 +103,7 @@ V0.5 实施分支：`v0.5-ai-analysis`；历史稳定基线来自 `v0.5-dark-mod
 **验证：**focused Maven 使用 Wrapper / 既有 cache / repo temp 参数及 `'-Dtest=XAnimatedPreviewServiceTest,XAnimatedPreviewControllerTest' test`，8/8 通过；`node --test src/test/js/x-import.test.js`，25/25 通过。最终完整命令：
 
 ```powershell
-.\mvnw.cmd '-Dmaven.repo.local=C:\Users\YuanYuChou\.m2\repository' '-DargLine=-Djava.io.tmpdir=D:\IdeaProjects\illustration-archive\target\test-temp' test
+.\mvnw.cmd '-DargLine=-Djava.io.tmpdir=target/test-temp' test
 node --test (rg --files src/test/js -g '*.test.js')
 git diff --check
 ```
@@ -123,7 +137,7 @@ F06A 完成时，Maven **319 tests、0 failures、0 errors、3 skipped，BUILD S
 **F06 核心实现阶段自动化验证（F06A 之前）：**
 
 ```powershell
-.\mvnw.cmd '-Dmaven.repo.local=C:\Users\YuanYuChou\.m2\repository' '-DargLine=-Djava.io.tmpdir=D:\IdeaProjects\illustration-archive\target\test-temp' verify
+.\mvnw.cmd '-DargLine=-Djava.io.tmpdir=target/test-temp' verify
 node --test (rg --files src/test/js -g '*.test.js')
 git diff --check
 ```
@@ -150,7 +164,7 @@ Maven **311 tests、0 failures、0 errors、3 skipped，BUILD SUCCESS**，完成
 
 另在临时浏览器 fixture 中使用真实本地图片与合成 metadata，验证长作者 / 16 个 Tag / 长来源 / 多行长备注的独立滚动，面板滚轮不改变图片 transform / zoom，真实 pointer drag 后开关面板保留 100% 和 pan offset；模拟 provider 失败后重试成功、3 秒延迟旧响应被新 Viewer 丢弃。上述故障和长 metadata 是模拟数据，不等同真实网络故障或真实库已有对应内容；没有修改收藏库、调用同步、保存 / 新建 / 删除。请求次数与乱序边界以 JS 自动化为依据；未做跨浏览器、物理触屏或原生 200% 缩放验收。
 
-**运行与清理：**临时 18087 / 18088 实例已关闭，日常 8080 未重启；验收中换新来源并禁用临时资源缓存，确保加载最终脚本。截图在项目外 `D:/Codex/visualizations/2026/10/03/01a10210-63b9-7c10-8760-741b8c376578/inspector-desktop.jpg` / `inspector-390.jpg`；临时脚本、fixture 和日志在 ignored `.maven/inspector`，不进入待提交 diff。日常实例需从最新源码重启后使用。
+**运行与清理：**临时 18087 / 18088 实例已关闭，日常 8080 未重启；验收中换新来源并禁用临时资源缓存，确保加载最终脚本。截图在项目外 `inspector-desktop.jpg` / `inspector-390.jpg`；临时脚本、fixture 和日志在 ignored `.maven/inspector`，不进入待提交 diff。日常实例需从最新源码重启后使用。
 
 **B 封存确认（2026-10-03）：**用户确认最终实机验收通过，授权最终检查正常后以 `feat: add viewer metadata inspector` 提交当前工作包。本轮未修改功能，仅补充本封存记录；完整 JS 再次执行 `node --test (rg --files src/test/js -g '*.test.js')`，102/102 通过、0 failures / skipped，`git diff --check` 通过。确认本工作包仅含 Viewer / Gallery / Detail 接入、样式、JS 测试及本文档；无后端、数据库、migration、Inbox 文件、Search / Metadata Picker 的非预期改动。上方自动化、真实浏览器与模拟 fixture 的证据边界保留。不执行 push / merge / tag，不继续下一项功能或推进 V0.5 Final Acceptance。
 
@@ -164,7 +178,7 @@ Maven **311 tests、0 failures、0 errors、3 skipped，BUILD SUCCESS**，完成
 - Gallery 桌面薄工具栏增加作者 / Tag 入口，390px 合为一个“筛选”入口；当前多选版本选择后保留弹层，便于连续勾选。`app.js` 继续拥有筛选提交：保留 q 与另一分类 IDs、从第 0 页读取；在途筛选之后提交搜索也保留待应用的 IDs。继续使用 F03 URL / chips / BrowseContext，未增加常驻面板、分类树、次数统计或前端框架。
 - 返回回归发现浏览器可能复用旧 API 响应，因此 Gallery / Detail / picker 的可变读取使用 `cache: no-store`；BrowseContext 的 Gallery 分支在 popstate 覆盖快照前消费 metadata refresh 标记，确保返回后读到保存结果。没有改 `image-viewer.js`、Inbox、Masonry 布局或归档 / Storage / 去重逻辑。
 
-**自动化验证：**完整 Java 执行 `./mvnw.cmd '-Dmaven.repo.local=C:\Users\YuanYuChou\.m2\repository' '-DargLine=-Djava.io.tmpdir=D:\IdeaProjects\illustration-archive\target\test-temp' test`，289 tests、0 failures、0 errors、2 skipped（未启用的外部 LocalStack 与专用 MySQL 测试），`BUILD SUCCESS`。Windows sandbox 读取既有 AWS SDK 缓存 JAR 曾失败，提升权限重跑后成功；没有修改产品逻辑绕过环境错误。完整 JS 使用 `rg --files src/test/js -g '*.test.js'` 枚举七个测试文件，执行 `node --test`，83/83 通过、0 failures / skipped。覆盖同名作者 IDs、Tag toggle / 取消 / PATCH、创建后刷新、失败保存、搜索及加载更多乱序、立即输入失效、分页重试、q + IDs、历史 / 刷新及返回 refresh 标记。`git diff --check` 通过。
+**自动化验证：**完整 Java 执行 `./mvnw.cmd '-DargLine=-Djava.io.tmpdir=target/test-temp' test`，289 tests、0 failures、0 errors、2 skipped（未启用的外部 LocalStack 与专用 MySQL 测试），`BUILD SUCCESS`。Windows sandbox 读取既有 AWS SDK 缓存 JAR 曾失败，提升权限重跑后成功；没有修改产品逻辑绕过环境错误。完整 JS 使用 `rg --files src/test/js -g '*.test.js'` 枚举七个测试文件，执行 `node --test`，83/83 通过、0 failures / skipped。覆盖同名作者 IDs、Tag toggle / 取消 / PATCH、创建后刷新、失败保存、搜索及加载更多乱序、立即输入失效、分页重试、q + IDs、历史 / 刷新及返回 refresh 标记。`git diff --check` 通过。
 
 **真实 MySQL 验证：**扩展既有 opt-in `IllustrationGalleryMySqlTest`，仍仅允许全新 `illustration_archive_f03_test_<digits>` schema，使用既有 V1–V6。最终版本显式开启测试环境变量，执行上述 Maven 命令加 `'-Dtest=IllustrationGalleryMySqlTest'`，1 test、0 failures / errors / skipped，`BUILD SUCCESS`。验证原有 60 件作品的组合查询、分页 / Assets / Spring read-only 事务，以及 26 位作者的 20 + 6 分页、27 个 Tag 的 20 + 7 分页、稳定排序 / 无重复 IDs、同名作者区分、`@handle` 搜索、零结果和越界 offset。
 
@@ -206,7 +220,7 @@ Gallery Author / Tag 使用原生 checkbox 多选，`☆ / ★` 是 label 外的
 - 扩展现有 BrowseContext / `ctx` / `nav`：`sourceUrl()` 完整保留上述四项，查询 / 页码变化创建不同快照，错误条件的 ctx 不恢复旧 Asset / Viewer / 位置；保留当前 Asset、Detail 返回与刷新恢复。Gallery 冷刷新读取相同查询 / 页码下最新 `pagehide` 位置，避免较旧 History 快照或初次空 DOM capture 覆盖位置。不新增 `returnTo` 或第二套返回状态；实测既有机制足以完成本轮链路。
 - 未改 Archive / Storage / 去重、Flyway migration、Inbox 操作、`image-viewer.js` 或 `masonry-layout.js`；没有新增框架、搜索引擎、Collection 或 AI。
 
-**自动化验证：**完整 Java 执行 `./mvnw.cmd '-Dmaven.repo.local=C:\Users\YuanYuChou\.m2\repository' '-DargLine=-Djava.io.tmpdir=D:\IdeaProjects\illustration-archive\target\test-temp' test`（开启下述专用 MySQL 测试环境变量），284 tests、0 failures、0 errors、1 skipped（外部 LocalStack），`BUILD SUCCESS`。Windows sandbox 读取既有 AWS SDK 缓存 JAR 曾失败，允许的提升权限重跑后成功；没有为此修改产品逻辑。完整 JS 执行 `node --test src/test/js/gallery.test.js src/test/js/detail.test.js src/test/js/masonry-layout.test.js src/test/js/image-viewer.test.js src/test/js/browse-context.test.js src/test/js/x-import.test.js`，74/74 通过、0 failures / skipped。`git diff --check` 通过。
+**自动化验证：**完整 Java 执行 `./mvnw.cmd '-DargLine=-Djava.io.tmpdir=target/test-temp' test`（开启下述专用 MySQL 测试环境变量），284 tests、0 failures、0 errors、1 skipped（外部 LocalStack），`BUILD SUCCESS`。Windows sandbox 读取既有 AWS SDK 缓存 JAR 曾失败，允许的提升权限重跑后成功；没有为此修改产品逻辑。完整 JS 执行 `node --test src/test/js/gallery.test.js src/test/js/detail.test.js src/test/js/masonry-layout.test.js src/test/js/image-viewer.test.js src/test/js/browse-context.test.js src/test/js/x-import.test.js`，74/74 通过、0 failures / skipped。`git diff --check` 通过。
 
 **真实 MySQL 验证：**新增默认禁用的 `IllustrationGalleryMySqlTest`，仅在 `F03_MYSQL_TEST_URL` 指向全新 `illustration_archive_f03_test_<digits>` schema 时启用（另需 `F03_MYSQL_TEST_USERNAME` / `F03_MYSQL_TEST_PASSWORD`）。使用 `CREATE DATABASE`，已存在即失败；应用既有 Flyway V1–V6，创建 60 件作品、重叠 Tag、同名不同 ID 作者、同时间作品、库末备注和三 Asset 样本。经过真实 Spring 事务代理断言 read-only 事务有效，验证 count / 逐页 IDs / Assets 一致，3 页完整有序、无重复；组合条件、中文 / handle / 字面符号、零结果、未知 IDs 和越界页均通过。默认不写媒体；可选 `F03_MYSQL_TEST_MEDIA_ROOT` 在明确指定的测试目录生成合成 PNG / thumbnail，供浏览器验收。测试保留专用 schema，便于后续浏览器验证；重跑须新 schema 或显式清理自己创建的测试库。
 

@@ -102,23 +102,178 @@ test("page initialization only reads local Inbox; one success links to Detail af
     assert.equal(resultRows(elements).length, 1);
 });
 
-test("Sync latest uses recent endpoint and explains that the next click restarts at latest", async () => {
+function syncPhase(overrides = {}) {
+    return { pagesRequested: 1, pagesSaved: 1, scannedCount: 5, reservedScanCount: 25,
+        newCount: 2, existingCount: 3, processedCount: 1, unsupportedCount: 1,
+        scanCountKnown: true, hasMore: true, stopReason: "RECENT_WINDOW", ...overrides };
+}
+
+test("reopening Inbox exposes INVALID reset buttons using only the local GET", async () => {
+    const { elements, calls } = await page([
+        { url: "/api/x-import/inbox?page=0&size=24", body: { ...inboxPage([], 0, 351),
+            syncProgress: { recentStatus: "INVALID", historyStatus: "INVALID", unscannedIntervals: true } } },
+        { url: "/api/x-import/sync/continuation/reset", status: 204 }
+    ]);
+    assert.equal(elements.get("reset-history-button").hidden, false);
+    assert.equal(elements.get("reset-recent-button").hidden, false);
+    assert.match(elements.get("sync-progress").textContent, /仍有待扫描或待验证区间/);
+    assert.equal(calls.length, 1);
+    await elements.get("reset-history-button").dispatch("click");
+    assert.equal(elements.get("reset-history-button").hidden, true);
+    assert.equal(elements.get("reset-recent-button").hidden, true);
+    assert.match(elements.get("inbox-message").textContent, /从头分批核对至末尾/);
+    assert.match(elements.get("inbox-message").textContent, /本次未请求 X API/);
+    assert.deepEqual(calls.map(call => call.url), [
+        "/api/x-import/inbox?page=0&size=24", "/api/x-import/sync/continuation/reset"
+    ]);
+});
+
+test("resetting an invalid Recent cursor preserves History status and never starts a paid Sync", async () => {
+    const { elements, calls } = await page([
+        { url: "/api/x-import/inbox?page=0&size=24", body: { ...inboxPage([]),
+            syncProgress: { recentStatus: "INVALID", historyStatus: "COMPLETE", unscannedIntervals: true } } },
+        { url: "/api/x-import/sync/recent/reset", status: 204 }
+    ]);
+    await elements.get("reset-recent-button").dispatch("click");
+    assert.equal(elements.get("reset-recent-button").hidden, true);
+    assert.match(elements.get("sync-progress").textContent, /近期追赶未完成，下次 Sync 继续/);
+    assert.match(elements.get("sync-progress").textContent, /保存的历史进度已到末尾/);
+    assert.match(elements.get("inbox-message").textContent, /已保存帖子保留/);
+    assert.equal(calls.length, 2);
+});
+
+test("ACTIVE and VERIFY Recent progress stays incomplete even when History is COMPLETE", async () => {
+    for (const recentStatus of ["ACTIVE", "VERIFY"]) {
+        const progress = { recentStatus, historyStatus: "COMPLETE", unscannedIntervals: true };
+        const { elements } = await page([
+            { url: "/api/x-import/inbox?page=0&size=24", body: { ...inboxPage([]), syncProgress: progress } },
+            { url: "/api/x-import/sync", body: { recent: syncPhase({ newCount: 30, stopReason: recentStatus === "ACTIVE"
+                    ? "SCAN_BUDGET" : "VERIFY_PENDING" }),
+                history: syncPhase({ pagesRequested: 0, newCount: 0, stopReason: "HISTORY_COMPLETE" }),
+                ...progress, partial: false } },
+            { url: "/api/x-import/inbox?page=0&size=24", body: { ...inboxPage([], 0, 351), syncProgress: progress } }
+        ]);
+        await elements.get("sync-button").dispatch("click");
+        assert.match(elements.get("sync-progress").textContent, /下次 Sync/);
+        assert.match(elements.get("sync-progress").textContent, /仍有待扫描或待验证区间/);
+        assert.match(elements.get("sync-result").textContent, /最新新发现 30，历史新发现 0/);
+        assert.doesNotMatch(elements.get("sync-result").textContent, /全部同步完成|完整成功/);
+        assert.equal(elements.get("inbox-count").textContent, "Inbox 全部待处理：351");
+    }
+});
+
+test("Sync uses server budgets and separates latest, history, scan and total Pending counts", async () => {
     const { elements, calls } = await page([
         { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([]) },
-        { url: "/api/x-import/sync/recent?maxResults=5&maxPages=3", body: {
-            pagesFetched: 3, fetchedCount: 15, newCount: 2, existingCount: 13,
-            pendingCount: 2, stoppedByMaxPages: true, stoppedByInvalidToken: false
+        { url: "/api/x-import/sync", body: {
+            recent: syncPhase({ newCount: 5, existingCount: 0 }),
+            history: syncPhase({ newCount: 7, stopReason: "SCAN_BUDGET" }),
+            partial: false, historyStatus: "MORE"
         } },
-        { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([]) }
+        { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([], 0, 351) }
     ]);
 
     await elements.get("sync-button").dispatch("click");
 
     assert.equal(calls[1].options.method, "POST");
     assert.deepEqual(calls.map(call => call.url), [
-        "/api/x-import/inbox?page=0&size=24", "/api/x-import/sync/recent?maxResults=5&maxPages=3", "/api/x-import/inbox?page=0&size=24"
+        "/api/x-import/inbox?page=0&size=24", "/api/x-import/sync", "/api/x-import/inbox?page=0&size=24"
     ]);
-    assert.match(elements.get("inbox-message").textContent, /下次点击仍从最新 Likes 开始/);
+    const text = elements.get("sync-result").textContent;
+    assert.match(text, /最新新发现 5，历史新发现 7/);
+    assert.match(text, /已有 3（其中已归档\/跳过 2）/);
+    assert.match(text, /Unsupported 2/);
+    assert.match(text, /扫描 10 条，Likes 请求 2 页/);
+    assert.match(text, /达到扫描预算/);
+    assert.match(text, /历史仍有剩余/);
+    assert.equal(elements.get("sync-result").hidden, false);
+    assert.equal(elements.get("inbox-message").textContent, "");
+    assert.equal(elements.get("inbox-toast").textContent, "本次同步结束，详情见上方结果。");
+    assert.equal(elements.get("inbox-count").textContent, "Inbox 全部待处理：351");
+    assert.equal(elements.get("reset-history-button").hidden, true);
+});
+
+test("partial Sync refreshes saved posts and an invalid history reset never calls X Sync", async () => {
+    const { elements, calls } = await page([
+        { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([]) },
+        { url: "/api/x-import/sync", body: { recent: syncPhase(),
+            history: syncPhase({ pagesSaved: 0, scannedCount: 0, newCount: 0,
+                scanCountKnown: false, stopReason: "INVALID_TOKEN" }), partial: true, historyStatus: "INVALID" } },
+        { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([inboxItem(1)]) },
+        { url: "/api/x-import/sync/continuation/reset", status: 204 }
+    ]);
+    await elements.get("sync-button").dispatch("click");
+    assert.match(elements.get("sync-result").textContent, /同步部分完成/);
+    assert.match(elements.get("sync-result").textContent, /扫描至少 5/);
+    assert.equal(elements.get("inbox-toast").textContent, "同步部分完成，请查看上方结果。");
+    assert.equal(elements.get("inbox-list").children.length, 1);
+    assert.equal(elements.get("reset-history-button").hidden, false);
+    await elements.get("reset-history-button").dispatch("click");
+    assert.equal(elements.get("reset-history-button").hidden, true);
+    assert.match(elements.get("inbox-message").textContent, /本次未请求 X API/);
+    assert.equal(calls.filter(call => call.url === "/api/x-import/sync").length, 1);
+});
+
+test("failed Sync response refreshes local Inbox without retrying the paid operation", async () => {
+    const { elements, calls } = await page([
+        { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([]) },
+        { url: "/api/x-import/sync", ok: false, status: 500, body: { message: "local failure" } },
+        { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([inboxItem(1)]) }
+    ]);
+    await elements.get("sync-button").dispatch("click");
+    assert.match(elements.get("sync-result").textContent, /同步失败：local failure/);
+    assert.equal(elements.get("sync-result").classList.contains("is-error"), true);
+    assert.equal(elements.get("inbox-toast").textContent, "同步失败，请查看上方结果。");
+    assert.equal(elements.get("inbox-list").children.length, 1);
+    assert.equal(calls.filter(call => call.options.method === "POST").length, 1);
+});
+
+test("one short Toast replaces previous notices and expires without clearing the complete Sync result", async () => {
+    const progress = { recentStatus: "VERIFY", historyStatus: "MORE", unscannedIntervals: true };
+    const result = { recent: syncPhase({ newCount: 35, existingCount: 15, stopReason: "VERIFY_PENDING" }),
+        history: syncPhase({ newCount: 0, existingCount: 5, stopReason: "PAGE_BUDGET" }), ...progress, partial: false };
+    const { elements, env, calls } = await page([
+        { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([]) },
+        { url: "/api/x-import/sync", body: result },
+        { url: "/api/x-import/inbox?page=0&size=24", body: { ...inboxPage([], 0, 384), syncProgress: progress } },
+        { url: "/api/x-import/sync", body: { ...result, partial: true,
+            history: syncPhase({ pagesSaved: 0, stopReason: "API_FAILURE", scanCountKnown: false }) } },
+        { url: "/api/x-import/inbox?page=0&size=24", body: { ...inboxPage([], 0, 384), syncProgress: progress } }
+    ]);
+    await elements.get("sync-button").dispatch("click");
+    assert.match(elements.get("sync-result").textContent, /最新新发现 35，历史新发现 0/);
+    await elements.get("sync-button").dispatch("click");
+    assert.equal(elements.get("inbox-toast").textContent, "同步部分完成，请查看上方结果。");
+    const complete = elements.get("sync-result").textContent;
+    const status = elements.get("sync-progress").textContent;
+    assert.match(complete, /API 请求或解析失败/);
+    assert.match(status, /下次 Sync/);
+    env.flushTimers();
+    assert.equal(elements.get("inbox-toast").textContent, "");
+    assert.equal(elements.get("sync-result").textContent, complete);
+    assert.equal(elements.get("sync-progress").textContent, status);
+    assert.equal(calls.filter(call => call.options.method === "POST").length, 2);
+});
+
+test("Archive feedback cannot replace a previous Sync report and clears its stale Toast", async () => {
+    const { elements, env } = await page([
+        { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([]) },
+        { url: "/api/x-import/sync", body: { recent: syncPhase(), history: syncPhase(),
+            recentStatus: "ACTIVE", historyStatus: "MORE", partial: false } },
+        { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([inboxItem(1)]) },
+        { url: "/api/x-import/inbox/import", body: { total: 1, successCount: 1, duplicateCount: 0, failureCount: 0,
+            items: [{ itemId: 1, status: "SUCCESS", illustrationId: 42 }] } },
+        { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([]) }
+    ]);
+    await elements.get("sync-button").dispatch("click");
+    const sync = elements.get("sync-result").textContent;
+    select(elements, 1);
+    await elements.get("import-button").dispatch("click");
+    assert.equal(elements.get("inbox-toast").textContent, "");
+    assert.match(elements.get("inbox-message").textContent, /已归档 1 项/);
+    assert.equal(elements.get("sync-result").textContent, sync);
+    env.flushTimers();
+    assert.equal(elements.get("sync-result").textContent, sync);
 });
 
 test("partial batch results stay paired with posts and failed items remain selectable", async () => {
@@ -208,9 +363,10 @@ test("Sync returns to first page and shows newly discovered item", async () => {
     const { elements } = await page([
         { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([inboxItem(1)], 0, 25) },
         { url: "/api/x-import/inbox?page=1&size=24", body: inboxPage([inboxItem(25)], 1, 25) },
-        { url: "/api/x-import/sync/recent?maxResults=5&maxPages=3", body: {
-            pagesFetched: 1, fetchedCount: 1, newCount: 1, existingCount: 0,
-            pendingCount: 1, stoppedByMaxPages: false, stoppedByInvalidToken: false
+        { url: "/api/x-import/sync", body: {
+            recent: syncPhase({ newCount: 1, hasMore: false, stopReason: "NATURAL_END" }),
+            history: syncPhase({ pagesRequested: 0, newCount: 0, stopReason: "NATURAL_END" }),
+            partial: false, historyStatus: "COMPLETE"
         } },
         { url: "/api/x-import/inbox?page=0&size=24", body: inboxPage([inboxItem(99), inboxItem(1)], 0, 26) }
     ]);

@@ -33,8 +33,8 @@ V0.3 已正式封存，增加 X Likes 手动同步与多图归档；V0.4 和 V0.
 - 首页图库分页浏览，默认每页 24 条。JPG/PNG 卡片使用缩略图，GIF 保持原始动画，X animated MP4 使用原生循环 video；卡片显示封面、标题和作者，并可进入详情页。
 - 多 Asset 卡片可左右循环预览；Artwork-first 详情页按顺序纵向展示全部原图，保持原始比例，并显示标题、作者、标签、备注和来源链接。
 - Gallery 点击当前预览图片、Inbox 点击任意媒体、Detail 点击任意原图，均打开统一 Viewer。只浏览当前作品/Post，首尾停止；Gallery 文字入口继续打开 Detail。
-- 手动同步 X Likes：Inbox 页的 Sync latest Likes 每次从第一页查最近点赞；独立的后端 history continuation 接口保存分页游标，可跨轮、跨重启继续。页面加载不会自动请求 X API，也没有 history continuation 按钮。
-- X Import Inbox 分页展示 `PENDING` 候选，按最近发现时间排序；紧凑 Grid 中仅选择当前页，可单项或批量导入、跳过，逐项显示成功、重复或失败结果。全部附件必须为有合法 URL 的 `photo` 或有可用 X CDN MP4 variant 的 `animated_gif`；无媒体、普通 `video`、unknown 或缺少 MP4 的动画使整条 Post 为 `UNSUPPORTED`。跳过和成功导入分别变为 `SKIPPED`、`IMPORTED`。
+- 手动同步 X Likes：Inbox 的 Sync Likes 在共享预算内发现头部、延续持久化的 Recent 追赶，再推进原有 History 游标；跨点击、跨重启继续，不能仅因遇到已有帖子判定追上。页面加载只读取本地进度；失效的 Recent / History 可直接显式重置。能力边界与验收见 [同步一致性说明](docs/X_LIKES_SYNC_CONSISTENCY.md)。
+- X Import Inbox 分页展示 `PENDING` 候选，优先使用持久化的 API 观察顺序，旧记录按发现时间 / ID 稳定回退；紧凑 Grid 中仅选择当前页，可单项或批量导入、跳过，逐项显示成功、重复或失败结果。全部附件必须为有合法 URL 的 `photo` 或有可用 X CDN MP4 variant 的 `animated_gif`；无媒体、普通 `video`、unknown 或缺少 MP4 的动画使整条 Post 为 `UNSUPPORTED`。跳过和成功导入分别变为 `SKIPPED`、`IMPORTED`。
 - 将受支持的 X Post 归档为一个 Illustration 和有序 Asset，以 SHA-256 拒绝整条 Post 中的重复媒体。X `animated_gif` 原样保存为 `video/mp4`，Inbox / Gallery / Detail / Unified Viewer 使用静音循环的原生 video；不转码、不生成 poster/thumbnail、不实现 Range。后续 Sync 再遇到旧 `UNSUPPORTED` 且解析为 `PENDING` 的 Post 时，原子恢复状态和 media rows；不重新打开 `SKIPPED` / `IMPORTED`。本地上传入口仍限 JPEG / PNG / GIF。
 - 编辑标题、来源链接、备注，并通过 PATCH 更新已有 Author 关联和 Tag 关联。
 - 搜索和创建 Author；搜索、创建、选择、移除 Tag。
@@ -135,7 +135,7 @@ erDiagram
 - 一个 `Illustration` 可以不关联 Author，也可以关联一个 Author；一个 Author 可以关联零个或多个 Illustration。删除 Author 时，Illustration 的 `author_id` 由数据库置为 `NULL`。
 - `Illustration` 与 `Tag` 是多对多关系，通过 `illustration_tag` 连接；删除 Tag 会级联删除关联行，当前没有删除 Tag 的 HTTP API。
 - `asset.storage_key`、非空的 `asset.sha256`、Author 的非空 `x_user_id` 和 Tag 的 `name` 在数据库中有唯一约束；`x_username` 只有普通索引。
-- X Likes 候选和附件分别保存在 `x_like_item`、`x_like_media`；`x_post_id` 唯一。历史续扫游标及已见游标摘要保存在 `x_like_sync_state`、`x_like_sync_seen_token`。
+- X Likes 候选和附件分别保存在 `x_like_item`、`x_like_media`；`x_post_id` 唯一。Recent 追赶 / History 进度及分作用域的游标摘要复用 `x_like_sync_state`、`x_like_sync_seen_token`。
 
 ## 核心设计
 
@@ -261,10 +261,12 @@ Tag ID 会先校验存在性，并去除重复 ID，然后在同一数据库事�
 
 | Method | Path | 行为 |
 | --- | --- | --- |
-| `POST` | `/api/x-import/sync/recent` | 手动从第一页同步最新 Likes；可选 `maxResults`（默认 5，范围 5..100）和 `maxPages`（默认 3，范围 1..10） |
-| `POST` | `/api/x-import/sync/continuation` | 显式续扫历史 Likes；页数截断保存游标，自然末页清除游标 |
-| `POST` | `/api/x-import/sync/continuation/reset` | 仅在历史游标为 `INVALID` 时显式重置 |
-| `GET` | `/api/x-import/inbox?page=0&size=24` | 返回 0-based 分页 DTO：`items`、`page`、`size`、`totalItems`、`totalPages`；默认每页 24 条，`size` 范围 1..100，仅查询当页 `PENDING` 及媒体，按 `discovered_at DESC, id DESC` 排序 |
+| `POST` | `/api/x-import/sync` | 页面按钮：持久化 Recent 追赶与 History 共享预算，返回分阶段计数、停止原因和两种进度状态 |
+| `POST` | `/api/x-import/sync/recent` | 保留的独立工具入口，从第一页扫描固定范围；可选 `maxResults`（默认 5，范围 5..100）和 `maxPages`（默认 3，范围 1..10），不代表按钮的续传协议 |
+| `POST` | `/api/x-import/sync/continuation` | 显式续扫历史 Likes；截断保存游标，自然末页记为 `COMPLETE` |
+| `POST` | `/api/x-import/sync/continuation/reset` | 显式重置失效的 History，同时安排从头至末尾的保守遍历；不删除帖子、不自动请求 X |
+| `POST` | `/api/x-import/sync/recent/reset` | 显式重置失效的 Recent 游标，保留已验证边界与帖子，等待下一次 Sync |
+| `GET` | `/api/x-import/inbox?page=0&size=24` | 返回 `items`、`page`、`size`、`totalItems`、`totalPages` 和本地 `syncProgress`；默认每页 24 条，`size` 范围 1..100，仅查询当页 `PENDING` 及媒体，按 `likes_order DESC, discovered_at DESC, id DESC` 排序 |
 | `PATCH` | `/api/x-import/inbox/skip` | 跳过请求体 `itemIds` 中仍为 `PENDING` 的项 |
 | `POST` | `/api/x-import/inbox/import` | 导入请求体 `itemIds` 中的项，逐项返回 `SUCCESS`、`DUPLICATE` 或 `FAILED` |
 
@@ -354,7 +356,7 @@ Tag ID 会先校验存在性，并去除重复 ID，然后在同一数据库事�
 
 1. 在当前 X Developer App 的 OAuth 2.0 Access Token 区域，由 App owner 点击 **Generate**，取得该账号的初始 access token 和 refresh token。确认授权包含 `tweet.read`、`users.read`、`like.read` 和 `offline.access`。本项目不提供浏览器 OAuth 回调。
 2. 将 `config/x-oauth-tokens.properties.example` 复制为 `config/x-oauth-tokens.properties`。只在本机填入 `access_token` 和 `refresh_token`。若 Console 明确给出 access token 的到期时刻，将其写为 UTC ISO-8601 格式的 `expires_at`（例如 `2026-09-29T12:00:00Z`）；否则留空，应用会在首次请求前刷新。该文件应仅允许当前操作系统用户读取，并且只运行一个使用此文件的应用实例。
-3. 在被 Git 忽略的 `config/application-local.properties` 或进程环境变量中设置 `X_OAUTH_CLIENT_ID`、`X_OAUTH_CLIENT_SECRET` 和 `X_API_ENABLED=true`，重启应用。之后日常使用为：打开 VPN、启动项目、点击 Inbox 的 **Sync latest Likes**。应用在 token 即将到期或到期时刻未知时提前刷新；若已知有效期内的请求仍收到 401，最多再刷新并重试一次。403 不会自动当作过期处理。
+3. 在被 Git 忽略的 `config/application-local.properties` 或进程环境变量中设置 `X_OAUTH_CLIENT_ID`、`X_OAUTH_CLIENT_SECRET` 和 `X_API_ENABLED=true`，重启应用。之后日常使用为：打开 VPN、启动项目、点击 Inbox 的 **Sync Likes**。按钮先发现近期 Likes，再在共享预算内延续历史进度；计数、顺序和受控验收见 [X Likes 同步一致性说明](docs/X_LIKES_SYNC_CONSISTENCY.md)。应用在 token 即将到期或到期时刻未知时提前刷新；若已知有效期内的请求仍收到 401，最多再刷新并重试一次。403 不会自动当作过期处理。
 
 应用将新 access token、到期时刻以及响应中可能轮换的新 refresh token 原子替换写回凭据文件。刷新失败会显示安全的错误提示；若 refresh token 已失效，由本人在 Console 重新 Generate 并更新本机文件后重启。若刷新成功但写盘失败，应用会明确报错并在当前进程内保留新 Token，修复文件权限后再次点击可重试保存；此时不要先退出应用，否则可能需要在 Console 重新 Generate。不要把 Client Secret 或 Token 提交 Git，也不要粘贴到日志、截图、聊天或问题报告中。旧的 `X_API_ACCESS_TOKEN` 配置不再使用。
 
@@ -429,7 +431,9 @@ Compose 用现有 A1 环境变量向应用注入 `jdbc:mysql://db:3306/illustrat
 | `ILLUSTRATION_ARCHIVE_S3_ENDPOINT`、`ILLUSTRATION_ARCHIVE_S3_REGION`、`ILLUSTRATION_ARCHIVE_S3_ACCESS_KEY`、`ILLUSTRATION_ARCHIVE_S3_SECRET_KEY`、`ILLUSTRATION_ARCHIVE_S3_BUCKET`、`ILLUSTRATION_ARCHIVE_S3_PATH_STYLE` | 仅 S3 模式使用；region、credentials、bucket 必填；endpoint 可留空使用 SDK 默认端点；LocalStack 需自定义 endpoint 与 path-style |
 | `X_API_ENABLED` | 可选：默认关闭；显式开启后使用本地 OAuth 凭据文件同步 X Likes |
 | `X_API_BASE_URL` | 可选：默认 `https://api.x.com` |
-| `X_API_DEFAULT_PAGE_SIZE`、`X_API_DEFAULT_MAX_PAGES` | 可选：X Likes 默认页大小 5、最多页数 3 |
+| `X_API_DEFAULT_PAGE_SIZE`、`X_API_DEFAULT_MAX_PAGES` | 显式 Recent / History 单独入口的默认页大小 5、最多页数 3；不再限制 Sync 按钮 |
+| `X_SYNC_RECENT_PAGE_SIZE`、`X_SYNC_RECENT_MAX_PAGES` | Recent 每轮遍历默认每页 25，每次续传至多 2 页；预算允许时另探测 1 页头部，也计入共享预算。已保存游标保持原页大小 |
+| `X_SYNC_MAX_PAGES`、`X_SYNC_MAX_SCANNED`、`X_SYNC_MAX_NEW` | 按钮共享预算：最多 6 次 Likes 请求尝试、预留最多 100 条扫描量、新增最多 50 条；认证重试也消耗请求/扫描预算，按整页保守停止 |
 | `X_OAUTH_CLIENT_ID`、`X_OAUTH_CLIENT_SECRET` | 启用 X 同步时必需：当前 App 的 OAuth 2.0 confidential-client 凭据，只放在本机 secret 配置中 |
 | `X_OAUTH_CREDENTIAL_FILE` | 可选：动态用户凭据文件；默认 `./config/x-oauth-tokens.properties`，该默认路径已被 Git 忽略 |
 
