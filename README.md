@@ -8,9 +8,9 @@ Illustration Archive 解决的是“把散落在本地的插画文件整理成�
 
 项目采用 local-first 设计：默认将图片文件留在配置的本地存储目录，数据库只保存插画、作者、标签以及文件元数据。浏览器端使用 Spring Boot 静态资源目录中的原生 HTML、CSS 和 JavaScript，不需要前端构建工具。
 
-本项目当前无用户鉴权，定位为 local-first 个人工具，不应直接暴露到公网或不可信局域网。
+本项目当前无用户鉴权，定位为 local-first 个人工具，不应直接暴露到公网或不可信局域网。直接用 IDEA 或 `spring-boot:run` 启动时，Spring Boot 默认监听所有网卡；只在本机使用时，可在被 Git 忽略的 `config/application-local.properties` 中设置 `server.address=127.0.0.1`。Docker Compose 已只映射到本机 `127.0.0.1:8080`。
 
-V0.3 已正式封存，增加 X Likes 手动同步与多图归档；V0.4 和 V0.5 已分别发布 `v0.4.0`、`v0.5.0`。V0.5 已完成交互收敛与封版验收，正式封版；项目进入 maintenance / interest-driven 状态。验收范围见 `docs/PROJECT_STATE.md`。
+最新发布为 `v0.5.0`，V0.5 已正式封版，项目处于 maintenance / interest-driven 阶段。当前状态与近期健康基线见 [PROJECT_STATE](docs/PROJECT_STATE.md)，X Likes 同步设计见 [同步一致性说明](docs/X_LIKES_SYNC_CONSISTENCY.md)，历史阶段与验收记录见 [PROJECT_HISTORY](docs/PROJECT_HISTORY.md)。
 
 ## 项目截图
 
@@ -31,13 +31,14 @@ V0.3 已正式封存，增加 X Likes 手动同步与多图归档；V0.4 和 V0.
 - 导入 JPG、JPEG、PNG、GIF 图片；按文件内容计算 SHA-256 去重。单张重复导入返回 `409 Conflict` 和已有插画 ID；批量导入逐项返回 `SUCCESS`、`DUPLICATE` 或 `FAILED`，支持部分成功。
 - 可按需对历史 Asset 执行 SHA-256 回填；新导入的 JPG/PNG 自动生成缩略图，也支持历史缩略图回填。
 - 首页图库分页浏览，默认每页 24 条。JPG/PNG 卡片使用缩略图，GIF 保持原始动画，X animated MP4 使用原生循环 video；卡片显示封面、标题和作者，并可进入详情页。
+- Gallery 全库搜索与筛选：关键词匹配标题、备注、作者显示名 / X handle（可带 `@`）和 Tag 名；Author、Tag 都可多选，同一分类内为 OR，关键词与各分类之间为 AND。条件写入 URL，翻页、刷新、Back / Forward 和从 Detail 返回时保留；Detail 中的作者与 Tag 可直接跳转到对应筛选。
 - 多 Asset 卡片可左右循环预览；Artwork-first 详情页按顺序纵向展示全部原图，保持原始比例，并显示标题、作者、标签、备注和来源链接。
 - Gallery 点击当前预览图片、Inbox 点击任意媒体、Detail 点击任意原图，均打开统一 Viewer。只浏览当前作品/Post，首尾停止；Gallery 文字入口继续打开 Detail。
 - 手动同步 X Likes：Inbox 的 Sync Likes 在共享预算内发现头部、延续持久化的 Recent 追赶，再推进原有 History 游标；跨点击、跨重启继续，不能仅因遇到已有帖子判定追上。页面加载只读取本地进度；失效的 Recent / History 可直接显式重置。能力边界与验收见 [同步一致性说明](docs/X_LIKES_SYNC_CONSISTENCY.md)。
 - X Import Inbox 分页展示 `PENDING` 候选，优先使用持久化的 API 观察顺序，旧记录按发现时间 / ID 稳定回退；紧凑 Grid 中仅选择当前页，可单项或批量导入、跳过，逐项显示成功、重复或失败结果。全部附件必须为有合法 URL 的 `photo` 或有可用 X CDN MP4 variant 的 `animated_gif`；无媒体、普通 `video`、unknown 或缺少 MP4 的动画使整条 Post 为 `UNSUPPORTED`。跳过和成功导入分别变为 `SKIPPED`、`IMPORTED`。
 - 将受支持的 X Post 归档为一个 Illustration 和有序 Asset，以 SHA-256 拒绝整条 Post 中的重复媒体。X `animated_gif` 原样保存为 `video/mp4`，Inbox / Gallery / Detail / Unified Viewer 使用静音循环的原生 video；不转码、不生成 poster/thumbnail、不实现 Range。后续 Sync 再遇到旧 `UNSUPPORTED` 且解析为 `PENDING` 的 Post 时，原子恢复状态和 media rows；不重新打开 `SKIPPED` / `IMPORTED`。本地上传入口仍限 JPEG / PNG / GIF。
 - 编辑标题、来源链接、备注，并通过 PATCH 更新已有 Author 关联和 Tag 关联。
-- 搜索和创建 Author；搜索、创建、选择、移除 Tag。
+- Metadata Picker 展开即列出已有 Author / Tag，支持辅助搜索、分页加载和新建；Detail 中 Author 单选、Tag 多选。Author / Tag 可收藏（☆ / ★）并置顶，收藏只保存在当前浏览器的 localStorage 中。
 - 删除单个 Illustration，并在数据库删除事务提交后清理原图和缩略图。
 - 通过 Asset 内容接口按 `asset id` 读取图片流；HTTP DTO 不暴露 `storage_key` 或本地绝对路径。
 - 首页和详情页包含加载失败、空数据、图片加载失败以及批量导入结果等基础状态反馈。
@@ -52,7 +53,7 @@ Viewer 提供适应窗口、1:1、放大/缩小及拖动查看；GIF 沿用原�
 
 Inbox 支持整卡选中反馈、当前页已选数量和 sticky 操作栏；图片点击只打开统一 Viewer，文字可选择，卡片背景可切换勾选。Archive/Skip 请求与后续列表读取期间保留旧卡片，新数据成功读取后才替换，并按 item ID 恢复附近位置；成功摘要短暂显示，成功归档的 Detail 链接直接显示，最近完整结果仍可展开。Archive 的失败/重复原因贴近对应卡片，支持明确重新选择；Skip 仅展示后端实际处理数量。结果未知或列表更新失败时先重新加载核对状态，不自动重试写入。选择始终仅作用于当前加载页，刷新成功后清空。
 
-实现不增加前端依赖或构建步骤。已经运行的自动化检查和真实浏览器验证范围见项目状态文档；正式部署需要让应用重新加载更新后的静态资源。
+实现不增加前端依赖或构建步骤。各阶段已运行的自动化检查和真实浏览器验证范围见 [PROJECT_HISTORY](docs/PROJECT_HISTORY.md)；正式部署需要让应用重新加载更新后的静态资源。
 
 ## 技术栈
 
@@ -62,9 +63,11 @@ Inbox 支持整卡选中反馈、当前页已选数量和 sticky 操作栏；图
 - Spring JDBC（`JdbcTemplate`）
 - Flyway（数据库迁移）
 - MySQL Connector/J
+- AWS SDK for Java 2.x S3 模块（仅可选 S3-compatible 存储使用）
 - Maven Wrapper
 - 原生 HTML、CSS、JavaScript
-- JUnit 5、Mockito、standalone MockMvc（测试）
+- JUnit Jupiter（由 Spring Boot 4.1.1 管理，当前为 6.x）、Mockito、standalone MockMvc（Java 测试）
+- Node.js 内置 test runner（JS 测试，不需要 npm 依赖）
 
 项目没有使用 JPA；SQL 由 Repository 层通过 `JdbcTemplate` 执行。
 
@@ -193,14 +196,15 @@ Tag ID 会先校验存在性，并去除重复 ID，然后在同一数据库事�
 
 | Method | Path | Request | Response / 行为 |
 | --- | --- | --- | --- |
-| `GET` | `/api/illustrations?page=0&size=24` | Query 参数可省略，默认 `page=0`、`size=24`；后端校验 `page >= 0`，`size` 必须为 `1..100` | `IllustrationGalleryPage`：`page`、`size`、`totalElements`、`totalPages`、`items[]`。每个 item 包含封面、`assetCount`、有序 `assets[]` 等公开摘要 |
+| `GET` | `/api/illustrations?page=0&size=24&q=...&authorId=1&authorId=2&tagId=3` | 全部可省略。默认 `page=0`、`size=24`；`page >= 0`，`size` 为 `1..100`。`q` 去首尾空白，空白等同未传，最多 200 个字符；`authorId`、`tagId` 可重复传多个正整数，每类最多 100 个，自动去重；不存在的 ID 返回零结果而不报错；非法参数返回 `400` | `IllustrationGalleryPage`：`page`、`size`、`totalElements`、`totalPages`、`items[]`，以及描述规范化条件的 `filters`（关键词、ID 数组、Author / Tag 摘要；单选时保留标量字段）。每个 item 包含封面、`assetCount`、有序 `assets[]` 等公开摘要 |
 | `GET` | `/api/illustrations/{id}` | Path variable `id` | `IllustrationDetail`：基础元数据、Author、`assets[]`、`tags[]`、创建/更新时间 |
 | `PATCH` | `/api/illustrations/{id}` | `application/json`；可包含 `title`、`sourceUrl`、`note`、`authorId`、`tagIds` | 按上文三态语义更新，成功返回 `204 No Content` |
 | `DELETE` | `/api/illustrations/{id}` | 无请求体 | 删除数据库记录并在事务提交后清理原图与缩略图，成功返回 `204 No Content` |
 | `POST` | `/api/illustrations/import` | `multipart/form-data`；多个同名 `files` 字段，对应 `List<MultipartFile>` | `IllustrationBatchImportResult`，逐项报告成功、重复或失败 |
 | `POST` | `/api/illustrations/import/single` | `multipart/form-data`；单个 `file` 字段 | 成功返回插画和 Asset ID；内容重复返回 `409 Conflict` 和已有插画 ID |
 | `GET` | `/api/assets/{id}/content` | Path variable `id` | 以数据库中的 MIME type 和文件大小返回图片 `Resource` 内容流 |
-| `GET` | `/api/assets/{id}/thumbnail` | Path variable `id` | 返回已有 JPG/PNG 缩略图；缺失时返回 `404` |
+| `GET` | `/api/assets/{id}/thumbnail` | Path variable `id` | 返回已有 JPG/PNG 缩略图；缺失或 GIF / MP4 时返回 `404` |
+| `POST` | `/api/illustrations/{id}/ai-analysis` | 无请求体；需显式启用 Gemini 配置 | 可选的手动 AI 分析，结果不写数据库，见下文“手动 AI 多图分析” |
 
 `IllustrationGalleryItem` 和 `IllustrationDetail` 都只返回 Asset 的公开摘要字段，不返回 `storage_key`。
 
@@ -248,27 +252,28 @@ Tag ID 会先校验存在性，并去除重复 ID，然后在同一数据库事�
 | Method | Path | Request | Response |
 | --- | --- | --- | --- |
 | `POST` | `/api/authors` | `application/json`：`{ "displayName": "...", "xUsername": "..." }`；`xUsername` 可为空 | `201 Created`，返回 `AuthorDetail`（含 `id`、`displayName`、`xUsername`、`createdAt`、`updatedAt`） |
-| `GET` | `/api/authors?keyword=...` | 可选查询参数 `keyword`；空关键词返回空列表 | `AuthorSummary[]`，按 `displayName ASC, id ASC`，最多 20 条 |
+| `GET` | `/api/authors?keyword=...&limit=20&offset=0` | 全部可选。空或空白 `keyword` 列出全部作者；否则对显示名或 X handle 做包含匹配，handle 匹配时忽略开头的 `@`。`limit` 默认 20、范围 `1..100`，`offset` 默认 0、不得为负；非法时返回 `400` | `AuthorSummary[]`（不含总数），按 `displayName ASC, id ASC` |
 
 ### Tag
 
 | Method | Path | Request | Response |
 | --- | --- | --- | --- |
 | `POST` | `/api/tags` | `application/json`：`{ "name": "..." }` | `201 Created`，返回 `TagSummary` |
-| `GET` | `/api/tags?keyword=...` | 可选查询参数 `keyword`；空关键词返回空列表 | `TagSummary[]`，按 `name ASC, id ASC`，最多 20 条 |
+| `GET` | `/api/tags?keyword=...&limit=20&offset=0` | 全部可选。空或空白 `keyword` 列出全部 Tag；`limit` 默认 20、范围 `1..100`，`offset` 默认 0、不得为负；非法时返回 `400` | `TagSummary[]`（不含总数），按 `name ASC, id ASC` |
 
 ### X Import
 
 | Method | Path | 行为 |
 | --- | --- | --- |
-| `POST` | `/api/x-import/sync` | 页面按钮：持久化 Recent 追赶与 History 共享预算，返回分阶段计数、停止原因和两种进度状态 |
-| `POST` | `/api/x-import/sync/recent` | 保留的独立工具入口，从第一页扫描固定范围；可选 `maxResults`（默认 5，范围 5..100）和 `maxPages`（默认 3，范围 1..10），不代表按钮的续传协议 |
-| `POST` | `/api/x-import/sync/continuation` | 显式续扫历史 Likes；截断保存游标，自然末页记为 `COMPLETE` |
+| `POST` | `/api/x-import/sync` | 页面按钮：先做持久化 Recent 追赶，再用剩余的共享预算推进 History；返回分阶段计数、停止原因和两种进度状态 |
+| `POST` | `/api/x-import/sync/recent` | 保留的独立工具入口，从第一页扫描固定范围；可选 `maxResults`（默认 `X_API_DEFAULT_PAGE_SIZE`=5，范围 5..100）和 `maxPages`（默认 `X_API_DEFAULT_MAX_PAGES`=3，范围 1..10），不代表按钮的续传协议 |
+| `POST` | `/api/x-import/sync/continuation` | 保留的独立历史续扫入口（参数同上）；截断时保存游标，自然末页记为 `COMPLETE`。日常 History 推进已由上面的综合 Sync 完成 |
 | `POST` | `/api/x-import/sync/continuation/reset` | 显式重置失效的 History，同时安排从头至末尾的保守遍历；不删除帖子、不自动请求 X |
 | `POST` | `/api/x-import/sync/recent/reset` | 显式重置失效的 Recent 游标，保留已验证边界与帖子，等待下一次 Sync |
 | `GET` | `/api/x-import/inbox?page=0&size=24` | 返回 `items`、`page`、`size`、`totalItems`、`totalPages` 和本地 `syncProgress`；默认每页 24 条，`size` 范围 1..100，仅查询当页 `PENDING` 及媒体，按 `likes_order DESC, discovered_at DESC, id DESC` 排序 |
 | `PATCH` | `/api/x-import/inbox/skip` | 跳过请求体 `itemIds` 中仍为 `PENDING` 的项 |
 | `POST` | `/api/x-import/inbox/import` | 导入请求体 `itemIds` 中的项，逐项返回 `SUCCESS`、`DUPLICATE` 或 `FAILED` |
+| `GET` | `/api/x-import/inbox/{itemId}/media/{mediaKey}/content` | 按数据库中的 `animated_gif` 记录流式转发 X CDN MP4，供 Inbox 预览使用；不接受外部 URL 参数，不落盘 |
 
 浏览器页面由静态资源提供：`/` 打开图库，`/detail.html?id={illustrationId}` 打开详情，`/x-import.html` 打开 Inbox。X API 默认关闭；启用后使用本地 OAuth 凭据文件中的用户 Token，应用按需刷新。
 
@@ -276,34 +281,47 @@ Tag ID 会先校验存在性，并去除重复 ID，然后在同一数据库事�
 
 ```text
 .
+├─ .github/workflows/ci.yml    # GitHub Actions CI
 ├─ config/
-│  └─ application-local.properties.example
+│  ├─ application-local.properties.example
+│  └─ x-oauth-tokens.properties.example
+├─ docker/localstack/          # 可选 S3 实验的 bucket 初始化脚本
+├─ docs/
+│  ├─ PROJECT_STATE.md         # 当前阶段与健康基线
+│  ├─ X_LIKES_SYNC_CONSISTENCY.md
+│  ├─ PROJECT_HISTORY.md       # 历史归档，按需阅读
+│  └─ screenshots/
 ├─ src/
 │  ├─ main/
 │  │  ├─ java/com/yuutara/illustrationarchive/
 │  │  │  ├─ controller/       # HTTP 路由
 │  │  │  ├─ dto/              # 请求/响应 DTO
 │  │  │  ├─ repository/       # JdbcTemplate 与 SQL
-│  │  │  ├─ service/          # 业务流程与事务
-│  │  │  └─ storage/          # 本地文件存储、校验与安全路径
+│  │  │  ├─ service/          # 业务流程、事务、X / Gemini 客户端
+│  │  │  └─ storage/          # Local / S3 存储、校验、缩略图与安全路径
 │  │  └─ resources/
 │  │     ├─ db/migration/
 │  │     │  ├─ V1__init_schema.sql
 │  │     │  ├─ V2__add_asset_sha256.sql
 │  │     │  ├─ V3__add_x_like_inbox.sql
 │  │     │  ├─ V4__add_x_archive_links.sql
-│  │     │  └─ V5__add_x_like_sync_continuation.sql
+│  │     │  ├─ V5__add_x_like_sync_continuation.sql
+│  │     │  ├─ V6__index_x_like_inbox_discovery.sql
+│  │     │  └─ V7__add_x_like_api_order.sql
 │  │     ├─ static/
-│  │     │  ├─ index.html
-│  │     │  ├─ app.js
-│  │     │  ├─ detail.html
-│  │     │  ├─ detail.js
-│  │     │  ├─ x-import.html
-│  │     │  ├─ x-import.js
+│  │     │  ├─ index.html / app.js            # Gallery
+│  │     │  ├─ detail.html / detail.js        # Detail
+│  │     │  ├─ x-import.html / x-import.js    # X Inbox
+│  │     │  ├─ image-viewer.js                # 统一 Viewer 与 Inspector
+│  │     │  ├─ browse-context.js              # 浏览上下文与返回位置
+│  │     │  ├─ masonry-layout.js
+│  │     │  ├─ metadata-picker.js
+│  │     │  ├─ ai-analysis.js
+│  │     │  ├─ theme.js
 │  │     │  └─ style.css
 │  │     └─ application.properties
 │  ├─ test/java/               # Controller、Service、Repository、Storage 测试
-│  └─ test/js/                 # Inbox、Gallery、Detail 页面行为测试
+│  └─ test/js/                 # 前端行为测试与 helpers
 ├─ mvnw
 ├─ mvnw.cmd
 ├─ Dockerfile
@@ -421,6 +439,8 @@ Compose 用现有 A1 环境变量向应用注入 `jdbc:mysql://db:3306/illustrat
 
 `src/main/resources/application.properties` 会导入可选的 `./config/application-local.properties`。下表中的大写名称可放在该文件中，也可作为进程环境变量提供；环境变量优先。无需把本地配置文件复制到 `src/main/resources`。Spring Boot 自带的外部配置机制也允许在启动参数中覆盖属性。
 
+`${名称:默认值}` 只在该名称完全不存在时使用默认值；写成空值（例如 `AI_ANALYSIS_TIMEOUT_SECONDS=` 或环境变量值为空）会以空字符串覆盖默认值，整数或布尔配置因此无法转换，应用启动失败。不需要的可选项应删除或注释掉，而不是留空。
+
 | 配置项 | 启动要求与用途 |
 | --- | --- |
 | `ILLUSTRATION_ARCHIVE_DB_URL` | 必需：MySQL JDBC URL；示例指向本机 `illustration_archive` 数据库 |
@@ -475,11 +495,12 @@ illustration.maintenance.thumbnail-backfill=true
 
 ## 测试与构建
 
-使用 Maven Wrapper 执行测试和打包：
+使用 Maven Wrapper 执行 Java 测试和打包，用 Node 内置 test runner 执行 JS 测试：
 
 ```powershell
 .\mvnw.cmd test
 .\mvnw.cmd package
+node --test @(Get-ChildItem src/test/js -Filter *.test.js | ForEach-Object FullName)
 ```
 
 macOS/Linux：
@@ -487,11 +508,23 @@ macOS/Linux：
 ```bash
 ./mvnw test
 ./mvnw package
+node --test src/test/js/*.test.js
 ```
 
-测试覆盖 Controller 的 standalone MockMvc、Service 业务流程、Repository SQL/映射以及 FileStorageService 的校验和路径行为；当前测试使用 Mockito、模拟的 `JdbcTemplate` 和临时目录，不需要连接真实 MySQL。
+Windows 上若 JUnit 临时目录清理遇到访问限制，可加 `'-DargLine=-Djava.io.tmpdir=target/test-temp'` 把测试临时目录放进 `target/`。
 
-`S3StorageLocalStackTest` 是显式启用的真实 S3 adapter 测试：先启动上述 LocalStack 和测试 bucket，再在测试进程设置 `S3_TEST_ENDPOINT=http://localhost:4566` 执行 `test`；未设置时该用例跳过。它直接访问本地 S3 API，不模拟 AWS SDK，也不连接真实 AWS。
+**默认测试**覆盖 Controller 的 standalone MockMvc、Service 业务流程、Repository SQL / 映射，以及 Storage 的校验和路径行为。它们使用 Mockito、模拟的 `JdbcTemplate`、Mock HttpClient 和临时目录，不连接 MySQL、S3、X 或 Gemini；CI 和普通本地运行都属于这一类。
+
+**显式启用的外部测试**在对应环境变量缺失时自动跳过，所以默认运行会报告 4 个 skipped：
+
+| 测试 | 启用条件 | 说明 |
+| --- | --- | --- |
+| `IllustrationGalleryMySqlTest` | `F03_MYSQL_TEST_URL` / `_USERNAME` / `_PASSWORD` | 只接受尚不存在的 `illustration_archive_f03_test_<数字>` schema；可选 `F03_MYSQL_TEST_MEDIA_ROOT` 生成合成测试图片 |
+| `XAnimatedPersistenceMySqlTest` | `F06_MYSQL_TEST_URL` / `_USERNAME` / `_PASSWORD` | 只接受全新的 `illustration_archive_f06_test_<数字>` schema，完成后删除 |
+| `XLikeSyncMigrationMySqlTest` | `X_SYNC_MYSQL_TEST_URL` / `_USERNAME` / `_PASSWORD` | 只接受本机 `illustration_archive_x_sync_test_<数字>` schema，验证 V6→V7 迁移与事务回滚，完成后删除 |
+| `S3StorageLocalStackTest` | `S3_TEST_ENDPOINT=http://localhost:4566` | 需先启动上述 LocalStack 和测试 bucket；直接访问本地 S3 API，不连接真实 AWS |
+
+MySQL 外部测试会经过真实 Spring 事务代理和 Flyway，但只能指向专用测试 schema，**不要指向真实图库数据库**。外部测试的结果与默认测试分别报告；两者都不能替代真实 X API、浏览器或真实数据的人工验收。
 
 ### GitHub Actions CI
 
@@ -499,18 +532,24 @@ macOS/Linux：
 
 ## 版本状态
 
-`v0.1.0`、`v0.2.0`、`v0.3.0`、`v0.4.0` 和 `v0.5.0` tag 均已创建并 push。V0.3 已正式封存，具备 X Likes 手动同步、Inbox 照片归档和多 Asset 浏览能力。V0.4 的 A1/A2/A3、B1/B2/B3、C1、D1 工作包与 Final Acceptance 已完成，`v0.4.0` 已发布。V0.5 的交互收敛与封版验收已完成，`v0.5.0` 已发布并正式封版；项目进入 maintenance / interest-driven 状态。各项真实环境验收边界见 `docs/PROJECT_STATE.md`。
+| 版本 | tag | 主要内容 |
+| --- | --- | --- |
+| V0.1 | `v0.1.0` | 本地导入、图库、详情、元数据编辑与删除 |
+| V0.2 | `v0.2.0` | SHA-256 去重、缩略图与图库体验 |
+| V0.3 | `v0.3.0` | X Likes 手动同步、Inbox 与多图归档 |
+| V0.4 | `v0.4.0` | 配置外置、Docker Compose、CI、存储抽象与 S3 实验、OAuth 自动续期、Inbox 分页 |
+| V0.5 | `v0.5.0` | 统一 Viewer、Masonry、搜索与筛选、Inspector、X animated media、Dark Mode、Gemini 分析 |
 
-当前默认仍为单机、本地文件系统存储；V0.4-B3 提供可选的 S3-compatible 本地验证模式，不包含历史数据迁移或云端部署。V0.4-C1 使用 Developer Console 手工生成的初始 OAuth 2.0 Token 并在本机按需刷新，已通过用户本机真实 X 人工验收：初始 `expires_at` 留空时自动刷新并同步成功；重启后未重新生成 token，再次同步一条重新 Like 的旧 Post，新增 1 条记录。没有浏览器授权回调、后台自动同步或用户认证。验收细节见 `docs/PROJECT_STATE.md`。
+所有 tag 均已发布。V0.5 已正式封版，之后的 X Likes 同步一致性修复属于 maintenance，没有改变 `v0.5.0`。当前默认仍为单机、本地文件系统存储；X 授权使用 Developer Console 手工生成的初始 Token 并在本机按需刷新，没有浏览器授权回调、后台自动同步或用户认证。当前状态见 [PROJECT_STATE](docs/PROJECT_STATE.md)，各版本的发布与真实验收记录见 [PROJECT_HISTORY](docs/PROJECT_HISTORY.md)。
 
 ## Roadmap
 
+以下方向**均未排期**，不代表已批准的下一阶段；是否进入新版本由 [PROJECT_STATE](docs/PROJECT_STATE.md) 记录。
+
 - 普通 X 视频导入、转码、poster 生成、Range / 206，以及导入来源信息的进一步整理。
-- Inbox 进一步的筛选、视觉调整，以及 history continuation 页面入口。
+- Inbox 筛选与视觉调整。（History 已由 Inbox 的综合 Sync 在共享预算内推进，不再需要单独的 history continuation 页面入口。）
 - 完整的浏览器 OAuth 授权流程（当前单用户本地应用不需要）。
 - 感知哈希重复检测与合并策略。
 - 孤儿文件扫描、诊断和人工确认后的修复工具。
-- 更丰富的图库搜索、筛选、排序和批量整理能力。
+- 更多图库排序与批量整理能力（全库搜索和 Author / Tag 多选筛选已在 V0.5 完成）。
 - 在保持 `storage_key` 与数据库元数据解耦的前提下，继续整理可替换的存储实现。
-
-Roadmap 中的内容不属于 V0.4 已完成范围。

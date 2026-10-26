@@ -5,8 +5,9 @@
 
 - Keep changes small, explicit, and reviewable. Do not implement work outside the current task scope.
 - Do not add complexity merely for resume appeal.
+- During exploration, freely compare designs and future options; the scope and phase constraints below govern implementation, not brainstorming or small reversible prototypes that do not touch live data.
 - Do not introduce Redis, MQ, Elasticsearch, Docker, Spring Security, microservices, AI, or external integrations unless the current task explicitly requires them.
-- If requirements are unclear in a way that affects scope or business behavior, or a change would clearly expand scope, stop and explain rather than extending the design independently.
+- Resolve routine implementation details autonomously. Ask when an unresolved choice changes scope or business behavior, while continuing independent work that does not depend on that answer.
 - Treat `docs/PROJECT_STATE.md` as the source of truth for the current project phase, completed milestones, and next planned stage. Do not advance the phase unless the task explicitly does so.
 - Automated tests and `BUILD SUCCESS` are evidence, not substitutes for real-environment acceptance when behavior depends on MySQL, filesystem state, HTTP, or browser behavior.
 - One-off maintenance or backfill jobs must be explicit opt-in operations, default to disabled, and be safe to rerun where practical.
@@ -28,3 +29,10 @@
 - After changes, summarize what changed and explain key design choices.
 - Run validation proportional to the change: focused tests for small/local code changes; full test suite for cross-layer/core changes or phase acceptance. Documentation-only changes normally need only `git diff --check`. Follow the current task's explicit validation requirements; do not run Maven test/package by default for every change.
 - Report the actual commands run and their results; do not claim behavior was verified if it was not. A unit test that manually constructs a service does not verify Spring transaction rollback.
+
+## Maintenance workflow (2026-10-26)
+
+- Claude and Codex start every task by reading this file and the short `docs/PROJECT_STATE.md`. Read `README.md`, `docs/X_LIKES_SYNC_CONSISTENCY.md`, or source code only as the task needs; do not load `docs/PROJECT_HISTORY.md` by default.
+- Claude Code implements, validates, and delivers ordinary changes. Bring in Codex as needed for complex designs or high-impact changes (schema, transactions, sync semantics, real-data operations); small changes do not need double review.
+- Product-direction discussions with ChatGPT use the short project state plus the current question, not the full history.
+- Update the matching document only when behavior, configuration, constraints, the project phase, or an important acceptance conclusion changes. Ordinary tasks do not produce standalone long reports; record durable facts in `PROJECT_STATE` or the relevant topic document, and move superseded detail to `PROJECT_HISTORY`.
