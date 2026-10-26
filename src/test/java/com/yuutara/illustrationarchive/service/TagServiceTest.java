@@ -3,11 +3,13 @@ package com.yuutara.illustrationarchive.service;
 import com.yuutara.illustrationarchive.dto.TagSummary;
 import com.yuutara.illustrationarchive.repository.TagRepository;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DuplicateKeyException;
 
 import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -29,6 +31,18 @@ class TagServiceTest {
 		assertEquals(tag, result);
 		verify(repository).insert("landscape");
 		verify(repository).findById(5L);
+	}
+
+	@Test
+	void translatesUniqueNameViolationToDuplicateTag() {
+		TagRepository repository = mock(TagRepository.class);
+		TagService service = new TagService(repository);
+		DuplicateKeyException violation = new DuplicateKeyException("uk_tag_name");
+		when(repository.insert("Blue Sky")).thenThrow(violation);
+
+		DuplicateTagException exception = assertThrows(DuplicateTagException.class, () -> service.create(" Blue Sky "));
+
+		assertSame(violation, exception.getCause());
 	}
 
 	@Test

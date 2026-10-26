@@ -2,6 +2,7 @@ package com.yuutara.illustrationarchive.controller;
 
 import com.yuutara.illustrationarchive.dto.TagCreateRequest;
 import com.yuutara.illustrationarchive.dto.TagSummary;
+import com.yuutara.illustrationarchive.service.DuplicateTagException;
 import com.yuutara.illustrationarchive.service.TagService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -37,6 +38,13 @@ public class TagController {
 			@RequestParam(defaultValue = "20") int limit,
 			@RequestParam(defaultValue = "0") int offset) {
 		return tagService.search(keyword, limit, offset);
+	}
+
+	@ExceptionHandler(DuplicateTagException.class)
+	public ResponseEntity<Map<String, String>> duplicate(DuplicateTagException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+				"code", DuplicateTagException.ERROR_CODE,
+				"message", "已存在同名标签（不区分大小写），请在“选择标签”中搜索并选用。"));
 	}
 
 	@ExceptionHandler(IllegalArgumentException.class)

@@ -2,6 +2,7 @@ package com.yuutara.illustrationarchive.service;
 
 import com.yuutara.illustrationarchive.dto.TagSummary;
 import com.yuutara.illustrationarchive.repository.TagRepository;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -20,7 +21,14 @@ public class TagService {
 			throw new IllegalArgumentException("Tag name is required.");
 		}
 
-		long tagId = tagRepository.insert(name.trim());
+		String trimmed = name.trim();
+		long tagId;
+		try {
+			tagId = tagRepository.insert(trimmed);
+		} catch (DuplicateKeyException exception) {
+			// The unique index on tag.name is the source of truth, including concurrent creates.
+			throw new DuplicateTagException(trimmed, exception);
+		}
 		return tagRepository.findById(tagId)
 				.orElseThrow(() -> new IllegalStateException("Created tag could not be found."));
 	}

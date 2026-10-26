@@ -17,6 +17,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.AdditionalMatchers.aryEq;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -33,7 +34,7 @@ class TagRepositoryTest {
 		TagRepository repository = new TagRepository(jdbcTemplate);
 		Connection connection = mock(Connection.class);
 		PreparedStatement statement = mock(PreparedStatement.class);
-		when(connection.prepareStatement(anyString(), eq(Statement.RETURN_GENERATED_KEYS))).thenReturn(statement);
+		when(connection.prepareStatement(anyString(), aryEq(new String[] {"id"}))).thenReturn(statement);
 		when(jdbcTemplate.update(any(PreparedStatementCreator.class), any(KeyHolder.class))).thenAnswer(invocation -> {
 			PreparedStatementCreator creator = invocation.getArgument(0);
 			KeyHolder keyHolder = invocation.getArgument(1);
@@ -46,7 +47,7 @@ class TagRepositoryTest {
 
 		assertEquals(5L, id);
 		ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
-		verify(connection).prepareStatement(sqlCaptor.capture(), eq(Statement.RETURN_GENERATED_KEYS));
+		verify(connection).prepareStatement(sqlCaptor.capture(), aryEq(new String[] {"id"}));
 		assertTrue(sqlCaptor.getValue().contains("INSERT INTO tag (name)"));
 		verify(statement).setString(1, "landscape");
 	}

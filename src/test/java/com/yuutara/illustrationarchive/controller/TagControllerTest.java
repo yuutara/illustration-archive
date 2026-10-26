@@ -1,6 +1,7 @@
 package com.yuutara.illustrationarchive.controller;
 
 import com.yuutara.illustrationarchive.dto.TagSummary;
+import com.yuutara.illustrationarchive.service.DuplicateTagException;
 import com.yuutara.illustrationarchive.service.TagService;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -35,6 +36,21 @@ class TagControllerTest {
 				.andExpect(jsonPath("$.name").value("百合"));
 
 		verify(tagService).create("百合");
+	}
+
+	@Test
+	void duplicateTagNameReturnsConflictWithCode() throws Exception {
+		TagService tagService = mock(TagService.class);
+		MockMvc mockMvc = MockMvcBuilders
+				.standaloneSetup(new TagController(tagService))
+				.build();
+		when(tagService.create("blue sky")).thenThrow(new DuplicateTagException("blue sky", null));
+
+		mockMvc.perform(post("/api/tags")
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("{\"name\":\"blue sky\"}"))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.code").value(DuplicateTagException.ERROR_CODE));
 	}
 
 	@Test

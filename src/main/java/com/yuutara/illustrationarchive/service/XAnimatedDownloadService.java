@@ -14,19 +14,24 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.function.Supplier;
 
 /** Preserves the selected MP4 bytes; FileStorage owns size, container validation and SHA-256. */
 @Service
 public class XAnimatedDownloadService {
-	private final HttpClient client;
+	private final Supplier<HttpClient> client;
 	private final FileStorage storage;
 
 	@Autowired
 	public XAnimatedDownloadService(FileStorage storage) {
-		this(HttpClient.newHttpClient(), storage); // default NEVER redirects
+		this(new LazyHttpClient(), storage); // default NEVER redirects
 	}
 
 	XAnimatedDownloadService(HttpClient client, FileStorage storage) {
+		this(() -> client, storage);
+	}
+
+	private XAnimatedDownloadService(Supplier<HttpClient> client, FileStorage storage) {
 		this.client = client;
 		this.storage = storage;
 	}
@@ -40,7 +45,7 @@ public class XAnimatedDownloadService {
 				.header("Accept", "video/mp4").GET().build();
 		StoredFile stored = null;
 		try {
-			HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+			HttpResponse<InputStream> response = client.get().send(request, HttpResponse.BodyHandlers.ofInputStream());
 			try (InputStream body = response.body()) {
 				if (response.statusCode() != 200) {
 					throw new IllegalStateException("X animated CDN request failed with HTTP " + response.statusCode() + ".");

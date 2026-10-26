@@ -13,19 +13,24 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.function.Supplier;
 
 /** Inbox preview only: the caller owns the upstream stream, and nothing is archived or cached. */
 @Service
 public class XAnimatedPreviewService {
 	private final XLikeMediaRepository media;
-	private final HttpClient client;
+	private final Supplier<HttpClient> client;
 
 	@Autowired
 	public XAnimatedPreviewService(XLikeMediaRepository media) {
-		this(media, HttpClient.newHttpClient()); // default NEVER follows redirects
+		this(media, new LazyHttpClient()); // default NEVER follows redirects
 	}
 
 	XAnimatedPreviewService(XLikeMediaRepository media, HttpClient client) {
+		this(media, () -> client);
+	}
+
+	private XAnimatedPreviewService(XLikeMediaRepository media, Supplier<HttpClient> client) {
 		this.media = media;
 		this.client = client;
 	}
@@ -46,7 +51,7 @@ public class XAnimatedPreviewService {
 		var request = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(60))
 				.header("Accept", "video/mp4").GET().build();
 		try {
-			var upstream = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+			var upstream = client.get().send(request, HttpResponse.BodyHandlers.ofInputStream());
 			InputStream body = upstream.body();
 			try {
 				// A complete 200 response only; never expose redirects, error bodies or partial content.

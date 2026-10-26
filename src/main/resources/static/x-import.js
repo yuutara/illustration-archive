@@ -39,6 +39,8 @@
     let messageTimer;
     let toastTimer;
     const pageSize = 24;
+    // Served by /ui-capabilities.js; missing means the normal server, where Sync is available.
+    const xSyncEnabled = window.UiCapabilities?.xImport !== false;
     const viewerItems = new Map();
     // Only Archive returns per-item outcomes. Keep those reasons in this document,
     // separate from the current page's checkbox selection and Skip's aggregate result.
@@ -478,8 +480,12 @@
 
     function renderSyncProgress(progress) {
         savedSyncProgress = progress;
-        resetHistoryButton.hidden = progress.historyStatus !== "INVALID";
-        resetRecentButton.hidden = progress.recentStatus !== "INVALID";
+        resetHistoryButton.hidden = !xSyncEnabled || progress.historyStatus !== "INVALID";
+        resetRecentButton.hidden = !xSyncEnabled || progress.recentStatus !== "INVALID";
+        if (!xSyncEnabled) {
+            syncProgress.textContent = "当前版本未启用 X 同步；已在 Inbox 中的项目仍可归档或跳过。";
+            return;
+        }
         const recent = { UNKNOWN: "近期范围尚未验证", ACTIVE: "近期追赶未完成，下次 Sync 继续",
             VERIFY: "近期已到衔接边界，下次 Sync 复核头部", CAUGHT_UP: "近期已衔接上次验证范围（按 API 观察）",
             INVALID: "近期追赶中断，需手动重置游标" };
@@ -581,6 +587,7 @@
         }
     }
 
+    syncButton.hidden = !xSyncEnabled;
     syncButton.addEventListener("click", syncLatest);
     resetHistoryButton.addEventListener("click", resetHistory);
     resetRecentButton.addEventListener("click", resetRecent);

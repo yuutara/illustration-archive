@@ -10,13 +10,13 @@ import java.net.http.HttpClient;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.never;
 
 class XApiClientSpringContextTest {
 	@Test
-	void springInstantiatesClientWithItsAnnotatedConstructor() {
-		// Creating a JDK HttpClient may open a local loopback connection on some Windows/JDK versions.
-		// Only stub that factory; Spring still selects and invokes the real @Autowired constructor.
+	void springInstantiatesClientWithItsAnnotatedConstructorWithoutCreatingHttpClients() {
+		// Creating a JDK HttpClient may open a local loopback connection on some Windows/JDK versions,
+		// so disabled integrations must not create one at startup. The stub only guards against regressions.
 		try (MockedStatic<HttpClient> httpClients = mockStatic(HttpClient.class);
 				AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
 			httpClients.when(HttpClient::newHttpClient).thenReturn(mock(HttpClient.class));
@@ -26,7 +26,7 @@ class XApiClientSpringContextTest {
 
 			assertNotNull(context.getBean(XApiClient.class));
 			assertNotNull(context.getBean(XTokenManager.class));
-			httpClients.verify(HttpClient::newHttpClient, times(2));
+			httpClients.verify(HttpClient::newHttpClient, never());
 		}
 	}
 }

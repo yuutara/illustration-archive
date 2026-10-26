@@ -448,6 +448,11 @@
                 },
                 body: JSON.stringify({ name: name })
             });
+            if (response.status === 409) {
+                tagCreateStatus.textContent = "已存在同名标签（不区分大小写），请在“选择标签”中搜索并选用。";
+                tagCreateNameInput.focus();
+                return;
+            }
             if (!response.ok) {
                 throw new Error(`Tag creation failed with status ${response.status}`);
             }
@@ -726,7 +731,7 @@
         titleElement.textContent = textOrFallback(detail && detail.title, "");
         renderImages(detail);
         const staticCount = orderedAssetsFor(detail).filter(asset => ["image/jpeg", "image/png"].includes(asset.mimeType)).length;
-        aiOpenViewer.hidden = staticCount === 0 || staticCount > 4;
+        aiOpenViewer.hidden = !aiSession || staticCount === 0 || staticCount > 4;
         renderAuthor(detail);
         renderTags(detail);
         noteElement.textContent = textOrFallback(detail && detail.note, "");
@@ -759,14 +764,16 @@
             const detail = await response.json();
             renderDetail(detail);
             const params = new URLSearchParams(window.location.search);
-            const transfer = window.AiAnalysis.takeHandoff(params.get("nav"), state.illustrationId, orderedAssetsFor(detail));
-            if (transfer.status === "ready") {
-                aiSession.accept(transfer.result);
-                aiHandoffStatus.hidden = false;
-                aiHandoffStatus.textContent = "AI 结果已带入。可从页面顶部返回 Viewer 对照原图。";
-            } else if (transfer.status === "invalid" || params.get("aiTransfer") === "failed") {
-                aiHandoffStatus.hidden = false;
-                aiHandoffStatus.textContent = "AI 结果未能带入。可从页面顶部打开 Viewer 重新分析。";
+            if (aiSession) {
+                const transfer = window.AiAnalysis.takeHandoff(params.get("nav"), state.illustrationId, orderedAssetsFor(detail));
+                if (transfer.status === "ready") {
+                    aiSession.accept(transfer.result);
+                    aiHandoffStatus.hidden = false;
+                    aiHandoffStatus.textContent = "AI 结果已带入。可从页面顶部返回 Viewer 对照原图。";
+                } else if (transfer.status === "invalid" || params.get("aiTransfer") === "failed") {
+                    aiHandoffStatus.hidden = false;
+                    aiHandoffStatus.textContent = "AI 结果未能带入。可从页面顶部打开 Viewer 重新分析。";
+                }
             }
             const assetId = new URLSearchParams(window.location.search).get("asset");
             if (assetId && !browse.imageKey(`illustration:${state.illustrationId}`)) {
@@ -865,7 +872,10 @@
         return;
     }
 
-    aiSession = window.AiAnalysis.forIllustration(state.illustrationId);
-    aiSession.subscribe(syncAiAnalysis);
+    // Served by /ui-capabilities.js; missing means the normal server, where AI analysis is offered.
+    if (window.UiCapabilities?.aiAnalysis !== false) {
+        aiSession = window.AiAnalysis.forIllustration(state.illustrationId);
+        aiSession.subscribe(syncAiAnalysis);
+    }
     loadDetail();
 })();

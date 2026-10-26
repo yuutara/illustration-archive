@@ -56,6 +56,7 @@
 
 - 没有进行中的功能开发。
 - 2026-10-26：完成接手健康检查；同日完成本次文档精简与维护流程调整（只改文档）。
+- 2026-10-26：完成 Windows 本地图库 PoC（文件型 H2 + jpackage + 系统浏览器 + 控制窗），自动化测试与人工验收通过，详见 [DESKTOP_POC.md](DESKTOP_POC.md)。属于探索原型，未推进阶段；MySQL 运行方式不变。若保留 PoC，新的 schema migration 需同时提供 `db/migration-h2` 等价版本。
 - 分工：Claude Code 负责主要开发；Codex 负责复杂技术设计与必要的 Review；ChatGPT 负责阶段性产品方向讨论。具体约定见 [AGENTS.md](../AGENTS.md)。
 
 ## 后续候选（均未排期，需用户确认）
@@ -66,7 +67,7 @@
 - 依赖补丁更新（例如 Spring Boot 4.1.x 补丁版本），需配套完整测试。
 - V0.5 封版时保留的 P1：Picker 重复搜索按钮、Inbox 重复成功链接、来源重复、手机 Detail 管理信息顺序。
 - 留待未来版本决定：跨作品导航、超过四页或动态媒体的 AI 分析、AI 结果持久化。
-- 探索话题（只讨论，不实施）：桌面化，主要障碍是 MySQL 依赖、相对路径配置、X 授权流程和打包签名。
+- 桌面化：PoC 已验证 H2 替代 MySQL、独立数据目录与 jpackage 打包可行（见 [DESKTOP_POC.md](DESKTOP_POC.md) 的已知问题）；X 授权流程、安装器 / 签名、自动更新仍未处理，正式立项需用户确认。
 - 探索话题（只讨论，不实施）：免费的 X Likes 同步路径；官方数据归档、浏览器扩展等方案各有完整性或平台规则风险。
 
 ## 文档导航
@@ -76,5 +77,6 @@
 | [AGENTS.md](../AGENTS.md) | 协作规则与维护约定 | 每次任务 |
 | 本文件 | 当前版本、阶段、健康基线、限制与候选 | 每次任务 |
 | [README.md](../README.md) | 功能、API、运行配置、核心设计与测试 | 涉及运行、API 或设计时 |
+| [DESKTOP_POC.md](DESKTOP_POC.md) | Windows 本地图库 PoC：架构、构建、测试与验收记录 | 涉及桌面化、H2 或打包时 |
 | [X_LIKES_SYNC_CONSISTENCY.md](X_LIKES_SYNC_CONSISTENCY.md) | 同步预算、Recent / History、检查点、V7 迁移与验收边界 | 涉及 X Sync 时 |
 | [PROJECT_HISTORY.md](PROJECT_HISTORY.md) | V0.1–V0.5 与维护阶段的历史归档 | 需要追溯历史决策或证据时 |

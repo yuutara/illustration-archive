@@ -22,21 +22,26 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Iterator;
 import java.util.Locale;
+import java.util.function.Supplier;
 
 @Service
 public class XPhotoDownloadService {
 	private static final Logger log = LoggerFactory.getLogger(XPhotoDownloadService.class);
 	private static final String CDN_HOST = "pbs.twimg.com";
 
-	private final HttpClient httpClient;
+	private final Supplier<HttpClient> httpClient;
 	private final FileStorage fileStorageService;
 
 	@Autowired
 	public XPhotoDownloadService(FileStorage fileStorageService) {
-		this(HttpClient.newHttpClient(), fileStorageService);
+		this(new LazyHttpClient(), fileStorageService);
 	}
 
 	XPhotoDownloadService(HttpClient httpClient, FileStorage fileStorageService) {
+		this(() -> httpClient, fileStorageService);
+	}
+
+	private XPhotoDownloadService(Supplier<HttpClient> httpClient, FileStorage fileStorageService) {
 		this.httpClient = httpClient;
 		this.fileStorageService = fileStorageService;
 	}
@@ -58,7 +63,7 @@ public class XPhotoDownloadService {
 				.GET().build();
 		StoredFile storedFile = null;
 		try {
-			HttpResponse<InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+			HttpResponse<InputStream> response = httpClient.get().send(request, HttpResponse.BodyHandlers.ofInputStream());
 			try (InputStream body = response.body()) {
 				int status = response.statusCode();
 				if (status < 200 || status >= 300) {

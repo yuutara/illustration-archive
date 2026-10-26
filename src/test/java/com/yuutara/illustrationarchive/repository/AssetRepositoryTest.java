@@ -20,6 +20,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.AdditionalMatchers.aryEq;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -58,7 +59,7 @@ class AssetRepositoryTest {
 		Connection connection = mock(Connection.class);
 		PreparedStatement statement = mock(PreparedStatement.class);
 		String sha256 = "a".repeat(64);
-		when(connection.prepareStatement(anyString(), eq(Statement.RETURN_GENERATED_KEYS))).thenReturn(statement);
+		when(connection.prepareStatement(anyString(), aryEq(new String[] {"id"}))).thenReturn(statement);
 		when(jdbcTemplate.update(any(PreparedStatementCreator.class), any(KeyHolder.class))).thenAnswer(invocation -> {
 			PreparedStatementCreator creator = invocation.getArgument(0);
 			KeyHolder keyHolder = invocation.getArgument(1);
@@ -71,7 +72,7 @@ class AssetRepositoryTest {
 
 		assertEquals(20L, assetId);
 		ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
-		verify(connection).prepareStatement(sqlCaptor.capture(), eq(Statement.RETURN_GENERATED_KEYS));
+		verify(connection).prepareStatement(sqlCaptor.capture(), aryEq(new String[] {"id"}));
 		assertTrue(sqlCaptor.getValue().contains("sha256"));
 		verify(statement).setString(7, sha256);
 	}

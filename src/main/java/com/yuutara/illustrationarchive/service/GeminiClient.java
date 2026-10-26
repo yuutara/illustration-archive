@@ -29,6 +29,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.regex.Pattern;
+import java.util.function.Supplier;
 
 @Component
 public class GeminiClient {
@@ -69,7 +70,7 @@ public class GeminiClient {
 			   "suggestedTags":{"type":"array","items":{"type":"string"}}
 			 }}
 			""";
-	private final HttpClient http;
+	private final Supplier<HttpClient> http;
 	private final ObjectMapper mapper;
 	private final boolean enabled;
 	private final String apiKey;
@@ -82,10 +83,15 @@ public class GeminiClient {
 			@Value("${gemini.api-key:}") String apiKey,
 			@Value("${gemini.model:gemini-3.1-flash-lite}") String model,
 			@Value("${ai.analysis.timeout-seconds:90}") int timeoutSeconds) {
-		this(HttpClient.newHttpClient(), mapper, enabled, apiKey, model, timeoutSeconds);
+		this(new LazyHttpClient(), mapper, enabled, apiKey, model, timeoutSeconds);
 	}
 
 	GeminiClient(HttpClient http, ObjectMapper mapper, boolean enabled, String apiKey, String model, int timeoutSeconds) {
+		this(() -> http, mapper, enabled, apiKey, model, timeoutSeconds);
+	}
+
+	private GeminiClient(Supplier<HttpClient> http, ObjectMapper mapper, boolean enabled, String apiKey, String model,
+			int timeoutSeconds) {
 		this.http = http;
 		this.mapper = mapper;
 		this.enabled = enabled;
@@ -128,7 +134,7 @@ public class GeminiClient {
 		// Keep the complete-body deadline, including all non-streaming response text.
 		CompletableFuture<HttpResponse<String>> pending = null;
 		try {
-			pending = http.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+			pending = http.get().sendAsync(request, HttpResponse.BodyHandlers.ofString());
 			var response = pending.get(timeoutSeconds, TimeUnit.SECONDS);
 			if (response.statusCode() != 200) {
 				logResponseFailure(response.statusCode(), response.body(), images);

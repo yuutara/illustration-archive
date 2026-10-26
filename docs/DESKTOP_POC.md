@@ -1,0 +1,143 @@
+# Windows 本地图库 PoC
+
+> 状态：PoC 已实现并完成首轮验收（2026-10-26），2026-10-27 完成收尾加固。这是**探索原型**，不是已批准的 V0.6 阶段；正式安装器、自动更新、独立 WebView 窗口均不在范围内。
+
+## 目标与边界
+
+- 让现有 Spring Boot 后端 + 现有前端以"双击即用"的方式在 Windows 上运行，验证桌面化的主要障碍（MySQL 依赖、相对路径配置、打包）是否可解。
+- 原 MySQL 运行方式不变；PoC 使用完全独立的数据与配置，不连接、不读取、不迁移真实数据库。
+- 关闭 X / OAuth、Gemini、S3 与一次性维护回填。
+
+## 架构
+
+```
+IllustrationArchivePoC.exe (jpackage 启动器 + 自带 Java 17 运行时)
+  └─ Boot jar，-Dillustration-archive.desktop=true
+       └─ IllustrationArchiveApplication.main → DesktopLauncher（Swing 控制窗）
+            ├─ instance.lock 单实例锁
+            ├─ DesktopServer.start(home)  → Spring profile "desktop"
+            │    ├─ 文件型 H2：<home>\data\archive.mv.db（MODE=MySQL, IGNORECASE）
+            │    ├─ Flyway：classpath:db/migration-h2（V1–V7 的 H2 等价版本）
+            │    ├─ 媒体：<home>\media（数据库仍只存相对 storage_key）
+            │    ├─ Tomcat 只监听 127.0.0.1（默认 47391，被占用时随机端口）
+            │    └─ LocalAccessFilter：启动令牌 → SameSite=Strict Cookie
+            └─ 系统默认浏览器打开 http://127.0.0.1:<port>/desktop/session?token=…
+```
+
+`<home>` 默认 `%LOCALAPPDATA%\IllustrationArchivePoC`，可用环境变量 `ILLUSTRATION_ARCHIVE_DESKTOP_HOME` 或系统属性 `illustration-archive.desktop.home` 覆盖。日志在 `<home>\logs\desktop.log`。
+
+### 关键设计
+
+- **配置隔离**：所有隔离相关属性由 `DesktopServer` 以命令行参数传入（最高优先级）。原因是 `X_API_ENABLED`、`AI_ANALYSIS_ENABLED`、`SPRING_DATASOURCE_URL` 等环境变量经宽松绑定会覆盖 profile 文件。`spring.config.import` 改为 `${illustration-archive.local-config:./config/application-local.properties}`：MySQL 模式默认值不变，桌面模式指向 `<home>\config\desktop.properties`（可选，默认不存在），因此不会读取 `./config/application-local.properties`。
+- **H2 迁移**：V2/V4/V6/V7 使用了 H2 不支持的 MySQL 多子句 `ALTER TABLE`，所以 `db/migration-h2` 提供语义等价的 V1–V7，未改动任何已应用的 MySQL migration。MySQL `TEXT` 映射为 `VARCHAR(65535)`，使 `IGNORECASE` 生效，保持与 `utf8mb4_unicode_ci` 一致的大小写不敏感搜索和标签唯一性。**代价：若保留桌面 PoC，后续每个 schema 变更都要同时写一份 H2 版本。**
+- **Repository 唯一改动**：H2 对 `RETURN_GENERATED_KEYS` 会把带默认值的列（`created_at` 等）一起作为生成键返回，`KeyHolder.getKey()` 因此失败。Illustration / Asset / Author / Tag 的插入改为按列名 `{"id"}` 取键；MySQL Connector/J 同样支持该写法。X 相关 Repository 不在 PoC 范围内，未改动（其中仍有 `UTC_TIMESTAMP` 等 MySQL 专用 SQL）。
+- **本机访问保护**（无用户鉴权的前提下）：
+  - 只绑定 `127.0.0.1`，局域网不可达；
+  - 每次启动生成 256 位令牌，入口 URL 换成 `HttpOnly; SameSite=Strict` Cookie，之后所有页面、API、原图都要求该 Cookie——其他网站无法跨站读取或写入；
+  - 校验 Host 必须是 `127.0.0.1:<port>` / `localhost:<port>`，防 DNS rebinding；
+  - 非安全方法若带 Origin 必须同源，防同机其他端口（浏览器视为同站）的写请求；
+  - 上一次启动的 Cookie 在重启后失效。
+- **退出释放**：控制窗"退出"或关闭窗口 → `context.close()`：Tomcat 优雅停机（最长 15 秒，等待进行中的导入）→ Hikari 关闭连接池 → H2 在最后一个连接关闭时关库（`DB_CLOSE_ON_EXIT=FALSE`，不依赖 H2 自己的关闭钩子）→ 释放单实例锁 → `System.exit`。
+- **事务与文件补偿**：沿用现有服务逻辑，未改动。H2 在另一事务持有同 SHA-256 未提交行时，会在唯一索引上等待并在对方提交后报重复键，行为与 MySQL InnoDB 一致（已由测试验证）。
+
+## 构建与运行
+
+```powershell
+.\scripts\build-desktop-poc.ps1 -JavaHome "$HOME\.jdks\ms-17.0.19" -MavenArgs '-Dmaven.repo.local=C:\Users\YuanYuChou\.m2\repository'
+```
+
+产物（`dist/` 已被 Git 忽略）：
+
+- `dist\IllustrationArchivePoC\IllustrationArchivePoC.exe`：双击运行；整个文件夹约 171 MB（Boot jar 42 MB，其余为 jlink 运行时）。
+- `dist\IllustrationArchivePoC-win64.zip`：约 85 MB，解压后即可运行，目标机无需安装 Java。
+
+脚本不执行 `mvn clean`（运行中的本地实例可能占用 `target\` 下的文件），只删除 `target\classes` 和旧 jar；测试需单独运行。
+
+## 自动化测试
+
+`DesktopServerIntegrationTest` 通过与启动器相同的 `DesktopServer.start` 启动真实 Spring 上下文（Tomcat + 文件 H2 + Flyway + 本地文件存储），每个用例使用独立临时数据目录：
+
+| 用例 | 验证内容 |
+| --- | --- |
+| `localWorkflowPersistsAcrossRestartAndReleasesDatabaseAndPort` | HTTP 批量导入（含重复）、标签/作者创建、元数据编辑、大小写不敏感与 `@handle` 搜索、原图/缩略图读取；不读取 MySQL 本地配置；关闭后端口可重新绑定、H2 可重新打开；重启后数据仍在、旧会话失效；删除后记录与文件都移除 |
+| `localAccessGuardRejectsRequestsWithoutTheLaunchSession` | 无 Cookie / 错误令牌 / 伪造 Host / 跨源写入均 403；Cookie 带 HttpOnly 与 SameSite=Strict；局域网地址无法连接 |
+| `springTransactionRollsBackIllustrationWhenAssetInsertFails` | 经 Spring 代理的 `@Transactional`：asset 插入失败时先插入的 illustration 被回滚 |
+| `databaseDuplicateFoundAfterLockWaitDeletesTheStoredFile` | 另一事务持有同 SHA-256 未提交行时，导入在 H2 唯一索引上等待；对方提交后返回 `DuplicateIllustrationException`，已落盘文件被补偿删除 |
+| `concurrentImportsOfTheSameImageKeepOneAssetAndOneFile` | 8 线程同时导入同一图片：1 成功、7 重复，库中 1 行、磁盘 1 个原图 |
+
+运行方式（Windows 本机）：
+
+```powershell
+.\mvnw.cmd '-Dmaven.repo.local=C:\Users\YuanYuChou\.m2\repository' '-Dtest=DesktopServerIntegrationTest' '-DargLine=-Djava.io.tmpdir=D:\IdeaProjects\illustration-archive\target\test-temp -Djdk.net.unixdomain.tmpdir=D:\IdeaProjects\illustration-archive\target\test-temp' test
+```
+
+`-Djdk.net.unixdomain.tmpdir` 是环境绕行：在 Claude Code 宿主派生的进程里，`%LOCALAPPDATA%` 下的 AF_UNIX socket 能创建但无法连接，JDK 的 Selector / HttpClient 会报 `Unable to establish loopback connection`。从资源管理器双击启动的应用不受影响。
+
+2026-10-26 结果：`DesktopServerIntegrationTest` 5/5 通过。全量 `mvnw test`（JDK 17.0.19，同上 argLine）：390 tests，0 failures / errors，4 skipped（3 个未配置环境变量的 MySQL opt-in 测试 + 1 个 LocalStack 测试，与健康基线相同），BUILD SUCCESS。前端未改动，未重跑 JS 测试。
+
+`{"id"}` 取键在 MySQL 上的行为：2026-10-26 在本机 MySQL 8.0.42 的专用测试库 `illustration_archive_f03_test_<时间戳>` 上运行 `IllustrationGalleryMySqlTest` 与三个 Repository 测试，25/25 通过、0 skipped，覆盖作者 / 标签创建、X Post 插图与 Asset 插入及其事务回滚；测试库随后已删除，未触碰真实图库。2026-10-27 由 Claude Code 在新的专用库 `illustration_archive_f03_test_20261027000214` 上独立复跑 `IllustrationGalleryMySqlTest`：1/1 通过、0 skipped，BUILD SUCCESS；随后用只接受该命名模式的程序删除测试库，服务器上仅剩原有 `illustration_archive`。
+
+## 人工验收记录（2026-10-26）
+
+环境：Windows 11 Home 22631，默认浏览器 ego (lite)（Chromium），从资源管理器双击 `IllustrationArchivePoC.exe`；数据目录为全新的 `%LOCALAPPDATA%\IllustrationArchivePoC`。测试图片为生成的 900×1200 PNG / JPEG / GIF。
+
+| 项目 | 结果 |
+| --- | --- |
+| 双击启动 | 控制窗立即出现，Spring 启动 5.2 秒（重启 3.7 秒）；自动打开系统浏览器并进入空图库 |
+| 控制窗 | 显示"运行中：仅本机可访问"、地址、数据目录；"打开数据文件夹 / 打开图库 / 退出"可用 |
+| Flyway | 新库应用 H2 V1–V7 成功 |
+| 批量导入 | 选 6 个文件（含一份重复副本）：成功 5，重复副本返回 DUPLICATE_IMAGE；原图与 JPEG/PNG 缩略图写入 `<home>\media`，GIF 无缩略图 |
+| 浏览 | 瀑布流、查看器、详情页正常显示原图 |
+| 编辑 | 中英文标题、备注、新建作者（含 X 用户名）、新建标签保存成功 |
+| 搜索 | `SKY` 命中标签 "Blue Sky 天空"（大小写不敏感）；`暖色` 命中中文备注；`@alice_art` 命中作者 |
+| 访问保护 | curl 无 Cookie 访问 `/`、API、原图均 403；错误令牌 403；伪造 Host 403；`netstat` 仅 `127.0.0.1:47391` 监听，本机 8 个其他网卡地址均无法连接 |
+| X Inbox 页面 | 在 H2 下可打开并显示空列表，无错误日志（同步未点击） |
+| 退出释放 | "退出"后进程消失、端口不再监听，日志依次为优雅停机 → Hikari 关闭 |
+| 重启持久化 | 再次启动后 5 件作品、标题、作者、标签、备注都保留 |
+| 删除 | 详情页删除并确认后图库剩 4 件，对应原图与缩略图从磁盘移除 |
+| 单实例 | 运行中再次双击：提示"已在运行"，确认后第二个进程退出 |
+| 关窗退出 | 点控制窗右上角 ×：启动器与 JVM 进程均退出，端口释放 |
+
+验收数据保留在 `%LOCALAPPDATA%\IllustrationArchivePoC`（4 张测试图），与真实图库无关；需要干净环境时关闭应用后删除该目录即可。
+
+## 收尾加固（2026-10-27）
+
+首轮验收发现的三个问题已处理，MySQL 运行方式与真实数据不受影响：
+
+- **可选集成按需创建 HttpClient**：`GeminiClient`、`XApiClient`、`XTokenManager`、`XPhotoDownloadService`、`XAnimatedDownloadService`、`XAnimatedPreviewService` 改为持有 `LazyHttpClient`，第一次真正发请求时才创建 JDK `HttpClient`。关闭状态的集成在启动时不再创建 selector / loopback 通道。两种模式都生效；已启用的 X / Gemini 行为不变，只是客户端创建推迟到首个请求。
+- **桌面模式隐藏不可用入口**：新增 `GET /ui-capabilities.js`，同步设置 `window.UiCapabilities`；默认 `xImport` / `aiAnalysis` 均为 `true`（MySQL 模式界面不变），桌面模式由 `DesktopServer` 设为 `false`。桌面模式下：
+  - 图库"操作"菜单不显示 X Inbox；
+  - 详情页不显示"边看图边分析"；
+  - Viewer 只有"作品信息"，没有 AI 标签页；
+  - 直接打开 Inbox 时隐藏 Sync Likes 和游标重置按钮，并提示"当前版本未启用 X 同步"。
+  
+  后端的关闭状态不变，这只是界面层隐藏。
+- **重复标签返回 409**：`TagService` 将唯一索引冲突转为 `DuplicateTagException`，`POST /api/tags` 返回 409 和 `{"code":"DUPLICATE_TAG"}`。数据库唯一约束仍是唯一来源，并发创建同名标签同样得到 409。详情页显示"已存在同名标签（不区分大小写），请在“选择标签”中搜索并选用。"，并保持表单打开。MySQL 模式下同样生效。
+- **打包脚本**：发现 PoC 正在从 `dist` 运行时直接报错退出，不再删除被占用的文件，以免留下半删除的应用。
+
+验证（2026-10-27）：
+- 相关 Java 测试 95/95 通过；新增 `LazyHttpClientTest`、`UiCapabilitiesControllerTest`，`TagServiceTest` / `TagControllerTest` 各新增一例；`XApiClientSpringContextTest` 改为断言启动时不创建 HttpClient；`DesktopServerIntegrationTest` 改为断言真实 H2 下重复标签返回 409 + `DUPLICATE_TAG`，以及桌面能力脚本两项均为 `false`。
+- 全量 `mvnw test`：394 tests，0 failures / errors，4 skipped（同前），BUILD SUCCESS。
+- JS：新增 `ui-capabilities.test.js` 5 例，全量 `node --test` 138/138 通过。
+- 未重做的人工验收沿用 2026-10-26 记录；本次需复验的只有界面入口隐藏、重复标签提示和重新打包后的启动。用户已于 2026-10-27 完成界面复验并通过。
+
+## Review 后补强（2026-10-27）
+
+Codex 只读 Review 指出两点，均只改 `DesktopServer` 的桌面启动参数，MySQL 模式不经过这条路径、行为不变：
+
+- **Flyway / 连接池只连 PoC 的 H2**：Spring Boot 中 `spring.flyway.url/user/password` 和 `spring.datasource.hikari.jdbc-url/username/password` 会覆盖 `spring.datasource.*`，例如环境变量 `SPRING_FLYWAY_URL` 就能把迁移导向别的数据库。现在两组都显式固定为同一个 H2 URL 与账号，`spring.flyway.enabled=true`。
+- **留空的数值配置不再阻止启动**：关闭状态的 X / Gemini 仍会在启动时绑定数值。像 `AI_ANALYSIS_TIMEOUT_SECONDS=`、`X_SYNC_MAX_PAGES=` 这样的空值，原来会让启动以 `NumberFormatException` 失败（已复现）。现在桌面模式把这 8 个数值固定为原有默认值（90 / 5 / 3 / 25 / 2 / 6 / 100 / 50）。MySQL 模式下空值仍会启动失败，与 PROJECT_STATE 中的已知限制一致。
+
+验证：
+- `DesktopServerIntegrationTest` 新增 `desktopIgnoresOutsideConnectionSettingsAndBlankIntegrationNumbers`：用系统属性（优先级同环境变量，高于配置文件）注入外部 Flyway / Hikari 连接和 8 个空数值，断言 Flyway 与业务数据源都连到 `<home>\data\archive`，7 个迁移落在 PoC 库，并且应用正常启动。
+  - 修复前该测试复现启动失败；
+  - 临时去掉 Flyway 固定项后，该测试按预期失败（Flyway 连到了注入的 `jdbc:h2:mem:elsewhere`）。
+  - 修复后整个测试类 6/6 通过。
+- 未重跑全量测试与 GUI 验收：改动仅限桌面启动参数，沿用前一节结果。
+- 重新打包后从资源管理器启动：Flyway 在已有 PoC 库上校验 7 个迁移、无需迁移，5.1 秒启动，无错误日志。
+
+## 已知问题与后续候选
+
+- Flyway 12.4 提示 H2 2.4.240 高于其验证版本，当前功能未受影响。
+- 体积：运行时使用 jpackage 默认模块集；可用 `--add-modules` 精简，或移除桌面模式用不到的 AWS SDK 依赖。
+- 未覆盖：正式安装器 / 签名、自动更新、独立 WebView 窗口、与 MySQL 数据之间的迁移工具、大图库下的 H2 性能。

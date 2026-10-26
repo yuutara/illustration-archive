@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 
 @Component
 public class XApiClient {
@@ -31,7 +32,7 @@ public class XApiClient {
 			+ "&tweet.fields=author_id,attachments,created_at,text"
 			+ "&user.fields=name,username&media.fields=media_key,type,url,width,height,variants,preview_image_url";
 
-	private final HttpClient httpClient;
+	private final Supplier<HttpClient> httpClient;
 	private final ObjectMapper objectMapper;
 	private final boolean enabled;
 	private final String baseUrl;
@@ -41,10 +42,15 @@ public class XApiClient {
 	public XApiClient(ObjectMapper objectMapper, XTokenManager tokens,
 			@Value("${x.api.enabled:false}") boolean enabled,
 			@Value("${x.api.base-url:https://api.x.com}") String baseUrl) {
-		this(HttpClient.newHttpClient(), objectMapper, enabled, baseUrl, tokens);
+		this(new LazyHttpClient(), objectMapper, enabled, baseUrl, tokens);
 	}
 
 	XApiClient(HttpClient httpClient, ObjectMapper objectMapper, boolean enabled,
+			String baseUrl, XTokenManager tokens) {
+		this(() -> httpClient, objectMapper, enabled, baseUrl, tokens);
+	}
+
+	private XApiClient(Supplier<HttpClient> httpClient, ObjectMapper objectMapper, boolean enabled,
 			String baseUrl, XTokenManager tokens) {
 		this.httpClient = httpClient;
 		this.objectMapper = objectMapper;
@@ -135,7 +141,7 @@ public class XApiClient {
 				.header("Accept", "application/json")
 				.GET().build();
 		try {
-			return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+			return httpClient.get().send(request, HttpResponse.BodyHandlers.ofString());
 		} catch (IOException e) {
 			throw new XApiException("X API network or response error.", null);
 		} catch (InterruptedException e) {

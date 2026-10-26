@@ -43,6 +43,11 @@
     const importSuccessCount = document.getElementById("import-success-count");
     const importFailureCount = document.getElementById("import-failure-count");
     const importItems = document.getElementById("import-items");
+    // Served by /ui-capabilities.js; missing means the normal server, where both are available.
+    const capabilities = window.UiCapabilities || {};
+    const aiAnalysisEnabled = capabilities.aiAnalysis !== false;
+    const xInboxLink = document.getElementById("gallery-x-inbox-link");
+    if (xInboxLink) xInboxLink.hidden = capabilities.xImport === false;
     const importToggle = document.getElementById("import-toggle");
     const operations = document.getElementById("gallery-operations");
     const importPanel = document.getElementById("import-panel");
@@ -555,7 +560,7 @@
         }
 
         function viewer() {
-            const analysisSession = window.AiAnalysis.forIllustration(item.id);
+            const analysisSession = aiAnalysisEnabled ? window.AiAnalysis.forIllustration(item.id) : null;
             return {
                 groupKey, title,
                 startKey: assets[currentIndex] && String(assets[currentIndex].id),
@@ -570,8 +575,8 @@
                 },
                 analysisSession,
                 prepareAnalysisHandoff: (token, assetKey) => {
-                    const snapshot = analysisSession.snapshot();
-                    if (snapshot.status !== "ready") return;
+                    const snapshot = analysisSession?.snapshot();
+                    if (snapshot?.status !== "ready") return;
                     return window.AiAnalysis.prepareHandoff(token, item.id, assetKey, snapshot.result);
                 },
                 opener: imageLink, onChange: selectAsset

@@ -6,7 +6,6 @@ import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
 
-import java.sql.Statement;
 import java.util.List;
 import java.util.Optional;
 
@@ -71,6 +70,9 @@ public class AssetRepository {
 	private static final String UPDATE_SHA256_SQL =
 			"UPDATE asset SET sha256 = ? WHERE id = ?";
 
+	// Name the key column: H2 also returns defaulted columns (created_at) for RETURN_GENERATED_KEYS.
+	private static final String[] GENERATED_ID = {"id"};
+
 	private final JdbcTemplate jdbcTemplate;
 
 	public AssetRepository(JdbcTemplate jdbcTemplate) {
@@ -99,7 +101,7 @@ public class AssetRepository {
 	) {
 		KeyHolder keyHolder = new GeneratedKeyHolder();
 		jdbcTemplate.update(connection -> {
-			var statement = connection.prepareStatement(INSERT_SQL, Statement.RETURN_GENERATED_KEYS);
+			var statement = connection.prepareStatement(INSERT_SQL, GENERATED_ID);
 			statement.setLong(1, illustrationId);
 			statement.setString(2, originalFilename);
 			statement.setString(3, storageKey);

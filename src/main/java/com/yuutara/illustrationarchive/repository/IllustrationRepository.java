@@ -12,7 +12,6 @@ import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
 
-import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -95,6 +94,9 @@ public class IllustrationRepository {
 			ORDER BY t.name ASC, t.id ASC
 			""";
 
+	// Name the key column: H2 also returns defaulted columns (created_at) for RETURN_GENERATED_KEYS.
+	private static final String[] GENERATED_ID = {"id"};
+
 	private final JdbcTemplate jdbcTemplate;
 
 	public IllustrationRepository(JdbcTemplate jdbcTemplate) {
@@ -103,7 +105,7 @@ public class IllustrationRepository {
 
 	public long insert() {
 		KeyHolder keyHolder = new GeneratedKeyHolder();
-		jdbcTemplate.update(connection -> connection.prepareStatement(INSERT_SQL, Statement.RETURN_GENERATED_KEYS), keyHolder);
+		jdbcTemplate.update(connection -> connection.prepareStatement(INSERT_SQL, GENERATED_ID), keyHolder);
 
 		Number generatedKey = keyHolder.getKey();
 		if (generatedKey == null) {
@@ -117,7 +119,7 @@ public class IllustrationRepository {
 		jdbcTemplate.update(connection -> {
 			var statement = connection.prepareStatement(
 					"INSERT INTO illustration (author_id, source_url) VALUES (?, ?)",
-					Statement.RETURN_GENERATED_KEYS);
+					GENERATED_ID);
 			statement.setLong(1, authorId);
 			statement.setString(2, sourceUrl);
 			return statement;

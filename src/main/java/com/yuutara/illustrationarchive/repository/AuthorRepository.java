@@ -7,7 +7,6 @@ import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
 
-import java.sql.Statement;
 import java.util.List;
 import java.util.Optional;
 
@@ -41,6 +40,9 @@ public class AuthorRepository {
 			LIMIT ? OFFSET ?
 			""";
 
+	// Name the key column: H2 also returns defaulted columns (created_at) for RETURN_GENERATED_KEYS.
+	private static final String[] GENERATED_ID = {"id"};
+
 	private final JdbcTemplate jdbcTemplate;
 
 	public AuthorRepository(JdbcTemplate jdbcTemplate) {
@@ -50,7 +52,7 @@ public class AuthorRepository {
 	public long insert(String displayName, String xUsername) {
 		KeyHolder keyHolder = new GeneratedKeyHolder();
 		jdbcTemplate.update(connection -> {
-			var statement = connection.prepareStatement(INSERT_SQL, Statement.RETURN_GENERATED_KEYS);
+			var statement = connection.prepareStatement(INSERT_SQL, GENERATED_ID);
 			statement.setString(1, displayName);
 			statement.setString(2, xUsername);
 			return statement;
@@ -112,7 +114,7 @@ public class AuthorRepository {
 		jdbcTemplate.update(connection -> {
 			var statement = connection.prepareStatement(
 					"INSERT INTO author (x_user_id, display_name, x_username) VALUES (?, ?, ?)",
-					Statement.RETURN_GENERATED_KEYS);
+					GENERATED_ID);
 			statement.setString(1, xUserId);
 			statement.setString(2, displayName);
 			statement.setString(3, username);

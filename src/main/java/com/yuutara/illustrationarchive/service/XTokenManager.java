@@ -17,13 +17,14 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.function.Supplier;
 
 @Component
 public class XTokenManager {
 	private static final Duration EXPIRY_MARGIN = Duration.ofMinutes(1);
 	private static final URI TOKEN_ENDPOINT = URI.create("https://api.x.com/2/oauth2/token");
 
-	private final HttpClient httpClient;
+	private final Supplier<HttpClient> httpClient;
 	private final ObjectMapper objectMapper;
 	private final XTokenCredentialStore store;
 	private final String clientId;
@@ -38,10 +39,15 @@ public class XTokenManager {
 	public XTokenManager(ObjectMapper objectMapper, XTokenCredentialStore store,
 			@Value("${x.oauth.client-id:}") String clientId,
 			@Value("${x.oauth.client-secret:}") String clientSecret) {
-		this(HttpClient.newHttpClient(), objectMapper, store, clientId, clientSecret, TOKEN_ENDPOINT, Clock.systemUTC());
+		this(new LazyHttpClient(), objectMapper, store, clientId, clientSecret, TOKEN_ENDPOINT, Clock.systemUTC());
 	}
 
 	XTokenManager(HttpClient httpClient, ObjectMapper objectMapper, XTokenCredentialStore store,
+			String clientId, String clientSecret, URI tokenEndpoint, Clock clock) {
+		this(() -> httpClient, objectMapper, store, clientId, clientSecret, tokenEndpoint, clock);
+	}
+
+	private XTokenManager(Supplier<HttpClient> httpClient, ObjectMapper objectMapper, XTokenCredentialStore store,
 			String clientId, String clientSecret, URI tokenEndpoint, Clock clock) {
 		this.httpClient = httpClient;
 		this.objectMapper = objectMapper;
@@ -87,7 +93,7 @@ public class XTokenManager {
 				.header("Accept", "application/json")
 				.POST(HttpRequest.BodyPublishers.ofString(body)).build();
 		try {
-			HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+			HttpResponse<String> response = httpClient.get().send(request, HttpResponse.BodyHandlers.ofString());
 			if (response.statusCode() < 200 || response.statusCode() >= 300) {
 				throw new XApiException("X OAuth token refresh failed with HTTP " + response.statusCode()
 						+ ". Check the App credentials or generate a new token pair in X Developer Console.", response.statusCode());
