@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>原型 B · 画廊</title>
+    <link rel="stylesheet" href="gallery.css">
+    <!-- 动效与材质实验层：删掉 fx.css / fx.js 两行即回到原版 -->
+    <link rel="stylesheet" href="fx.css">
+    <!-- 视觉定稿对照：A 展厅 / B 微光 / C 暖纸 × 浅色 / 深色；删掉这三行即只剩现版 -->
+    <link rel="stylesheet" href="themes.css">
+    <link rel="stylesheet" href="theme-paper.css">
+    <script src="themes.js"></script>
+    <script src="../shared/archive.js" defer></script>
+    <script src="../shared/picker.js" defer></script>
+    <script src="gallery.js" defer></script>
+    <script src="fx.js" defer></script>
+</head>
+<body>
+<header class="masthead" id="masthead">
+    <a class="wordmark" href="../index.html" title="返回原型目录">插画档案<span>Illustration Archive</span></a>
+    <div class="omnibox" id="omnibox">
+        <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+        <label class="visually-hidden" for="q">搜索作品、作者或标签</label>
+        <input id="q" type="search" placeholder="搜索作品，或输入作者、标签名" autocomplete="off"
+               role="combobox" aria-expanded="false" aria-controls="suggest" aria-autocomplete="list">
+        <kbd>/</kbd>
+        <div class="suggest" id="suggest" role="listbox" hidden></div>
+    </div>
+    <div class="mast-actions">
+        <button class="btn btn-ink" id="import-open" type="button">
+            <svg class="icon" aria-hidden="true"><use href="#i-import"/></svg>导入作品
+        </button>
+        <button class="icon-btn help-btn" id="help-open" type="button" title="快捷键（?）" aria-label="快捷键">?</button>
+    </div>
+</header>
+
+<div class="filterbar">
+    <nav class="scopes" aria-label="范围">
+        <button type="button" data-scope="all">全部<sup data-count="all"></sup></button>
+        <button type="button" data-scope="recent">最近导入<sup data-count="recent"></sup></button>
+        <button type="button" data-scope="untidy">待整理<sup data-count="untidy"></sup></button>
+    </nav>
+    <div class="active-filters" id="active-filters" aria-live="polite"></div>
+    <div class="filter-tools">
+        <button class="text-btn" id="author-filter" type="button" aria-haspopup="dialog">作者 <span class="caret">▾</span></button>
+        <button class="text-btn" id="tag-filter" type="button" aria-haspopup="dialog">标签 <span class="caret">▾</span></button>
+        <span class="sep" aria-hidden="true"></span>
+        <button class="text-btn" id="select-toggle" type="button" aria-pressed="false" title="选择多件作品批量整理（Ctrl / Shift + 点击亦可）">选择</button>
+        <label class="text-select">
+            <span class="visually-hidden">排序</span>
+            <select id="sort">
+                <option value="newest">最新导入</option>
+                <option value="oldest">最早导入</option>
+                <option value="title">按标题</option>
+            </select>
+        </label>
+        <div class="density" role="group" aria-label="排列密度">
+            <button type="button" data-density="roomy" aria-pressed="true" title="舒展">
+                <svg class="icon" aria-hidden="true"><use href="#i-roomy"/></svg>
+            </button>
+            <button type="button" data-density="compact" aria-pressed="false" title="紧凑">
+                <svg class="icon" aria-hidden="true"><use href="#i-compact"/></svg>
+            </button>
+        </div>
+    </div>
+</div>
+
+<main class="wall-wrap">
+    <h1 class="visually-hidden">插画图库</h1>
+    <div class="wall" id="wall"></div>
+    <div class="empty" id="empty" hidden>
+        <p class="empty-title">这里还没有符合条件的作品</p>
+        <p>试试其他关键词，或者清除筛选。</p>
+        <button class="btn" id="empty-clear" type="button">清除筛选</button>
+    </div>
+    <p class="wall-end" id="wall-end">· 原型 B · 测试数据，刷新即还原 ·</p>
+</main>
+
+<div class="batchbar" id="batchbar" role="toolbar" aria-label="批量操作" hidden>
+    <span class="bb-count" id="bb-count" aria-live="polite"></span>
+    <button class="bb-btn" id="bb-all" type="button">全选</button>
+    <span class="bb-sep" aria-hidden="true"></span>
+    <button class="bb-btn" id="bb-author" type="button" aria-haspopup="dialog">设置作者</button>
+    <button class="bb-btn" id="bb-tags" type="button" aria-haspopup="dialog" title="添加或移除标签（T）">标签</button>
+    <button class="bb-btn danger" id="bb-delete" type="button" title="删除所选（Delete）">删除</button>
+    <span class="bb-sep" aria-hidden="true"></span>
+    <button class="bb-btn" id="bb-done" type="button">完成<kbd>Esc</kbd></button>
+</div>
+
+<!-- 看图器 -->
+<div class="viewer" id="viewer" role="dialog" aria-modal="true" aria-label="看图器" hidden>
+    <div class="sv-canvas" id="sv-canvas">
+        <img id="sv-img" alt="" draggable="false">
+    </div>
+    <button class="sv-edge sv-prev" id="sv-prev" type="button" aria-label="上一件（←）"><svg class="icon"><use href="#i-left"/></svg></button>
+    <button class="sv-edge sv-next" id="sv-next" type="button" aria-label="下一件（→）"><svg class="icon"><use href="#i-right"/></svg></button>
+    <header class="sv-top">
+        <button class="sv-btn" id="sv-back" type="button" title="返回图库（Esc）"><svg class="icon"><use href="#i-left"/></svg>图库</button>
+        <div class="sv-top-right">
+            <span class="sv-zoom" id="sv-zoom" aria-live="polite"></span>
+            <button class="sv-btn" id="sv-info-toggle" type="button" aria-pressed="false" title="作品信息（I）">信息</button>
+            <button class="sv-btn sv-btn-strong" id="sv-edit-toggle" type="button" title="编辑（E）">
+                <svg class="icon"><use href="#i-pen"/></svg>编辑
+            </button>
+            <div class="sv-more">
+                <button class="sv-btn sv-icon" id="sv-more" type="button" aria-label="更多操作" aria-expanded="false">⋯</button>
+                <div class="sv-menu" id="sv-menu" hidden>
+                    <a id="sv-source" href="#" target="_blank" rel="noreferrer">打开来源链接</a>
+                    <button type="button" id="sv-fit">适应窗口 <kbd>0</kbd></button>
+                    <button type="button" id="sv-actual">原始大小 <kbd>1</kbd></button>
+                    <button type="button" id="sv-delete" class="danger">删除作品 <kbd>Del</kbd></button>
+                </div>
+            </div>
+        </div>
+    </header>
+    <footer class="sv-caption" id="sv-caption">
+        <div class="sv-cap-text">
+            <h2 id="sv-title"></h2>
+            <p id="sv-by"></p>
+        </div>
+        <div class="sv-pages" id="sv-pages"></div>
+        <div class="sv-count">
+            <span class="sv-num" id="sv-num"></span>
+            <small id="sv-pos"></small>
+        </div>
+    </footer>
+    <section class="sv-info" id="sv-info" aria-label="作品信息" hidden></section>
+    <aside class="sv-editor" id="sv-editor" aria-label="编辑作品" hidden>
+        <form id="edit-form" novalidate>
+            <header class="ed-head">
+                <h2>编辑作品</h2>
+                <span class="ed-dirty" id="ed-dirty" hidden>未保存</span>
+            </header>
+            <div class="ed-body">
+                <label class="ed-field">
+                    <span>标题</span>
+                    <input id="ed-title" type="text" placeholder="未命名作品" autocomplete="off">
+                </label>
+                <div class="ed-field">
+                    <span>作者</span>
+                    <button class="ed-picker" id="ed-author" type="button" aria-haspopup="dialog"></button>
+                </div>
+                <div class="ed-field">
+                    <span>标签</span>
+                    <div class="ed-tags" id="ed-tags"></div>
+                </div>
+                <label class="ed-field">
+                    <span>来源链接</span>
+                    <input id="ed-source" type="url" placeholder="https://" autocomplete="off">
+                </label>
+                <label class="ed-field">
+                    <span>备注</span>
+                    <textarea id="ed-note" rows="5" placeholder="记录喜欢它的理由、参考点或出处"></textarea>
+                </label>
+                <button class="ed-delete" id="ed-delete" type="button">删除这件作品</button>
+            </div>
+            <footer class="ed-actions">
+                <span class="ed-hint">Ctrl + Enter 保存 · Esc 取消</span>
+                <button class="btn" id="ed-cancel" type="button">取消</button>
+                <button class="btn btn-ink" id="ed-save" type="submit">保存</button>
+            </footer>
+        </form>
+    </aside>
+</div>
+
+<!-- 导入 -->
+<div class="sheet-backdrop" id="import-sheet" hidden>
+    <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="import-title">
+        <header class="sheet-head">
+            <h2 id="import-title">导入作品</h2>
+            <button class="icon-btn" id="import-close" type="button" aria-label="关闭"><svg class="icon"><use href="#i-close"/></svg></button>
+        </header>
+        <div class="dropzone" id="dropzone">
+            <p class="dz-title">把图片拖到这里</p>
+            <p>或 <button class="link" id="import-pick" type="button">从电脑中选择</button>　·　JPEG / PNG / GIF，可多选</p>
+        </div>
+        <ul class="import-list" id="import-list"></ul>
+        <div class="tidy" id="tidy" hidden>
+            <h3>顺手整理这批作品</h3>
+            <p id="tidy-desc"></p>
+            <div class="tidy-row"><span>作者</span><button class="ed-picker" id="tidy-author" type="button"></button></div>
+            <div class="tidy-row"><span>标签</span><div class="ed-tags" id="tidy-tags"></div></div>
+        </div>
+        <footer class="sheet-foot">
+            <span id="import-summary"></span>
+            <button class="btn" id="import-skip" type="button" hidden>稍后整理</button>
+            <button class="btn btn-ink" id="import-done" type="button" hidden>完成</button>
+        </footer>
+    </section>
+</div>
+
+<div class="sheet-backdrop" id="confirm" hidden>
+    <section class="sheet sheet-small" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title">
+        <h2 id="confirm-title"></h2>
+        <p id="confirm-text"></p>
+        <footer class="sheet-foot">
+            <button class="btn" id="confirm-cancel" type="button">取消</button>
+            <button class="btn btn-danger" id="confirm-ok" type="button">删除</button>
+        </footer>
+    </section>
+</div>
+
+<div class="sheet-backdrop" id="shortcuts" hidden>
+    <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
+        <header class="sheet-head">
+            <h2 id="shortcuts-title">快捷键</h2>
+            <button class="icon-btn" id="shortcuts-close" type="button" aria-label="关闭"><svg class="icon"><use href="#i-close"/></svg></button>
+        </header>
+        <div class="shortcut-columns">
+            <dl>
+                <dt class="sc-group">图库</dt>
+                <dt><kbd>/</kbd> <kbd>Ctrl K</kbd></dt><dd>搜索</dd>
+                <dt><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd></dt><dd>移动焦点</dd>
+                <dt><kbd>Enter</kbd></dt><dd>打开看图器</dd>
+                <dt><kbd>Space</kbd></dt><dd>选择 / 取消选择</dd>
+                <dt><kbd>Shift</kbd> + 方向键 / 点击</dt><dd>连续选择</dd>
+                <dt><kbd>Ctrl</kbd> + 点击</dt><dd>追加选择</dd>
+                <dt><kbd>Ctrl A</kbd></dt><dd>全选当前结果</dd>
+                <dt><kbd>E</kbd></dt><dd>编辑作品</dd>
+                <dt><kbd>T</kbd></dt><dd>标签（多选时批量）</dd>
+                <dt><kbd>Delete</kbd></dt><dd>删除</dd>
+                <dt><kbd>Esc</kbd></dt><dd>退出选择</dd>
+                <dt><kbd>Ctrl O</kbd></dt><dd>导入</dd>
+            </dl>
+            <dl>
+                <dt class="sc-group">看图器</dt>
+                <dt><kbd>←</kbd><kbd>→</kbd></dt><dd>上一件 / 下一件</dd>
+                <dt><kbd>PgUp</kbd><kbd>PgDn</kbd></dt><dd>多页作品翻页</dd>
+                <dt><kbd>+</kbd><kbd>-</kbd> / 滚轮</dt><dd>缩放</dd>
+                <dt><kbd>0</kbd> / <kbd>1</kbd></dt><dd>适应窗口 / 原始大小</dd>
+                <dt><kbd>I</kbd></dt><dd>作品信息</dd>
+                <dt><kbd>E</kbd></dt><dd>编辑</dd>
+                <dt><kbd>T</kbd></dt><dd>编辑标签</dd>
+                <dt><kbd>Ctrl Enter</kbd></dt><dd>保存编辑</dd>
+                <dt><kbd>Delete</kbd></dt><dd>删除</dd>
+                <dt><kbd>Esc</kbd></dt><dd>逐层返回</dd>
+            </dl>
+        </div>
+    </section>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<input id="file-input" type="file" multiple accept=".jpg,.jpeg,.png,.gif,image/jpeg,image/png,image/gif" hidden>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+        <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
+        <symbol id="i-import" viewBox="0 0 24 24"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 19h14"/></symbol>
+        <symbol id="i-left" viewBox="0 0 24 24"><path d="M14.5 6 8.5 12l6 6"/></symbol>
+        <symbol id="i-right" viewBox="0 0 24 24"><path d="m9.5 6 6 6-6 6"/></symbol>
+        <symbol id="i-close" viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></symbol>
+        <symbol id="i-pen" viewBox="0 0 24 24"><path d="M4.5 19.5 5.5 15 15.5 5a2.1 2.1 0 0 1 3 3l-10 10-4 1.5Z"/></symbol>
+        <symbol id="i-roomy" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="9" rx="1"/><rect x="13" y="4" width="7" height="6" rx="1"/><rect x="4" y="15" width="7" height="5" rx="1"/><rect x="13" y="12" width="7" height="8" rx="1"/></symbol>
+        <symbol id="i-compact" viewBox="0 0 24 24"><rect x="3.5" y="4" width="4.5" height="6" rx=".8"/><rect x="9.75" y="4" width="4.5" height="4" rx=".8"/><rect x="16" y="4" width="4.5" height="7" rx=".8"/><rect x="3.5" y="12" width="4.5" height="8" rx=".8"/><rect x="9.75" y="10" width="4.5" height="10" rx=".8"/><rect x="16" y="13" width="4.5" height="7" rx=".8"/></symbol>
+    </defs>
+</svg>
+</body>
+</html>

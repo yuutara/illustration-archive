@@ -1,0 +1,555 @@
+/*
+ * 原型 B · 动效与材质实验层
+ * 所有规则都挂在 <html> 的 fx-* 类上，由 fx.js 按实验面板开关；切回“原版”时一条也不生效。
+ * 弹簧曲线由阻尼弹簧数值积分后采样成 linear()：
+ *   snappy  k=420 c=38，约 390ms，几乎不回弹 —— 日常操作
+ *   bouncy  k=300 c=21，约 650ms，回弹约 9% —— 只给勾选、操作条弹起等关键时刻
+ *   gentle  k=170 c=24，约 570ms，无回弹    —— 大面积移动（作品重排、面板展开）
+ */
+:root {
+    --fx-snappy: linear(0, 0.028, 0.088, 0.157, 0.242, 0.329, 0.414, 0.488, 0.562, 0.629, 0.688, 0.735, 0.781, 0.82, 0.853, 0.878, 0.901, 0.921, 0.937, 0.949, 0.96, 0.969, 0.976, 0.981, 0.985, 0.989, 0.992, 0.994, 0.996, 0.997, 0.998, 0.999, 0.999, 0.999, 1, 1, 1);
+    --fx-bouncy: linear(0, 0.05, 0.161, 0.304, 0.459, 0.608, 0.741, 0.854, 0.942, 1.007, 1.051, 1.077, 1.088, 1.089, 1.082, 1.071, 1.057, 1.043, 1.03, 1.019, 1.01, 1.003, 0.998, 0.994, 0.993, 0.992, 0.992, 0.993, 0.994, 0.995, 0.997, 0.998, 0.999, 0.999, 1, 1, 1);
+    --fx-gentle: linear(0, 0.023, 0.074, 0.142, 0.219, 0.295, 0.376, 0.453, 0.525, 0.591, 0.651, 0.704, 0.751, 0.792, 0.825, 0.856, 0.882, 0.903, 0.922, 0.937, 0.95, 0.96, 0.969, 0.975, 0.981, 0.985, 0.989, 0.992, 0.994, 0.996, 0.997, 0.998, 0.999, 0.999, 1, 1, 1);
+    /* Fluent Acrylic 的颗粒：极淡的分形噪点，让半透明表面有“材质”而不是一层塑料 */
+    --fx-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .14 0 0 0 0 .13 0 0 0 0 .11 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    --fx-noise-light: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .05 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ============ 按压反馈：按下 0.96，松开按弹簧回到原位（Emil Kowalski） ============ */
+.fx-press :is(.btn, .text-btn, .icon-btn, .sv-btn, .bb-btn, .sg-chip, .sg-item, .density button, .scopes button, .piece-edit, .ed-tag-add, .ed-picker, .fchip button, .info-tags button, .sv-pages button) {
+    transition: transform .39s var(--fx-snappy), opacity .15s, background-color .15s, color .15s, border-color .15s, box-shadow .2s;
+}
+.fx-press :is(.btn, .text-btn, .icon-btn, .sv-btn, .bb-btn, .sg-chip, .sg-item, .density button, .scopes button, .piece-edit, .ed-tag-add, .ed-picker, .fchip button, .info-tags button, .sv-pages button):active:not(:disabled) {
+    transform: scale(.96);
+    transition-duration: .08s;
+    transition-timing-function: ease-out;
+}
+.fx-press .piece-edit:active { transform: scale(.94); }
+.fx-press .piece-open:active { transform: scale(.985); transition-duration: .1s; }
+/* 墨色按钮：顶部一道极细的高光 + 贴地阴影，像一块有厚度的釉面，而不是平涂色块 */
+.fx-press .btn-ink:not(:disabled) {
+    background-image: linear-gradient(rgba(255, 255, 255, .07), rgba(255, 255, 255, 0) 60%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .14), 0 1px 1px rgba(36, 33, 29, .2), 0 6px 14px -6px rgba(36, 33, 29, .45);
+}
+.fx-press .btn-ink:active:not(:disabled) { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .08), 0 1px 1px rgba(36, 33, 29, .2); }
+.fx-press .btn:not(.btn-ink):not(.btn-danger) { box-shadow: 0 1px 1px rgba(36, 33, 29, .05); }
+
+/* ============ 选择反馈：勾选弹出、描边展开；全选时按位置依次点亮 ============ */
+.fx-select .piece-check {
+    transform: scale(.8);
+    transition: opacity .15s, transform .65s var(--fx-bouncy), background-color .12s, border-color .12s;
+    transition-delay: var(--fx-delay, 0ms);
+}
+.fx-select .piece:hover .piece-check, .fx-select .is-selecting .piece-check { transform: scale(.9); }
+.fx-select .piece.is-selected .piece-check { transform: scale(1); }
+.fx-select .piece-check:active { transform: scale(.78); transition-duration: .08s; }
+.fx-select .piece-open { transition: box-shadow .45s var(--fx-snappy), background-color .25s, transform .39s var(--fx-snappy); transition-delay: var(--fx-delay, 0ms); }
+.fx-select .piece-open img { transition: transform .65s var(--fx-bouncy), opacity .45s ease-out; transition-delay: var(--fx-delay, 0ms); }
+.fx-select .piece.is-selected .piece-open img { transform: scale(.9); }
+
+/* ============ 批量操作条 ============ */
+.fx-bar .batchbar {
+    transition: transform .65s var(--fx-bouncy), opacity .2s ease-out, background-color .2s, color .2s;
+}
+@starting-style {
+    .fx-bar .batchbar { transform: translate(-50%, 28px) scale(.94); opacity: 0; }
+}
+.fx-bar .bb-count { display: inline-block; font-variant-numeric: tabular-nums; }
+.fx-bar .bb-btn { position: relative; z-index: 1; }
+.fx-bar .bb-btn:hover:not(:disabled), .fx-bar .bb-btn[aria-expanded="true"] { background: none; }
+
+/* 悬停高亮：一块在按钮之间滑动的底，而不是每个按钮各自闪一下 */
+.fx-glider { position: absolute; top: 0; left: 0; z-index: 0; display: none; border-radius: 8px; background: rgba(255, 255, 255, .13); opacity: 0; pointer-events: none; transition: transform .39s var(--fx-snappy), width .39s var(--fx-snappy), height .39s var(--fx-snappy), opacity .15s; }
+.fx-bar .batchbar .fx-glider { display: block; }
+.fx-viewer .sv-top-right .fx-glider { display: block; border-radius: 999px; background: rgba(255, 255, 255, .14); }
+.fx-glider.is-on { opacity: 1; }
+.fx-glider.no-anim { transition: opacity .15s; }
+
+/* 浮动控件材质：亚克力（Fluent）与液态玻璃（Apple），只用在浮在作品之上的功能层 */
+.fx-bar.fx-mat-acrylic .batchbar {
+    color: var(--ink);
+    background-color: rgba(251, 250, 247, .76);
+    background-image: var(--fx-noise);
+    -webkit-backdrop-filter: blur(28px) saturate(1.35);
+    backdrop-filter: blur(28px) saturate(1.35);
+    box-shadow: 0 0 0 1px rgba(36, 33, 29, .08), 0 18px 40px -12px rgba(36, 33, 29, .32);
+}
+.fx-bar.fx-mat-glass .batchbar {
+    color: var(--ink);
+    background: rgba(251, 250, 247, .58);
+    -webkit-backdrop-filter: blur(10px) saturate(1.8) brightness(1.05);
+    backdrop-filter: blur(10px) saturate(1.8) brightness(1.05);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .8), inset 0 -1px 0 rgba(36, 33, 29, .07), 0 0 0 1px rgba(36, 33, 29, .07), 0 22px 44px -14px rgba(36, 33, 29, .38);
+}
+/* 折射时边缘保持清晰的“弯曲”，中间靠 5px 模糊和底色保证文字可读 */
+.fx-bar.fx-mat-glass.fx-refract .batchbar.fx-lens-ready { backdrop-filter: url(#fx-lens-bar) blur(5px) saturate(1.8) brightness(1.05); }
+.fx-bar:is(.fx-mat-acrylic, .fx-mat-glass) .batchbar .fx-glider { background: var(--gl-fill-hover); }
+.fx-bar:is(.fx-mat-acrylic, .fx-mat-glass) .bb-btn.danger { color: var(--danger); }
+.fx-bar:is(.fx-mat-acrylic, .fx-mat-glass) .bb-sep { background: var(--gl-sep-strong); }
+.fx-bar:is(.fx-mat-acrylic, .fx-mat-glass) .bb-btn kbd { border-color: var(--gl-sep-strong); color: var(--muted); }
+
+/* 玻璃边缘的“镜面高光”：一圈从左上到右下渐弱的亮边，模拟光打在弧面上 */
+.fx-bar.fx-mat-glass .batchbar::before,
+.fx-viewer.fx-mat-glass .sv-top-right::before,
+.fx-viewer.fx-mat-glass #sv-back::before,
+.fx-viewer.fx-mat-glass .sv-edge::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    box-sizing: border-box;
+    padding: 1px;
+    border-radius: inherit;
+    background: linear-gradient(140deg, rgba(255, 255, 255, .85), rgba(255, 255, 255, .12) 32%, rgba(255, 255, 255, 0) 55%, rgba(255, 255, 255, .45));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+    pointer-events: none;
+}
+
+/* ============ 浮层与提示：从触发点展开（origin-aware），亚克力材质，烟雾遮罩 ============ */
+.fx-popover :is(.pk, .suggest, .sv-menu) {
+    transform-origin: var(--fx-origin, top left);
+    transition: opacity .16s ease-out, transform .39s var(--fx-snappy);
+}
+.fx-popover .suggest { --fx-origin: top center; }
+.fx-popover .sv-menu { --fx-origin: top right; }
+@starting-style {
+    .fx-popover :is(.pk, .suggest, .sv-menu) { opacity: 0; transform: translateY(var(--fx-dy, -4px)) scale(.96); }
+}
+.fx-popover :is(.pk, .suggest) {
+    background-color: rgba(251, 250, 247, .8);
+    background-image: var(--fx-noise);
+    -webkit-backdrop-filter: blur(26px) saturate(1.4);
+    backdrop-filter: blur(26px) saturate(1.4);
+}
+.fx-popover :is(.pk-item, .sg-item, .sv-menu a, .sv-menu button) { transition: background-color .12s, transform .39s var(--fx-snappy); }
+.fx-popover .pk-check { transition: background-color .15s, border-color .15s, transform .5s var(--fx-bouncy); }
+.fx-popover .pk-item.is-selected .pk-check { transform: scale(1.06); }
+
+.fx-popover .sheet-backdrop { background: rgba(36, 33, 29, .36); transition: opacity .2s ease-out; }
+@starting-style { .fx-popover .sheet-backdrop { opacity: 0; } }
+.fx-popover .sheet { transition: transform .45s var(--fx-snappy), opacity .18s ease-out; }
+@starting-style { .fx-popover .sheet { transform: translateY(12px) scale(.97); opacity: 0; } }
+
+.fx-popover .toast { transition: transform .65s var(--fx-bouncy), opacity .2s, bottom .39s var(--fx-snappy); }
+@starting-style { .fx-popover .toast { transform: translate(-50%, 16px) scale(.94); opacity: 0; } }
+
+/* ============ 作品墙 ============ */
+/* 占位底色取作品主色，图片解码后渐显 —— 不再是一片灰块闪成图 */
+.fx-wall .piece-open { position: relative; background-color: color-mix(in srgb, var(--fx-tone, #ebe6dd) 30%, var(--paper-2)); }
+.fx-wall .piece-open img { transition: transform .5s var(--fx-snappy), opacity .45s ease-out; }
+.fx-wall .piece-open img.fx-pending { opacity: 0; }
+.fx-wall .piece:hover .piece-open img { transform: none; }
+.fx-wall .piece-open { transition: transform .39s var(--fx-snappy), box-shadow .35s ease, background-color .25s; }
+/* 悬停：轻轻抬起，投影染上作品自己的颜色（光影来自作品，而不是统一的灰） */
+.fx-wall body:not(.is-selecting) .piece:hover .piece-open {
+    transform: translateY(-3px);
+    box-shadow: 0 18px 32px -18px color-mix(in srgb, var(--fx-tone, #24211d) 90%, transparent), 0 3px 8px -4px rgba(36, 33, 29, .2);
+}
+.fx-wall body:not(.is-selecting) .piece:hover .piece-open:active { transform: translateY(-1px) scale(.985); }
+.fx-wall .piece-title { transition: color .2s; }
+.fx-wall .piece:hover .piece-title { color: var(--accent); }
+
+/* 范围标签的下划线、密度切换的滑块：在选项之间滑动 */
+.fx-scope-ink, .fx-density-thumb { display: none; position: absolute; left: 0; pointer-events: none; }
+.fx-wall .scopes { position: relative; }
+.fx-wall .scopes button[aria-current="true"]::after { opacity: 0; }
+.fx-wall .fx-scope-ink { display: block; bottom: 2px; height: 2px; border-radius: 2px; background: var(--ink); transition: transform .45s var(--fx-snappy), width .45s var(--fx-snappy); }
+.fx-wall .density { position: relative; }
+.fx-wall .density button { position: relative; z-index: 1; }
+.fx-wall .density button[aria-pressed="true"] { background: none; box-shadow: none; }
+.fx-wall .fx-density-thumb { display: block; top: 2px; height: 28px; border-radius: 6px; background: var(--card); box-shadow: 0 1px 2px rgba(0, 0, 0, .08), 0 2px 6px -2px rgba(0, 0, 0, .08); transition: transform .45s var(--fx-snappy), width .45s var(--fx-snappy); }
+.fx-scope-ink.no-anim, .fx-density-thumb.no-anim { transition: none; }
+
+/* 实验：高光随鼠标移动（参考 Apple TV 海报的视差高光，只作用于悬停的那一张） */
+.fx-sheen .piece-open::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: radial-gradient(260px circle at var(--mx, 50%) var(--my, 30%), rgba(255, 255, 255, .42), rgba(255, 255, 255, 0) 62%);
+    mix-blend-mode: soft-light;
+    opacity: 0;
+    transition: opacity .25s;
+    pointer-events: none;
+}
+.fx-sheen body:not(.is-selecting) .piece:hover .piece-open::after { opacity: 1; }
+
+/* ============ 顶栏材质：滚动时作品从半透明顶栏下透出 ============ */
+.fx-masthead .masthead {
+    background: var(--masthead-glass, rgba(244, 241, 235, .74));
+    -webkit-backdrop-filter: blur(22px) saturate(1.6);
+    backdrop-filter: blur(22px) saturate(1.6);
+    transition: box-shadow .25s;
+}
+.fx-masthead .masthead.is-scrolled { box-shadow: 0 1px 0 rgba(36, 33, 29, .07), 0 10px 24px -18px rgba(36, 33, 29, .35); }
+.fx-masthead .omnibox { transition: background-color .2s, border-color .2s, box-shadow .3s var(--fx-snappy); }
+.fx-masthead .omnibox:focus-within { box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 7%, transparent), 0 8px 24px rgba(60, 50, 40, .1); }
+
+/* ============ 卡片外壳、卡槽与牵引 ============ */
+/* .fx-card 是可以被牵动的整张卡片；外层 .piece-media 留在原位，牵引时露出一个浅浅的“卡槽” */
+.fx-card { position: relative; display: block; isolation: isolate; }
+/* 整件作品相对邻图的层级由 fx.js 的 raise / lower 管理，与牌堆内部的顺序无关 */
+.piece.fx-raised { position: relative; z-index: 4; }
+.piece.fx-raised-top { z-index: 5; }
+.piece.fx-pulled .piece-media::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: var(--r-card, 4px);
+    background: color-mix(in srgb, var(--fx-tone, #24211d) 9%, var(--paper-2));
+    box-shadow: inset 0 1px 3px rgba(36, 33, 29, .16), inset 0 0 0 1px rgba(36, 33, 29, .05);
+}
+/* 抬起越高，影子越远越虚，颜色取自作品主色 */
+.piece.fx-pulled .piece-open {
+    transform: none !important;
+    box-shadow: 0 calc(4px + 22px * var(--fx-lift, 0)) calc(10px + 34px * var(--fx-lift, 0)) -12px color-mix(in srgb, var(--fx-tone, #24211d) 80%, transparent),
+        0 calc(1px + 3px * var(--fx-lift, 0)) calc(3px + 6px * var(--fx-lift, 0)) -2px rgba(36, 33, 29, .22) !important;
+}
+.piece.fx-pulled .piece-edit, .piece.fx-pulled .piece-check { opacity: 0 !important; }
+
+/* ============ 多页叠卡：身后露出实际的第 2、3 页 ============ */
+.fx-layers { display: none; }
+.fx-stack .fx-layers { display: block; position: absolute; inset: 0; z-index: -1; pointer-events: none; }
+.fx-layers img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: var(--r-card, 4px);
+    background: var(--paper-2);
+    box-shadow: 0 0 0 1px var(--stack-rim, rgba(251, 250, 247, .7)), 0 6px 14px -8px rgba(36, 33, 29, .45);
+    transform-origin: 18% 100%;
+}
+/* 每页一张：静止时只露出顶牌之后的两张，其余藏起来（仍保持解码，换牌时不闪） */
+.fx-layers img:not([data-depth]) { visibility: hidden; }
+.fx-layers img[data-depth="1"] { z-index: 2; transform: translate(4px, -4px) rotate(2deg); filter: brightness(.97); }
+.fx-layers img[data-depth="2"] { z-index: 1; transform: translate(8px, -8px) rotate(4deg); filter: brightness(.94); }
+/* 换牌途中：整叠由脚本逐帧摆放；图片按钮变透明、只保留点击区域，顶牌由牌堆里同一页的那张来画 */
+.piece.fx-decking .fx-layers img { visibility: visible; transition: none; }
+.piece.fx-decking .piece-open { background: transparent !important; box-shadow: none !important; transform: none !important; }
+.piece.fx-decking .piece-open img { visibility: hidden; }
+/* 鼠标操作时不给作品按钮画焦点框（换牌时它只是个空槽位）；键盘导航时 fx-pointing 被移除，焦点框照常出现 */
+.fx-on.fx-pointing .piece-open:focus-visible { outline: none; }
+.piece.fx-decking :is(.piece-edit, .piece-check) { opacity: 0 !important; }
+/* 悬停时后层微微展开，提示“这是一叠” —— 静态的终点，不会持续晃动 */
+@media (prefers-reduced-motion: no-preference) {
+    html:not(.fx-reduce).fx-stack .fx-layers img { transition: transform .45s var(--fx-gentle); }
+    html:not(.fx-reduce).fx-stack body:not(.is-selecting) .piece:hover:not(.fx-pulled, .fx-decking) .fx-layers img[data-depth="1"] { transform: translate(6px, -7px) rotate(3.2deg); }
+    html:not(.fx-reduce).fx-stack body:not(.is-selecting) .piece:hover:not(.fx-pulled, .fx-decking) .fx-layers img[data-depth="2"] { transform: translate(12px, -13px) rotate(6.4deg); }
+}
+.fx-stack .piece.fx-pulled .fx-layers img { transition: none; }
+
+/* ============ 拖动浏览 ============ */
+.fx-drag body:not(.is-selecting) .wall-wrap { cursor: grab; }
+body.fx-dragging, body.fx-dragging * { cursor: grabbing !important; user-select: none !important; }
+body.fx-dragging .piece-open { transform: none !important; }
+
+/* ============ 看图器 ============ */
+/* 进入时真实大图从缩略图位置长出来：飞行途中允许溢出画布，工具栏稍后淡入 */
+.viewer.fx-entering .sv-canvas { overflow: visible; }
+.viewer.fx-chrome-wait :is(.sv-top, .sv-caption, .sv-edge) { opacity: 0 !important; }
+.fx-flight-backdrop { position: fixed; inset: 0; z-index: 49; pointer-events: none; }
+.fx-flight-img { position: fixed; z-index: 51; transform-origin: 0 0; pointer-events: none; box-shadow: 0 20px 60px rgba(0, 0, 0, .35); }
+
+.fx-viewer .sv-canvas { transition: right .55s var(--fx-gentle), bottom .55s var(--fx-gentle); }
+.fx-viewer .sv-top { transition: opacity .3s, transform .45s var(--fx-gentle), right .55s var(--fx-gentle); }
+.fx-viewer .sv-caption { transition: opacity .3s, transform .45s var(--fx-gentle), bottom .55s var(--fx-gentle), right .55s var(--fx-gentle); }
+.fx-viewer .sv-edge { transition: opacity .2s, bottom .55s var(--fx-gentle), right .55s var(--fx-gentle), --fx-edge-s .39s var(--fx-snappy); }
+.fx-viewer .sv-edge:active { transition-duration: .2s, .55s, .55s, .08s; }
+.fx-viewer .viewer:not(.chrome-on) .sv-top { transform: translateY(-8px); }
+.fx-viewer .viewer:not(.chrome-on) .sv-caption { transform: translateY(8px); }
+.fx-viewer .sv-info { transition: transform .55s var(--fx-gentle), opacity .2s; }
+@starting-style { .fx-viewer .sv-info { transform: translateY(48px); opacity: 0; } }
+.fx-viewer .sv-editor { transition: transform .55s var(--fx-gentle), opacity .2s; }
+@starting-style { .fx-viewer .sv-editor { transform: translateX(48px); opacity: 0; } }
+
+/* 工具栏收成一枚胶囊，返回按钮和左右翻页也成为浮在作品上的圆形控件 */
+.fx-viewer .sv-top-right { position: relative; gap: 2px; padding: 4px; border-radius: 999px; }
+/* 高亮层必须保持绝对定位、不参与布局：原先 “> *” 把它也改成了 relative，占出左侧空白且位移错位 */
+.fx-viewer .sv-top-right > :not(.fx-glider), .fx-viewer .sv-more > .sv-btn { position: relative; z-index: 1; }
+.fx-viewer .sv-top-right > .fx-glider { position: absolute; z-index: 0; }
+.fx-viewer .sv-top-right .sv-btn { border-radius: 999px; }
+.fx-viewer .sv-top-right .sv-btn:not(.sv-btn-strong):hover { background: none; }
+/* 按下状态（信息面板已打开）是固定的浅底，与跟随鼠标的悬停高亮区分开 */
+.fx-viewer .sv-top-right .sv-btn[aria-pressed="true"] { color: #fff; background: rgba(255, 255, 255, .1); }
+.fx-viewer .sv-zoom:empty { display: none; }
+.fx-viewer .sv-zoom { min-width: 0; padding: 0 8px; }
+.fx-viewer #sv-back { position: relative; padding: 0 14px 0 10px; border-radius: 999px; }
+/*
+ * 翻页圆钮：底圆（::before）、玻璃描边（::after）、箭头三层。
+ * 原先描边层带 1px padding 却是 content-box（* 选择器不作用于伪元素），实际 50px；悬停时也只有底圆缩放。
+ * 现在三层统一 border-box、同一尺寸，并共用一个可过渡的缩放变量，悬停 / 按下时同步变化。
+ */
+@property --fx-edge-s { syntax: "<number>"; inherits: true; initial-value: 1; }
+.fx-viewer .sv-edge { --fx-edge-s: 1; }
+.fx-viewer .sv-edge:hover { --fx-edge-s: 1.08; }
+.fx-viewer .sv-edge:active { --fx-edge-s: .92; }
+.fx-viewer .sv-edge .icon { position: relative; z-index: 3; transform: scale(var(--fx-edge-s)); }
+.fx-viewer .sv-edge::before,
+.fx-viewer.fx-mat-glass .sv-edge::after {
+    content: "";
+    position: absolute;
+    inset: auto;
+    top: 50%;
+    left: 50%;
+    box-sizing: border-box;
+    width: 48px;
+    height: 48px;
+    margin: -24px 0 0 -24px;
+    border-radius: 50%;
+    transform: scale(var(--fx-edge-s));
+}
+.fx-viewer .sv-edge::before { transition: background-color .2s; }
+/* 键盘焦点画在圆钮上，而不是整条 72px 宽的翻页热区 */
+.fx-viewer .sv-edge:focus-visible { outline: none; }
+.fx-viewer .sv-edge:focus-visible::before { outline: 2px solid rgba(241, 236, 228, .85); outline-offset: 3px; }
+
+.fx-viewer.fx-mat-solid :is(.sv-top-right, #sv-back) { background: rgba(22, 20, 18, .86); }
+.fx-viewer.fx-mat-solid .sv-edge::before { background: rgba(22, 20, 18, .8); }
+.fx-viewer.fx-mat-acrylic :is(.sv-top-right, #sv-back), .fx-viewer.fx-mat-acrylic .sv-edge::before {
+    background-color: rgba(30, 28, 25, .55);
+    background-image: var(--fx-noise-light);
+    -webkit-backdrop-filter: blur(24px) saturate(1.4);
+    backdrop-filter: blur(24px) saturate(1.4);
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, .07), 0 10px 30px -8px rgba(0, 0, 0, .5);
+}
+.fx-viewer.fx-mat-glass :is(.sv-top-right, #sv-back), .fx-viewer.fx-mat-glass .sv-edge::before {
+    background: rgba(255, 255, 255, .07);
+    -webkit-backdrop-filter: blur(7px) saturate(1.8) brightness(1.08);
+    backdrop-filter: blur(7px) saturate(1.8) brightness(1.08);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22), inset 0 -1px 0 rgba(0, 0, 0, .25), 0 12px 30px -10px rgba(0, 0, 0, .5);
+}
+.fx-viewer.fx-mat-glass.fx-refract .sv-top-right.fx-lens-ready { backdrop-filter: url(#fx-lens-tools) blur(2px) saturate(1.8) brightness(1.08); }
+.fx-viewer.fx-mat-glass .sv-edge::after { z-index: 2; }
+.fx-viewer:not(.fx-mat-glass) .sv-edge::after { content: none; }
+
+/* ============ 统一玻璃材质（实验面板里材质选“液态玻璃”时） ============ */
+/*
+ * 一套配方用在所有浮在纸面或作品之上的控件，按背景分浅、深两组，只在强度上分档：
+ *   底色  上亮下暗的半透明渐变，压一层与配色同源的纸色 / 墨色，保证模糊之后文字仍有对比；
+ *   模糊  背景模糊 + 提饱和，小控件 10px、条和浮层 16–24px（不靠一味加大模糊）；
+ *   边缘  ::before 画一圈左上亮、右下弱的镜面高光，外面再加 1px 发丝线，压在浅色作品上也有边界；
+ *   阴影  贴地的短影 + 柔和的远影；
+ *   状态  悬停底色更实、影子更远；按下微缩并加内凹阴影；选中 / 展开用墨绿；键盘焦点是墨绿描边。
+ * 圆角：单个控件和长条一律胶囊；浮层面板 14px，里面的选项 8px（面板圆角减去内边距，同心）。
+ */
+:root {
+    --gl-bg: linear-gradient(180deg, rgba(255, 255, 255, .7), rgba(251, 250, 247, .5));
+    --gl-bg-hover: linear-gradient(180deg, rgba(255, 255, 255, .86), rgba(251, 250, 247, .68));
+    --gl-bg-panel: linear-gradient(180deg, rgba(255, 255, 255, .8), rgba(251, 250, 247, .7));
+    --gl-blur-s: blur(10px) saturate(1.8) brightness(1.04);
+    --gl-blur-l: blur(22px) saturate(1.6) brightness(1.03);
+    --gl-line: 0 0 0 1px rgba(36, 33, 29, .1);
+    --gl-inset: inset 0 1px 0 rgba(255, 255, 255, .9), inset 0 -1px 0 rgba(36, 33, 29, .05);
+    --gl-drop: 0 1px 2px rgba(36, 33, 29, .14), 0 8px 20px -10px rgba(36, 33, 29, .5);
+    --gl-drop-hover: 0 2px 4px rgba(36, 33, 29, .14), 0 14px 28px -12px rgba(36, 33, 29, .55);
+    --gl-drop-panel: 0 2px 6px rgba(36, 33, 29, .08), 0 24px 48px -18px rgba(36, 33, 29, .45);
+    --gl-press: inset 0 1px 3px rgba(36, 33, 29, .18);
+    --gl-rim: linear-gradient(140deg, rgba(255, 255, 255, .95), rgba(255, 255, 255, .25) 30%, rgba(255, 255, 255, 0) 55%, rgba(255, 255, 255, .55));
+    --gd-bg: linear-gradient(180deg, rgba(255, 255, 255, .16), rgba(255, 255, 255, .04)), rgba(24, 22, 20, .42);
+    --gd-blur: blur(16px) saturate(1.6) brightness(1.05);
+    --gd-edge: inset 0 1px 0 rgba(255, 255, 255, .22), inset 0 -1px 0 rgba(0, 0, 0, .25), 0 0 0 1px rgba(0, 0, 0, .28);
+    --gd-drop: 0 12px 30px -10px rgba(0, 0, 0, .55);
+    --gd-rim: linear-gradient(140deg, rgba(255, 255, 255, .6), rgba(255, 255, 255, .1) 32%, rgba(255, 255, 255, 0) 55%, rgba(255, 255, 255, .28));
+    /* 玻璃内部的填充、分隔、输入框：随配色方案替换 */
+    --gl-text-shadow: 0 1px 0 rgba(255, 255, 255, .55);
+    --gl-fill-hover: rgba(36, 33, 29, .07);
+    --gl-sep: rgba(36, 33, 29, .08);
+    --gl-sep-strong: rgba(36, 33, 29, .16);
+    --gl-field: rgba(255, 255, 255, .58);
+    --gl-field-bg: linear-gradient(180deg, rgba(255, 255, 255, .62), rgba(255, 255, 255, .38));
+    --gl-field-bg-hover: linear-gradient(180deg, rgba(255, 255, 255, .78), rgba(255, 255, 255, .5));
+    --gl-bg-bar: linear-gradient(180deg, rgba(255, 255, 255, .76), rgba(251, 250, 247, .64));
+    --gd-bg-panel: linear-gradient(180deg, rgba(255, 255, 255, .14), rgba(255, 255, 255, .05)), rgba(30, 28, 25, .72);
+}
+
+/* 镜面高光圈：所有玻璃控件共用 */
+.fx-wall.fx-mat-glass :is(.piece-edit, .mark, .piece-check)::before,
+.fx-popover.fx-mat-glass :is(.pk, .suggest, .sv-menu, .toast)::before,
+.fx-masthead.fx-mat-glass .omnibox::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    box-sizing: border-box;
+    padding: 1px;
+    border-radius: inherit;
+    background: var(--gl-rim);
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+    pointer-events: none;
+}
+.fx-popover.fx-mat-glass .toast::before, .fx-viewer.fx-mat-glass :is(.sv-top-right, #sv-back)::before, .fx-viewer.fx-mat-glass .sv-edge::after { background: var(--gd-rim); }
+
+/* —— 图片上的小控件：编辑、页码、勾选圆点 —— */
+.fx-wall.fx-mat-glass :is(.piece-edit, .mark) {
+    position: relative;
+    border-radius: 999px;
+    color: var(--ink);
+    background: var(--gl-bg);
+    -webkit-backdrop-filter: var(--gl-blur-s);
+    backdrop-filter: var(--gl-blur-s);
+    box-shadow: var(--gl-inset), var(--gl-line), var(--gl-drop);
+    text-shadow: var(--gl-text-shadow);
+}
+.fx-wall.fx-mat-glass .piece-edit { position: absolute; height: 30px; padding: 0 13px 0 11px; font-weight: 500; transition: opacity .15s, transform .39s var(--fx-snappy), box-shadow .2s, background-color .2s; }
+.fx-wall.fx-mat-glass .piece-edit:hover { background: var(--gl-bg-hover); box-shadow: var(--gl-inset), var(--gl-line), var(--gl-drop-hover); }
+.fx-wall.fx-mat-glass .piece-edit:active { box-shadow: var(--gl-press), var(--gl-line), var(--gl-drop); }
+.fx-wall.fx-mat-glass .piece-edit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.fx-wall.fx-mat-glass .mark { height: 22px; padding: 0 9px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.fx-wall.fx-mat-glass .piece-check {
+    border: 0;
+    /* 空圆点压一层浅墨色：浅色天空上也看得见，深色作品上白圈依然清楚 */
+    background-color: rgba(36, 33, 29, .18);
+    -webkit-backdrop-filter: var(--gl-blur-s);
+    backdrop-filter: var(--gl-blur-s);
+    box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, .95), inset 0 2px 3px rgba(255, 255, 255, .3), 0 0 0 1px rgba(36, 33, 29, .32), var(--gl-drop);
+}
+.fx-wall.fx-mat-glass .piece-check:hover { background-color: rgba(36, 33, 29, .3); }
+.fx-wall.fx-mat-glass .piece.is-selected .piece-check {
+    background-color: var(--accent);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35), inset 0 -1px 0 rgba(0, 0, 0, .2), 0 0 0 1.5px rgba(255, 255, 255, .9), var(--gl-drop);
+}
+
+/* —— 浮层：标签 / 作者选择器、搜索建议、看图器“更多”菜单 —— */
+.fx-popover.fx-mat-glass :is(.pk, .suggest, .sv-menu) {
+    border-color: transparent;
+    border-radius: 14px;
+    color: var(--ink);
+    background: var(--gl-bg-panel);
+    -webkit-backdrop-filter: var(--gl-blur-l);
+    backdrop-filter: var(--gl-blur-l);
+    box-shadow: var(--gl-inset), var(--gl-line), var(--gl-drop-panel);
+}
+.fx-popover.fx-mat-glass :is(.pk-item, .sg-item, .sv-menu a, .sv-menu button) { border-radius: 8px; }
+.fx-popover.fx-mat-glass :is(.pk-item.is-active, .sg-item.is-active, .sv-menu a:hover, .sv-menu button:hover) { background: var(--gl-fill-hover); }
+.fx-popover.fx-mat-glass .pk-item:not(.is-selected) .pk-check { border-color: var(--gl-sep-strong); }
+.fx-popover.fx-mat-glass .pk-input { border-color: var(--gl-sep-strong); border-radius: 8px; background: var(--gl-field); box-shadow: inset 0 1px 2px rgba(36, 33, 29, .06); }
+.fx-popover.fx-mat-glass .pk-input:focus { border-color: var(--accent); }
+.fx-popover.fx-mat-glass .sg-chip { border-color: var(--gl-sep-strong); background: var(--gl-field); }
+.fx-popover.fx-mat-glass .sg-group + .sg-group { border-top-color: var(--gl-sep); }
+/* 看图器里的“更多”菜单与工具栏同属深色玻璃：浅色玻璃压在近黑背景上会变成一块灰 */
+.fx-popover.fx-mat-glass .sv-menu {
+    color: #f1ece4;
+    background: var(--gd-bg-panel);
+    -webkit-backdrop-filter: var(--gd-blur);
+    backdrop-filter: var(--gd-blur);
+    box-shadow: var(--gd-edge), var(--gd-drop);
+}
+.fx-popover.fx-mat-glass .sv-menu::before { background: var(--gd-rim); }
+.fx-popover.fx-mat-glass :is(.sv-menu a:hover, .sv-menu button:hover) { background: rgba(255, 255, 255, .1); }
+.fx-popover.fx-mat-glass .sv-menu .danger { color: #f2a796; }
+.fx-popover.fx-mat-glass .sv-menu a[aria-disabled="true"] { color: rgba(241, 236, 228, .4); }
+.fx-popover.fx-mat-glass .sv-menu kbd { border-color: rgba(255, 255, 255, .2); color: rgba(241, 236, 228, .6); background: none; }
+/* 提示条：深色玻璃胶囊 */
+.fx-popover.fx-mat-glass .toast {
+    border-radius: 999px;
+    color: #f6f2ec;
+    background: linear-gradient(180deg, rgba(255, 255, 255, .1), rgba(255, 255, 255, 0)), rgba(36, 33, 29, .72);
+    -webkit-backdrop-filter: var(--gd-blur);
+    backdrop-filter: var(--gd-blur);
+    box-shadow: var(--gd-edge), var(--gd-drop);
+}
+
+/* —— 顶栏搜索框 —— */
+.fx-masthead.fx-mat-glass .omnibox {
+    border-color: transparent;
+    border-radius: 999px;
+    background: var(--gl-field-bg);
+    box-shadow: var(--gl-inset), var(--gl-line), 0 1px 2px rgba(36, 33, 29, .06);
+}
+.fx-masthead.fx-mat-glass .omnibox:hover { background: var(--gl-field-bg-hover); }
+.fx-masthead.fx-mat-glass .omnibox:focus-within { background: var(--card); box-shadow: var(--gl-inset), 0 0 0 1px var(--accent), 0 0 0 5px color-mix(in srgb, var(--accent) 10%, transparent), 0 8px 24px rgba(60, 50, 40, .1); }
+
+/* —— 批量操作条：同一配方，胶囊，按钮和滑动高亮也是胶囊 —— */
+.fx-bar.fx-mat-glass .batchbar {
+    border-radius: 999px;
+    padding-left: 20px;
+    background: var(--gl-bg-bar);
+    -webkit-backdrop-filter: var(--gl-blur-l);
+    backdrop-filter: var(--gl-blur-l);
+    box-shadow: var(--gl-inset), var(--gl-line), var(--gl-drop-panel);
+}
+.fx-bar.fx-mat-glass.fx-refract .batchbar.fx-lens-ready { backdrop-filter: url(#fx-lens-bar) blur(9px) saturate(1.7) brightness(1.04); }
+.fx-bar.fx-mat-glass .batchbar::before { background: var(--gl-rim); }
+.fx-bar.fx-mat-glass :is(.bb-btn, .batchbar .fx-glider) { border-radius: 999px; }
+.fx-bar.fx-mat-glass .bb-btn:active:not(:disabled) { box-shadow: var(--gl-press); }
+.fx-bar.fx-mat-glass .bb-btn[aria-expanded="true"] { color: var(--accent); }
+
+/* —— 看图器：深色玻璃；“编辑”是同一配方的浅色强调档 —— */
+.fx-viewer.fx-mat-glass :is(.sv-top-right, #sv-back), .fx-viewer.fx-mat-glass .sv-edge::before {
+    background: var(--gd-bg);
+    -webkit-backdrop-filter: var(--gd-blur);
+    backdrop-filter: var(--gd-blur);
+    box-shadow: var(--gd-edge), var(--gd-drop);
+}
+.fx-viewer.fx-mat-glass.fx-refract .sv-top-right.fx-lens-ready { backdrop-filter: url(#fx-lens-tools) blur(9px) saturate(1.6) brightness(1.05); }
+.fx-viewer.fx-mat-glass .sv-top-right .sv-btn:not(.sv-btn-strong), .fx-viewer.fx-mat-glass #sv-back { color: rgba(246, 242, 236, .92); text-shadow: 0 1px 2px rgba(0, 0, 0, .35); }
+.fx-viewer.fx-mat-glass #sv-back:hover { background: linear-gradient(180deg, rgba(255, 255, 255, .22), rgba(255, 255, 255, .08)), rgba(24, 22, 20, .42); }
+.fx-viewer.fx-mat-glass .sv-edge:hover::before { background: linear-gradient(180deg, rgba(255, 255, 255, .22), rgba(255, 255, 255, .08)), rgba(24, 22, 20, .42); }
+.fx-viewer.fx-mat-glass .sv-btn-strong {
+    position: relative;
+    color: #1d1a16;
+    background: linear-gradient(180deg, rgba(255, 255, 255, .95), rgba(241, 236, 228, .82));
+    box-shadow: inset 0 1px 0 #fff, inset 0 -1px 0 rgba(36, 33, 29, .12), 0 2px 8px -2px rgba(0, 0, 0, .35);
+    text-shadow: none;
+}
+.fx-viewer.fx-mat-glass .sv-btn-strong:hover { color: #1d1a16; background: #fff; }
+.fx-viewer.fx-mat-glass .sv-btn-strong:active { box-shadow: var(--gl-press), 0 1px 3px rgba(0, 0, 0, .3); }
+
+/* ============ 系统“减少动效”与实验面板里的模拟开关 ============ */
+/* 位移、缩放、回弹全部取消，只保留不超过 120ms 的淡入淡出，状态变化仍然可见 */
+@media (prefers-reduced-motion: reduce) {
+    html.fx-on *, html.fx-on *::before, html.fx-on *::after {
+        transition-property: opacity, color, background-color, border-color, box-shadow !important;
+        transition-duration: 120ms !important;
+        transition-delay: 0s !important;
+        animation: none !important;
+    }
+}
+html.fx-reduce *, html.fx-reduce *::before, html.fx-reduce *::after {
+    transition-property: opacity, color, background-color, border-color, box-shadow !important;
+    transition-duration: 120ms !important;
+    transition-delay: 0s !important;
+    animation: none !important;
+}
+
+/* 系统“降低透明度”时，玻璃与亚克力退回实底，保证文字对比度 */
+@media (prefers-reduced-transparency: reduce) {
+    .fx-bar:is(.fx-mat-acrylic, .fx-mat-glass) .batchbar, .fx-popover :is(.pk, .suggest), .fx-masthead .masthead { background: var(--card); backdrop-filter: none; }
+    .fx-viewer:is(.fx-mat-acrylic, .fx-mat-glass) :is(.sv-top-right, #sv-back), .fx-viewer:is(.fx-mat-acrylic, .fx-mat-glass) .sv-edge::before { background: rgba(22, 20, 18, .9); backdrop-filter: none; }
+    .fx-wall.fx-mat-glass :is(.piece-edit, .mark), .fx-popover.fx-mat-glass :is(.pk, .suggest, .sv-menu), .fx-masthead.fx-mat-glass .omnibox { background: var(--card); backdrop-filter: none; }
+    .fx-wall.fx-mat-glass .piece:not(.is-selected) .piece-check { background-color: rgba(36, 33, 29, .55); backdrop-filter: none; }
+    .fx-popover.fx-mat-glass .toast { background: var(--ink); backdrop-filter: none; }
+}
+
+/* ============ 实验面板（原型自身的工具，不属于设计方案） ============ */
+.fxlab { position: fixed; left: 20px; bottom: 20px; z-index: 140; display: flex; flex-direction: column-reverse; align-items: flex-start; gap: 10px; font: 13px/1.5 var(--sans); color: var(--ink); }
+body.is-locked .fxlab { top: 12px; bottom: auto; left: 50%; flex-direction: column; align-items: center; transform: translateX(-50%); }
+.fxlab-pill { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px 0 12px; border: 1px solid var(--line); border-radius: 17px; background: var(--card); box-shadow: 0 6px 18px -8px rgba(36, 33, 29, .3); color: var(--ink-2); }
+.fxlab-pill:hover { border-color: var(--faint); }
+.fxlab-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+.fxlab.is-on .fxlab-dot { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.fxlab-pill b { font-weight: 600; color: var(--ink); }
+.fxlab-flash { animation: fxlab-flash .5s ease-out; }
+@keyframes fxlab-flash { from { box-shadow: 0 0 0 6px var(--accent-soft); } }
+.fxlab-panel { width: 330px; max-height: min(640px, calc(100vh - 90px)); padding: 14px 16px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); box-shadow: 0 24px 60px -16px rgba(36, 33, 29, .35); overflow: auto; }
+.fxlab-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.fxlab-head strong { font: 400 16px var(--serif); }
+.fxlab-x { width: 26px; height: 26px; padding: 0; border: 0; border-radius: 6px; color: var(--muted); background: none; font-size: 18px; line-height: 1; }
+.fxlab-x:hover { background: var(--paper-2); }
+.fxlab-seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; padding: 3px; border-radius: 9px; background: var(--paper-2); }
+.fxlab-seg button { height: 30px; border: 0; border-radius: 7px; color: var(--muted); background: none; }
+.fxlab-seg button[aria-pressed="true"] { color: var(--ink); background: var(--card); box-shadow: 0 1px 2px rgba(0, 0, 0, .1); font-weight: 600; }
+.fxlab-hint { margin: 6px 2px 4px; color: var(--faint); font-size: 12px; }
+.fxlab-group { margin: 12px 2px 4px; color: var(--faint); font-size: 12px; letter-spacing: .06em; }
+.fxlab-row { display: grid; grid-template-columns: 18px 1fr; gap: 2px 10px; align-items: start; padding: 6px 4px; border-radius: 8px; cursor: pointer; }
+.fxlab-row:hover { background: var(--paper); }
+.fxlab-row input { margin: 3px 0 0; accent-color: var(--accent); }
+.fxlab-row span { display: grid; }
+.fxlab-row small { color: var(--muted); font-size: 12px; line-height: 1.45; }
+.fxlab-panel.is-off .fxlab-row, .fxlab-panel.is-off .fxlab-seg.fxlab-mat { opacity: .45; }

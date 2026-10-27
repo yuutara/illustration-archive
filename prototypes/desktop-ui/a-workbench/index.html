@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>原型 A · 工作台</title>
+    <link rel="stylesheet" href="workbench.css">
+    <script src="../shared/archive.js" defer></script>
+    <script src="../shared/picker.js" defer></script>
+    <script src="workbench.js" defer></script>
+</head>
+<body>
+<div class="app" id="app">
+    <header class="titlebar">
+        <a class="brand" href="../index.html" title="返回原型目录"><span class="brand-mark" aria-hidden="true"></span>Illustration Archive</a>
+        <form class="search" id="search-form" role="search">
+            <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+            <label class="visually-hidden" for="search-input">搜索图库</label>
+            <input id="search-input" type="search" placeholder="搜索标题、备注、作者、标签，@用户名" autocomplete="off">
+            <kbd>Ctrl K</kbd>
+        </form>
+        <div class="titlebar-actions">
+            <button class="btn btn-primary" id="import-button" type="button">
+                <svg class="icon" aria-hidden="true"><use href="#i-import"/></svg>导入
+            </button>
+            <button class="icon-btn" id="help-button" type="button" title="快捷键（?）" aria-label="快捷键">?</button>
+        </div>
+    </header>
+
+    <aside class="sidebar" aria-label="图库导航">
+        <nav class="side-section" aria-label="范围">
+            <button class="side-item" data-scope="all" type="button"><span>全部作品</span><span class="count" data-count="all"></span></button>
+            <button class="side-item" data-scope="recent" type="button"><span>最近 7 天导入</span><span class="count" data-count="recent"></span></button>
+            <button class="side-item" data-scope="untidy" type="button"><span>待整理</span><span class="count" data-count="untidy"></span></button>
+            <button class="side-item" data-scope="multipage" type="button"><span>多页作品</span><span class="count" data-count="multipage"></span></button>
+        </nav>
+        <section class="side-section side-facet" aria-labelledby="authors-heading">
+            <div class="side-heading"><h2 id="authors-heading">作者</h2><button class="link-btn" id="authors-clear" type="button" hidden>清除</button></div>
+            <input class="side-filter" id="authors-filter" type="search" placeholder="筛选作者" aria-label="筛选作者列表">
+            <ul class="facet-list" id="author-list"></ul>
+        </section>
+        <section class="side-section side-facet" aria-labelledby="tags-heading">
+            <div class="side-heading"><h2 id="tags-heading">标签</h2><button class="link-btn" id="tags-clear" type="button" hidden>清除</button></div>
+            <input class="side-filter" id="tags-filter" type="search" placeholder="筛选标签" aria-label="筛选标签列表">
+            <ul class="facet-list" id="tag-list"></ul>
+        </section>
+    </aside>
+
+    <main class="content">
+        <div class="toolbar">
+            <div class="summary" id="summary" aria-live="polite"></div>
+            <div class="toolbar-tools">
+                <label class="tool">
+                    <span class="visually-hidden">排序</span>
+                    <select id="sort-select">
+                        <option value="newest">最新导入</option>
+                        <option value="oldest">最早导入</option>
+                        <option value="title">标题</option>
+                    </select>
+                </label>
+                <label class="tool zoom-tool" title="缩略图大小">
+                    <svg class="icon" aria-hidden="true"><use href="#i-grid"/></svg>
+                    <input id="size-range" type="range" min="120" max="340" step="10" value="200" aria-label="缩略图大小">
+                </label>
+                <button class="icon-btn" id="inspector-toggle" type="button" title="信息面板（I）" aria-label="信息面板" aria-pressed="true">
+                    <svg class="icon" aria-hidden="true"><use href="#i-panel"/></svg>
+                </button>
+            </div>
+        </div>
+        <div class="grid-scroll" id="grid-scroll" tabindex="0" aria-label="作品网格">
+            <div class="grid" id="grid" role="listbox" aria-multiselectable="true"></div>
+            <div class="empty" id="empty" hidden>
+                <p class="empty-title">没有匹配的作品</p>
+                <p>换个关键词，或清除左侧的作者 / 标签筛选。</p>
+                <button class="btn" id="empty-clear" type="button">清除全部条件</button>
+            </div>
+        </div>
+    </main>
+
+    <aside class="inspector" id="inspector" aria-label="作品信息"></aside>
+
+    <footer class="statusbar">
+        <div class="task" id="task" hidden>
+            <button class="task-button" id="task-button" type="button" aria-expanded="false">
+                <span class="task-progress"><span id="task-bar"></span></span>
+                <span id="task-text"></span>
+            </button>
+            <div class="task-popover" id="task-popover" hidden>
+                <ul id="task-list"></ul>
+                <div class="task-actions">
+                    <button class="btn btn-small" id="task-show" type="button">查看新导入</button>
+                    <button class="btn btn-small btn-ghost" id="task-dismiss" type="button">关闭</button>
+                </div>
+            </div>
+        </div>
+        <span class="saved" id="saved" aria-live="polite"></span>
+        <span class="status-right">原型 A · 测试数据，刷新即还原 · 按 ? 查看快捷键</span>
+    </footer>
+</div>
+
+<div class="drop-overlay" id="drop-overlay" hidden>
+    <div class="drop-card">
+        <svg class="icon icon-lg" aria-hidden="true"><use href="#i-import"/></svg>
+        <p>松开鼠标即可导入</p>
+        <span>JPEG / PNG / GIF，可一次多选</span>
+    </div>
+</div>
+
+<div class="viewer" id="viewer" hidden role="dialog" aria-modal="true" aria-label="看图器">
+    <header class="viewer-top">
+        <button class="icon-btn" id="viewer-close" type="button" title="返回图库（Esc）" aria-label="返回图库">
+            <svg class="icon" aria-hidden="true"><use href="#i-back"/></svg>
+        </button>
+        <div class="viewer-heading">
+            <strong id="viewer-title"></strong>
+            <span id="viewer-sub"></span>
+        </div>
+        <div class="viewer-tools">
+            <span class="viewer-pos" id="viewer-pos"></span>
+            <span class="divider" aria-hidden="true"></span>
+            <button class="icon-btn" id="zoom-out" type="button" title="缩小（-）" aria-label="缩小"><svg class="icon"><use href="#i-minus"/></svg></button>
+            <button class="zoom-label" id="zoom-label" type="button" title="适应窗口 / 原始大小（0 / 1）">适应</button>
+            <button class="icon-btn" id="zoom-in" type="button" title="放大（+）" aria-label="放大"><svg class="icon"><use href="#i-plus"/></svg></button>
+            <span class="divider" aria-hidden="true"></span>
+            <button class="icon-btn" id="strip-toggle" type="button" title="胶片条（F）" aria-label="胶片条" aria-pressed="true"><svg class="icon"><use href="#i-film"/></svg></button>
+            <button class="icon-btn" id="panel-toggle" type="button" title="信息与编辑（I）" aria-label="信息与编辑" aria-pressed="true"><svg class="icon"><use href="#i-panel"/></svg></button>
+        </div>
+    </header>
+    <div class="viewer-body">
+        <div class="viewer-stage" id="viewer-stage">
+            <img id="viewer-image" alt="" draggable="false">
+            <button class="stage-nav stage-prev" id="viewer-prev" type="button" aria-label="上一件（←）"><svg class="icon"><use href="#i-left"/></svg></button>
+            <button class="stage-nav stage-next" id="viewer-next" type="button" aria-label="下一件（→）"><svg class="icon"><use href="#i-right"/></svg></button>
+            <div class="page-switch" id="page-switch" hidden></div>
+        </div>
+        <aside class="viewer-panel" id="viewer-panel" aria-label="作品信息与编辑"></aside>
+    </div>
+    <div class="viewer-strip" id="viewer-strip" role="listbox" aria-label="当前结果"></div>
+</div>
+
+<div class="modal-backdrop" id="confirm" hidden>
+    <div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title">
+        <h2 id="confirm-title"></h2>
+        <p id="confirm-text"></p>
+        <div class="modal-actions">
+            <button class="btn" id="confirm-cancel" type="button">取消</button>
+            <button class="btn btn-danger" id="confirm-ok" type="button">删除</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-backdrop" id="shortcuts" hidden>
+    <div class="modal modal-wide" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
+        <h2 id="shortcuts-title">快捷键</h2>
+        <div class="shortcut-columns">
+            <dl>
+                <dt>图库</dt><dd></dd>
+                <dt><kbd>Ctrl K</kbd> / <kbd>/</kbd></dt><dd>搜索</dd>
+                <dt><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd></dt><dd>移动选择</dd>
+                <dt><kbd>Shift</kbd> / <kbd>Ctrl</kbd> + 点击</dt><dd>范围 / 追加选择</dd>
+                <dt><kbd>Ctrl A</kbd></dt><dd>全选当前结果</dd>
+                <dt><kbd>Enter</kbd> / 双击</dt><dd>打开看图器</dd>
+                <dt><kbd>E</kbd></dt><dd>编辑标题</dd>
+                <dt><kbd>T</kbd></dt><dd>添加标签</dd>
+                <dt><kbd>Delete</kbd></dt><dd>删除所选</dd>
+                <dt><kbd>Ctrl O</kbd></dt><dd>导入</dd>
+            </dl>
+            <dl>
+                <dt>看图器</dt><dd></dd>
+                <dt><kbd>←</kbd><kbd>→</kbd></dt><dd>上一件 / 下一件</dd>
+                <dt><kbd>PgUp</kbd><kbd>PgDn</kbd></dt><dd>多页作品翻页</dd>
+                <dt><kbd>+</kbd><kbd>-</kbd></dt><dd>缩放（滚轮亦可）</dd>
+                <dt><kbd>0</kbd> / <kbd>1</kbd></dt><dd>适应窗口 / 原始大小</dd>
+                <dt><kbd>I</kbd></dt><dd>信息与编辑面板</dd>
+                <dt><kbd>F</kbd></dt><dd>胶片条</dd>
+                <dt><kbd>Esc</kbd></dt><dd>返回图库</dd>
+            </dl>
+        </div>
+        <div class="modal-actions"><button class="btn" id="shortcuts-close" type="button">关闭</button></div>
+    </div>
+</div>
+
+<input id="file-input" type="file" multiple accept=".jpg,.jpeg,.png,.gif,image/jpeg,image/png,image/gif" hidden>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+        <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
+        <symbol id="i-import" viewBox="0 0 24 24"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 19h14"/></symbol>
+        <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1"/></symbol>
+        <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="1.5"/><path d="M14.5 4.5v15"/></symbol>
+        <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+        <symbol id="i-left" viewBox="0 0 24 24"><path d="M14.5 6 8.5 12l6 6"/></symbol>
+        <symbol id="i-right" viewBox="0 0 24 24"><path d="m9.5 6 6 6-6 6"/></symbol>
+        <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 6v12M6 12h12"/></symbol>
+        <symbol id="i-minus" viewBox="0 0 24 24"><path d="M6 12h12"/></symbol>
+        <symbol id="i-film" viewBox="0 0 24 24"><rect x="3.5" y="6.5" width="17" height="11" rx="1.5"/><path d="M8.5 6.5v11M15.5 6.5v11"/></symbol>
+        <symbol id="i-close" viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></symbol>
+        <symbol id="i-link" viewBox="0 0 24 24"><path d="M14 5h5v5M19 5l-8 8M17 14v4.5a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5H10"/></symbol>
+        <symbol id="i-trash" viewBox="0 0 24 24"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"/></symbol>
+        <symbol id="i-pages" viewBox="0 0 24 24"><rect x="7.5" y="3.5" width="12" height="15" rx="1"/><path d="M4.5 7v12.5a1 1 0 0 0 1 1H15"/></symbol>
+    </defs>
+</svg>
+</body>
+</html>

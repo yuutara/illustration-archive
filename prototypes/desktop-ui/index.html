@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>桌面版 UI 原型</title>
+    <style>
+        :root { color-scheme: light; --paper: #f4f1eb; --ink: #24211d; --muted: #7a736a; --line: #ddd5c9; --card: #fbfaf7; }
+        * { box-sizing: border-box; }
+        body { margin: 0; padding: 56px 24px; background: var(--paper); color: var(--ink); font: 15px/1.7 "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif; }
+        main { max-width: 920px; margin: 0 auto; }
+        h1 { margin: 0; font: 400 28px "Noto Serif SC", "SimSun", Georgia, serif; letter-spacing: .03em; }
+        .lead { margin: 6px 0 32px; color: var(--muted); }
+        .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        a.card { display: flex; flex-direction: column; padding: 22px 24px 20px; border: 1px solid var(--line); border-radius: 12px; color: inherit; background: var(--card); text-decoration: none; transition: border-color .15s, transform .15s; }
+        a.card:hover { border-color: var(--ink); transform: translateY(-2px); }
+        .swatch { height: 120px; margin-bottom: 18px; border-radius: 8px; }
+        .swatch-a { background: #161719; display: grid; grid-template-columns: 22% 1fr 26%; gap: 4px; padding: 6px; }
+        .swatch-a i { border-radius: 3px; background: #1f2023; }
+        .swatch-a i:nth-child(2) { background: repeating-linear-gradient(90deg, #3a4a5a 0 18%, #121315 18% 20%, #b07a78 20% 46%, #121315 46% 48%, #5c95a3 48% 70%, #121315 70% 72%, #d9a45b 72% 100%); }
+        .swatch-b { background: #ebe6dd; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 14px 18px; align-items: start; }
+        .swatch-b i { border-radius: 2px; }
+        .swatch-b i:nth-child(1) { height: 70px; background: #8fa59a; }
+        .swatch-b i:nth-child(2) { height: 92px; background: #4b4568; }
+        .swatch-b i:nth-child(3) { height: 56px; background: #e7b07a; }
+        .swatch-b i:nth-child(4) { height: 80px; background: #9cc3cc; }
+        .card h2 { margin: 0; font-size: 18px; }
+        .card h2 span { color: var(--muted); font-weight: 400; }
+        .card p { margin: 6px 0 12px; color: var(--muted); }
+        .card ul { margin: 0 0 16px; padding-left: 18px; }
+        .card li { margin: 2px 0; }
+        .card .go { margin-top: auto; font-weight: 600; }
+        .note { margin-top: 28px; color: var(--muted); font-size: 13px; }
+        .sub { margin: 36px 0 0; font: 400 19px "Noto Serif SC", "SimSun", Georgia, serif; }
+        .looks { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; margin-top: 14px; }
+        a.look { display: grid; gap: 2px; padding: 14px 14px 12px; border: 1px solid var(--line); color: inherit; text-decoration: none; transition: transform .15s; }
+        a.look:hover { transform: translateY(-2px); }
+        a.look span { color: var(--muted); font-size: 12px; }
+        .look-a { border-radius: 2px; background: #f6f5f2; font-family: "Noto Serif SC", "SimSun", serif; }
+        .look-a.dark { color: #ecebe7; background: #121211; border-color: #2c2b28; }
+        .look-b { border-radius: 14px; background: radial-gradient(120px 60px at 0 0, rgba(102, 116, 255, .2), transparent), #eef0f5; }
+        .look-b.dark { color: #e9ebf3; background: radial-gradient(120px 60px at 0 0, rgba(110, 124, 255, .3), transparent), #0e1016; border-color: #252937; }
+        .look.dark span { color: rgba(255, 255, 255, .55); }
+        .look-c { border-radius: 10px; background: radial-gradient(110px 60px at 0 0, rgba(217, 119, 87, .18), transparent), #f5f4ed; font-family: "Noto Serif SC", Georgia, serif; }
+        .look-c b { color: #141413; }
+        .look-c.dark { background: radial-gradient(110px 60px at 0 0, rgba(217, 119, 87, .16), transparent), #1a1918; border-color: #30302e; }
+        .look-c.dark b { color: #f0eee6; }
+        .look-now { border-radius: 8px; background: var(--card); }
+        @media (max-width: 720px) { .cards { grid-template-columns: 1fr; } .looks { grid-template-columns: 1fr 1fr; }
+        @media (max-width: 1100px) { .looks { grid-template-columns: repeat(4, 1fr); } } }
+    </style>
+</head>
+<body>
+<main>
+    <h1>桌面版 UI / UX 原型</h1>
+    <p class="lead">两套方向使用同一批测试作品（40 件，含多页、GIF、未整理的作品）。可以在两个标签页里分别打开对照。</p>
+    <div class="cards">
+        <a class="card" href="a-workbench/index.html">
+            <div class="swatch swatch-a" aria-hidden="true"><i></i><i></i><i></i></div>
+            <h2>A · 工作台 <span>整理优先 · 仅作对照</span></h2>
+            <p>像本地素材管理器：左侧作者 / 标签，中间等高行网格，右侧常驻信息面板。</p>
+            <ul>
+                <li>单击选中、双击或 Enter 看图；Ctrl / Shift 多选后批量设作者和标签</li>
+                <li>信息面板就地编辑，失焦即保存；看图器共用同一个面板</li>
+                <li>拖入窗口即导入，进度在底部状态栏</li>
+            </ul>
+            <span class="go">打开原型 A →</span>
+        </a>
+        <a class="card" href="b-gallery/index.html">
+            <div class="swatch swatch-b" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+            <h2>B · 画廊 <span>欣赏优先 · 已选定方向</span></h2>
+            <p>以作品为主的瀑布墙；搜索框同时是作者 / 标签筛选入口。</p>
+            <ul>
+                <li>吸收 A：“选择”或 Ctrl / Shift + 点击多选，底部操作栏批量设作者、标签、删除</li>
+                <li>吸收 A：方向键移动、空格选择、E 编辑、T 标签等快捷键，按 ? 查看全部</li>
+                <li>动效与材质实验：左下角“效果”面板逐项开关，Alt + X 一键切换原版 / 新版</li>
+                <li>新版：纵向按住拖动浏览图库；单图卡片侧向短拉有弹簧牵引；多图作品是循环牌堆，左右拖动换牌</li>
+                <li>新版材质（效果面板选“液态玻璃”）：图上的编辑、页码、勾选圆点，顶栏搜索、浮层、操作条和看图器统一为玻璃</li>
+                <li>单击即看图；看图器沉浸，鼠标静止后界面自动隐去</li>
+                <li>编辑是显式进入的模式，草稿 + 保存 / 取消，切图前提醒未保存</li>
+                <li>导入在弹层中完成，结束后可给这一批统一设置作者和标签</li>
+            </ul>
+            <span class="go">打开原型 B →</span>
+        </a>
+    </div>
+    <h2 class="sub">B 视觉方案 · 暂定 C 暖纸</h2>
+    <p class="note">同一批作品、同一套玻璃控件，两套方案各有浅色和深色。进入后左下角“方案”切换器可随时换（看图器里在顶部），Alt + T 轮换方案、Alt + D 切换浅色 / 深色。</p>
+    <div class="looks">
+        <a class="look look-c" href="b-gallery/index.html?look=paper&amp;mode=light"><b>C · 暖纸</b><span>浅色 · 暂定默认</span></a>
+        <a class="look look-c dark" href="b-gallery/index.html?look=paper&amp;mode=dark"><b>C · 暖纸</b><span>深色 · 暂定默认</span></a>
+        <a class="look look-a" href="b-gallery/index.html?look=gallery&amp;mode=light"><b>A · 展厅</b><span>浅色</span></a>
+        <a class="look look-a dark" href="b-gallery/index.html?look=gallery&amp;mode=dark"><b>A · 展厅</b><span>深色</span></a>
+        <a class="look look-b" href="b-gallery/index.html?look=glow&amp;mode=light"><b>B · 微光</b><span>浅色</span></a>
+        <a class="look look-b dark" href="b-gallery/index.html?look=glow&amp;mode=dark"><b>B · 微光</b><span>深色</span></a>
+        <a class="look look-now" href="b-gallery/index.html?look=current"><b>现版</b><span>暖纸 · 对照</span></a>
+    </div>
+    <p class="note">C · 暖纸（暂定，后续可微调）：羊皮纸为主体，三团极淡的赤陶 / 鼠尾草 / 暖砂环境光，作品平放、颜色不加处理；玻璃只给浮在内容上的控件；唯一强调色是赤陶。<br>
+        以下仅作对照，不再新增视觉方向。A · 展厅：作品是墙上唯一的颜色；墨色与纸白、衬线标签、近直角画框，唯一的红是一枚朱砂印；浅色看图器是一面亮墙。<br>
+        B · 微光：全无衬线、圆角卡片、背景淡淡的环境光，靛蓝主色；看图器由作品色调照亮。</p>
+    <p class="note">原型只在浏览器内存中运行，刷新即恢复测试数据；不连接后端、不读写真实图库。导入可以选择或拖入本机图片做体验，文件不会被复制或上传。</p>
+</main>
+</body>
+</html>
