@@ -158,6 +158,68 @@ class DesktopServerIntegrationTest {
 	}
 
 	@Test
+	void cGalleryIsServedBehindTheLaunchSessionAndReadsAPagedMultiPageLibraryAcrossRestart() throws Exception {
+		DesktopServer.Running first = start();
+		List<String> pageFiles = List.of("/c/", "/c/archive-client.js", "/c/c-gallery.js", "/c/fx.js", "/c/theme-mode.js",
+				"/c/gallery.css", "/c/fx.css", "/c/theme-paper.css", "/c/c.css");
+		for (String path : pageFiles) {
+			assertEquals(403, send(first, null, get(first, path)).statusCode(), path + " must need the launch session");
+		}
+		String cookie = openSession(first);
+		for (String path : pageFiles) {
+			assertEquals(200, send(first, cookie, get(first, path)).statusCode(), path);
+		}
+		assertTrue(send(first, cookie, get(first, "/c/")).body().contains("新版图库"));
+		String oldGallery = send(first, cookie, get(first, "/")).body();
+		assertTrue(oldGallery.contains("browse-toolbar") && oldGallery.contains("app.js"), "old gallery stays at /");
+		assertTrue(oldGallery.contains("href=\"/c/\""), "old gallery links to the new one");
+
+		var library = CGalleryTestLibrary.build(first, 24);
+		assertEquals(24 - (1 + 2 + 3), library.works(), "groups of 2, 3 and 4 pages merge into three works");
+		var gallery = first.context().getBean(com.yuutara.illustrationarchive.service.IllustrationGalleryService.class);
+		var query = com.yuutara.illustrationarchive.dto.IllustrationGalleryQuery.withIds(null, null, null);
+		var page0 = gallery.getGallery(0, 10, query);
+		var page1 = gallery.getGallery(1, 10, query);
+		var page2 = gallery.getGallery(2, 10, query);
+		assertEquals(library.works(), page0.totalElements());
+		assertEquals(2, page0.totalPages());
+		assertEquals(List.of(10, 8, 0), List.of(page0.items().size(), page1.items().size(), page2.items().size()));
+		var seen = new java.util.HashSet<Long>();
+		Stream.of(page0, page1).flatMap(p -> p.items().stream()).forEach(item -> assertTrue(seen.add(item.id()), "no work twice"));
+		assertEquals(library.works(), seen.size());
+		for (long id : library.multiPageIds()) {
+			var item = Stream.of(page0, page1).flatMap(p -> p.items().stream()).filter(i -> i.id() == id).findFirst().orElseThrow();
+			assertTrue(item.assetCount() >= 2, "multi-page work " + id);
+			assertEquals(item.assetCount(), item.assets().size());
+			for (int n = 0; n < item.assets().size(); n++) {
+				assertEquals(n, item.assets().get(n).sortOrder(), "pages are listed in order");
+			}
+			assertEquals(item.assets().get(0).id(), item.coverAssetId(), "the first page is the cover");
+		}
+		HttpResponse<String> http0 = send(first, cookie, get(first, "/api/illustrations?page=0&size=10"));
+		assertEquals(200, http0.statusCode());
+		assertTrue(http0.body().contains("\"totalElements\":" + library.works()), http0.body());
+
+		// Thumbnail fallback inputs: a GIF has no thumbnail, and one JPEG lost its thumbnail file; both originals load.
+		for (long assetId : List.of(library.gifAssetId(), library.missingThumbnailAssetId())) {
+			assertEquals(404, send(first, cookie, get(first, "/api/assets/" + assetId + "/thumbnail")).statusCode());
+			assertEquals(200, send(first, cookie, get(first, "/api/assets/" + assetId + "/content")).statusCode());
+		}
+
+		first.context().close();
+		started.remove(first);
+		DesktopServer.Running second = start();
+		String secondCookie = openSession(second);
+		assertEquals(403, send(second, cookie, get(second, "/c/")).statusCode(), "the previous launch's session is gone");
+		assertEquals(200, send(second, secondCookie, get(second, "/c/")).statusCode());
+		HttpResponse<String> afterRestart = send(second, secondCookie, get(second, "/api/illustrations?page=1&size=10"));
+		assertTrue(afterRestart.body().contains("\"totalElements\":" + library.works()), afterRestart.body());
+		long multi = library.multiPageIds().get(library.multiPageIds().size() - 1);
+		HttpResponse<String> detail = send(second, secondCookie, get(second, "/api/illustrations/" + multi));
+		assertTrue(detail.body().contains("c-test-") && detail.body().contains("系列"), detail.body());
+	}
+
+	@Test
 	void localAccessGuardRejectsRequestsWithoutTheLaunchSession() throws Exception {
 		DesktopServer.Running running = start();
 		assertEquals(403, send(running, null, get(running, "/api/illustrations")).statusCode());

@@ -1,0 +1,306 @@
+/*
+ * 原型 B · 视觉变体 C「暖纸」：参考 Claude 暖纸美学与 Magpie 的玻璃用法，按实际截图取色。
+ * 只在 html[data-look="paper"] 下生效，不改布局、手势与交互。
+ *
+ * 层次（由后到前，主次分明）：
+ *   1 纸      羊皮纸底色，极淡的纸纹；是画面的主体，平、不发光
+ *   2 环境光  三团很淡的赤陶 / 鼠尾草 / 暖砂色光，只在页面边缘可见，给浮层玻璃一点可透的东西
+ *   3 作品    平放在纸上，小圆角 + 贴纸的短影；不加任何滤镜，颜色保持原样
+ *   4 玻璃    只用于浮在内容之上的控件（顶栏滚动后、图上按钮、浮层、操作条、看图器工具）；
+ *             象牙色、低饱和模糊（不放大作品颜色）、细高光边，比作品更“前”
+ * 强调色只有一个：赤陶。没有 emoji、没有多色徽章；成功 / 删除等语义色只在需要时出现。
+ *
+ * 取色（截图实测，纠正帖中色名与色值错位）：
+ *   画布 #f5f4ed（封面 79% 面积 #f5f4ec）  卡片 #fdfcf8  细线 #e8e6dc / #f0eee6
+ *   正文 #141413  次要 #73726c  弱 #9c9a92   赤陶按钮 #c96442（实测 #c76544）  赤陶高光 #d97757
+ *   帖中写作“羊皮纸 141413 / 象牙白 252523”的其实是正文色与深色卡片；“鼠尾草 b53333”实为错误红
+ */
+
+/* ===================== 浅色 ===================== */
+html[data-look="paper"] {
+    color-scheme: light;
+    --paper: #f5f4ed;
+    --paper-2: #edebe2;
+    --card: #fdfcf8;
+    --ink: #141413;
+    --ink-2: #3d3d3a;
+    --muted: #6c6b65;
+    --faint: #8a8880;
+    --line: #e5e2d8;
+    /* 赤陶分三档：填充 #b8573a（白字 4.7:1）、小字 #a34d2d（纸上 5.2:1）、装饰高光 #d97757 */
+    --accent: #b8573a;
+    --accent-text: #a34d2d;
+    --accent-hi: #d97757;
+    --accent-soft: #f6e6dd;
+    --danger: #b53434;
+    --serif: "Noto Serif SC", "Source Han Serif SC", Georgia, "Songti SC", "SimSun", serif;
+    --num: Georgia, "Noto Serif SC", serif;
+    --r-card: 10px;
+    --amb-1: rgba(217, 119, 87, .13);
+    --amb-2: rgba(120, 150, 118, .1);
+    --amb-3: rgba(214, 178, 116, .12);
+    --masthead-glass: rgba(245, 244, 237, .72);
+    --stack-rim: rgba(253, 252, 248, .95);
+    --art-shadow: 0 1px 2px rgba(20, 20, 19, .06), 0 10px 24px -14px rgba(20, 20, 19, .22);
+    --art-shadow-hover: 0 2px 4px rgba(20, 20, 19, .06), 0 18px 34px -16px rgba(20, 20, 19, .3);
+    /* 象牙玻璃：提饱和压到 1.15，压在作品上不把颜色放大 */
+    --gl-bg: linear-gradient(180deg, rgba(255, 255, 253, .78), rgba(250, 248, 241, .6));
+    --gl-bg-hover: linear-gradient(180deg, rgba(255, 255, 253, .92), rgba(250, 248, 241, .76));
+    --gl-bg-panel: linear-gradient(180deg, rgba(255, 255, 253, .86), rgba(248, 246, 238, .78));
+    --gl-bg-bar: linear-gradient(180deg, rgba(255, 255, 253, .8), rgba(248, 246, 238, .66));
+    --gl-blur-s: blur(12px) saturate(1.15);
+    --gl-blur-l: blur(22px) saturate(1.15);
+    --gl-line: 0 0 0 1px rgba(20, 20, 19, .07);
+    --gl-inset: inset 0 1px 0 rgba(255, 255, 255, .95), inset 0 -1px 0 rgba(20, 20, 19, .04);
+    --gl-drop: 0 1px 2px rgba(20, 20, 19, .08), 0 8px 22px -10px rgba(60, 40, 20, .32);
+    --gl-drop-hover: 0 2px 4px rgba(20, 20, 19, .08), 0 14px 30px -12px rgba(60, 40, 20, .38);
+    --gl-drop-panel: 0 2px 6px rgba(20, 20, 19, .05), 0 26px 52px -20px rgba(60, 40, 20, .34);
+    --gl-press: inset 0 1px 3px rgba(20, 20, 19, .14);
+    --gl-rim: linear-gradient(150deg, rgba(255, 255, 255, .95), rgba(255, 255, 255, .3) 30%, rgba(255, 255, 255, 0) 55%, rgba(255, 255, 255, .5));
+    --gl-text-shadow: none;
+    --gl-fill-hover: rgba(20, 20, 19, .055);
+    --gl-sep: rgba(20, 20, 19, .07);
+    --gl-sep-strong: rgba(20, 20, 19, .14);
+    --gl-field: rgba(255, 255, 255, .7);
+    --gl-field-bg: linear-gradient(180deg, rgba(255, 255, 255, .78), rgba(255, 255, 253, .6));
+    --gl-field-bg-hover: linear-gradient(180deg, #fff, rgba(255, 255, 253, .8));
+}
+
+/* ===================== 深色 ===================== */
+/* 同一套层次换到夜里：底色抬到 #1a1918（不压死作品暗部），卡片 #252523，细线 #30302e，赤陶提亮到 #d97757 */
+html[data-look="paper"][data-mode="dark"] {
+    color-scheme: dark;
+    --paper: #1a1918;
+    --paper-2: #232220;
+    --card: #252523;
+    --ink: #f0eee6;
+    --ink-2: #cfccc2;
+    --muted: #9c9a92;
+    --faint: #807e77;
+    --line: #30302e;
+    --accent: #d97757;
+    --accent-text: #e08a6c;
+    --accent-hi: #e58a6c;
+    --accent-soft: #3a2a23;
+    --danger: #e0715f;
+    --amb-1: rgba(217, 119, 87, .09);
+    --amb-2: rgba(120, 150, 118, .06);
+    --amb-3: rgba(214, 178, 116, .06);
+    --masthead-glass: rgba(26, 25, 24, .72);
+    --stack-rim: rgba(0, 0, 0, .5);
+    --art-shadow: 0 0 0 1px rgba(255, 255, 255, .04), 0 12px 28px -14px rgba(0, 0, 0, .7);
+    --art-shadow-hover: 0 0 0 1px rgba(255, 255, 255, .07), 0 20px 38px -16px rgba(0, 0, 0, .8);
+    --gl-bg: linear-gradient(180deg, rgba(255, 255, 255, .1), rgba(255, 255, 255, .03)), rgba(37, 37, 35, .62);
+    --gl-bg-hover: linear-gradient(180deg, rgba(255, 255, 255, .15), rgba(255, 255, 255, .05)), rgba(37, 37, 35, .7);
+    --gl-bg-panel: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .02)), rgba(37, 37, 35, .84);
+    --gl-bg-bar: linear-gradient(180deg, rgba(255, 255, 255, .09), rgba(255, 255, 255, .03)), rgba(37, 37, 35, .78);
+    --gl-blur-s: blur(12px) saturate(1.1);
+    --gl-blur-l: blur(22px) saturate(1.1);
+    --gl-line: 0 0 0 1px rgba(0, 0, 0, .45);
+    --gl-inset: inset 0 1px 0 rgba(255, 255, 255, .12), inset 0 -1px 0 rgba(0, 0, 0, .25);
+    --gl-drop: 0 1px 2px rgba(0, 0, 0, .35), 0 8px 22px -10px rgba(0, 0, 0, .7);
+    --gl-drop-hover: 0 2px 4px rgba(0, 0, 0, .35), 0 14px 30px -12px rgba(0, 0, 0, .75);
+    --gl-drop-panel: 0 2px 6px rgba(0, 0, 0, .35), 0 26px 52px -20px rgba(0, 0, 0, .75);
+    --gl-press: inset 0 1px 3px rgba(0, 0, 0, .4);
+    --gl-rim: linear-gradient(150deg, rgba(255, 255, 255, .38), rgba(255, 255, 255, .08) 32%, rgba(255, 255, 255, 0) 55%, rgba(255, 255, 255, .16));
+    --gl-text-shadow: none;
+    --gl-fill-hover: rgba(255, 255, 255, .07);
+    --gl-sep: rgba(255, 255, 255, .07);
+    --gl-sep-strong: rgba(255, 255, 255, .14);
+    --gl-field: rgba(255, 255, 255, .05);
+    --gl-field-bg: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .03));
+    --gl-field-bg-hover: linear-gradient(180deg, rgba(255, 255, 255, .1), rgba(255, 255, 255, .05));
+}
+
+/* ===================== 1 纸 + 2 环境光 ===================== */
+html[data-look="paper"] body { background: var(--paper); }
+html[data-look="paper"] body::before {
+    content: "";
+    position: fixed;
+    inset: -10%;
+    z-index: -1;
+    background:
+        radial-gradient(38% 42% at 8% 4%, var(--amb-1), transparent 70%),
+        radial-gradient(34% 40% at 100% 46%, var(--amb-2), transparent 70%),
+        radial-gradient(40% 36% at 30% 104%, var(--amb-3), transparent 70%);
+    pointer-events: none;
+}
+/* 纸纹：只在底色上，极淡；作品和玻璃之上没有 */
+html[data-look="paper"] body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background-image: var(--fx-noise);
+    opacity: .5;
+    pointer-events: none;
+}
+html[data-look="paper"][data-mode="dark"] body::after { background-image: var(--fx-noise-light); opacity: .35; }
+@media (prefers-reduced-motion: no-preference) {
+    html[data-look="paper"]:not(.fx-reduce) body::before { animation: paper-drift 48s ease-in-out infinite alternate; }
+}
+@keyframes paper-drift {
+    from { transform: translate3d(0, 0, 0); }
+    to { transform: translate3d(2.5%, 1.5%, 0); }
+}
+
+/* ===================== 字与界面骨架 ===================== */
+html[data-look="paper"] .wordmark { gap: 10px; align-items: center; font: 500 21px/1 var(--serif); letter-spacing: .02em; }
+html[data-look="paper"] .wordmark::before {
+    content: "档";
+    display: inline-grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    color: #fff;
+    background: var(--accent);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22);
+    font: 500 15px/1 var(--serif);
+    letter-spacing: 0;
+}
+html[data-look="paper"] .wordmark span { color: var(--faint); font: 12px var(--sans); letter-spacing: .04em; }
+html[data-look="paper"] .scopes button { font-size: 14.5px; }
+html[data-look="paper"] .scopes button[aria-current="true"] { font-weight: 500; }
+html[data-look="paper"] .scopes button[aria-current="true"]::after,
+html[data-look="paper"].fx-wall .fx-scope-ink { background: var(--accent); }
+html[data-look="paper"] .scopes sup { color: var(--faint); }
+html[data-look="paper"] :is(.btn, .text-btn, .text-select select) { border-radius: 10px; }
+html[data-look="paper"] .btn { border-color: var(--line); background: var(--card); box-shadow: 0 1px 1px rgba(20, 20, 19, .04); }
+html[data-look="paper"] .btn-ink { border-color: var(--accent); color: #fff; background: var(--accent); }
+html[data-look="paper"].fx-press .btn-ink:not(:disabled) { background-image: linear-gradient(rgba(255, 255, 255, .1), rgba(255, 255, 255, 0) 60%); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .2), 0 1px 2px rgba(120, 50, 20, .2), 0 6px 14px -6px rgba(201, 100, 66, .55); }
+html[data-look="paper"] .btn-ink:hover:not(:disabled) { background-color: #a64d31; }
+html[data-look="paper"][data-mode="dark"] .btn-ink { color: #1a1918; }
+html[data-look="paper"] .text-btn[aria-pressed="true"] { color: #fff; background: var(--accent); }
+html[data-look="paper"][data-mode="dark"] .text-btn[aria-pressed="true"] { color: #1a1918; }
+html[data-look="paper"] .density { border-radius: 10px; }
+html[data-look="paper"] .fchip { border-radius: 10px; }
+html[data-look="paper"] :focus-visible { outline-color: var(--accent); }
+
+/* 赤陶作文字时用加深的一档，保证小字对比度 */
+html[data-look="paper"] :is(.link, .info-source, .ed-tag, .fchip, .pk-create, .st-success, .text-btn.has-value, .piece-author:hover, .info-author:hover, .info-tags button:hover, .sg-chip:hover, .sg-chip.is-active, .ed-tag-add:hover) { color: var(--accent-text); }
+html[data-look="paper"].fx-bar.fx-mat-glass .bb-btn[aria-expanded="true"] { color: var(--accent-text); }
+
+/* ===================== 3 作品：平放在纸上 ===================== */
+html[data-look="paper"] .piece-open { box-shadow: var(--art-shadow); }
+html[data-look="paper"] .piece figcaption { padding-top: 10px; }
+html[data-look="paper"] .piece-title { font: 500 14px/1.4 var(--serif); letter-spacing: .01em; }
+html[data-look="paper"] .piece-author { color: var(--muted); }
+/* 悬停：只是离纸面近一点，影子保持中性暖灰，不染作品色 */
+html[data-look="paper"].fx-wall body:not(.is-selecting) .piece:hover .piece-open { transform: translateY(-2px); box-shadow: var(--art-shadow-hover); }
+html[data-look="paper"].fx-wall .piece:hover .piece-title { color: var(--ink); }
+html[data-look="paper"] .piece.is-selected .piece-open { background: var(--accent-soft); box-shadow: 0 0 0 2.5px var(--accent); }
+html[data-look="paper"] .piece.is-selected .piece-open img { border-radius: calc(var(--r-card) - 4px); }
+html[data-look="paper"] .fx-layers img { box-shadow: 0 0 0 1px var(--stack-rim), 0 6px 14px -8px rgba(20, 20, 19, .3); }
+
+/* 深色下勾选符号改深色（主色在深色里是浅的） */
+html[data-look="paper"][data-mode="dark"] .piece.is-selected .piece-check {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 22 22'%3E%3Cpath d='M6 11.4 9.4 14.6 16 7.6' fill='none' stroke='%231a1918' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* ===================== 4 玻璃：只用于浮层 ===================== */
+html[data-look="paper"].fx-wall.fx-mat-glass .mark { color: var(--ink-2); font-family: var(--num); }
+html[data-look="paper"].fx-popover.fx-mat-glass :is(.pk, .suggest) { border-radius: 16px; }
+html[data-look="paper"] .toast { border-radius: 12px; }
+
+/* ===================== 看图器 ===================== */
+/* 浅色：比图库再深半档的纸色，作品居中、贴纸的影子；工具是同一配方的象牙玻璃 */
+html[data-look="paper"] .viewer {
+    --v-bg: #ecebe3;
+    --gd-bg: linear-gradient(180deg, rgba(255, 255, 253, .8), rgba(250, 248, 241, .62));
+    --gd-bg-panel: linear-gradient(180deg, rgba(255, 255, 253, .9), rgba(248, 246, 238, .8));
+    --gd-edge: inset 0 1px 0 rgba(255, 255, 255, .95), inset 0 -1px 0 rgba(20, 20, 19, .04), 0 0 0 1px rgba(20, 20, 19, .07);
+    --gd-drop: 0 1px 2px rgba(20, 20, 19, .08), 0 12px 28px -12px rgba(60, 40, 20, .3);
+    --gd-blur: blur(20px) saturate(1.15);
+    --gd-rim: linear-gradient(150deg, rgba(255, 255, 255, .95), rgba(255, 255, 255, .3) 30%, rgba(255, 255, 255, 0) 55%, rgba(255, 255, 255, .5));
+    color: #141413;
+}
+html[data-look="paper"] .viewer::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(50% 40% at 50% 46%, color-mix(in srgb, var(--tint) 5%, transparent), transparent 75%), radial-gradient(34% 30% at 0 0, color-mix(in srgb, var(--amb-1) 55%, transparent), transparent 70%);
+    pointer-events: none;
+}
+html[data-look="paper"] .sv-canvas img { box-shadow: 0 1px 2px rgba(20, 20, 19, .1), 0 30px 60px -26px rgba(40, 30, 20, .45); }
+/* 选择器要压过 fx.css 里深色玻璃的 .fx-viewer.fx-mat-glass #sv-back / .sv-top-right .sv-btn */
+html[data-look="paper"] .viewer .sv-btn:not(.sv-btn-strong),
+html[data-look="paper"].fx-viewer.fx-mat-glass .sv-top-right .sv-btn:not(.sv-btn-strong),
+html[data-look="paper"].fx-viewer.fx-mat-glass #sv-back,
+html[data-look="paper"] #sv-back { color: rgba(20, 20, 19, .78); text-shadow: none; }
+html[data-look="paper"] .viewer .sv-btn:not(.sv-btn-strong):is(:hover, [aria-pressed="true"], [aria-expanded="true"]),
+html[data-look="paper"] #sv-back:hover { color: #141413; }
+html[data-look="paper"].fx-viewer .sv-top-right .sv-btn[aria-pressed="true"] { background: rgba(20, 20, 19, .07); }
+html[data-look="paper"].fx-viewer .sv-top-right .fx-glider { background: rgba(20, 20, 19, .06); }
+html[data-look="paper"] .viewer .sv-btn-strong { color: #fff; background: var(--accent); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22), 0 2px 8px -2px rgba(201, 100, 66, .5); }
+html[data-look="paper"] .viewer .sv-btn-strong:hover { color: #fff; background: #a64d31; }
+html[data-look="paper"].fx-viewer.fx-mat-glass #sv-back:hover,
+html[data-look="paper"].fx-viewer.fx-mat-glass .sv-edge:hover::before { background: linear-gradient(180deg, #fff, rgba(250, 248, 241, .85)); }
+html[data-look="paper"] .sv-zoom { color: rgba(20, 20, 19, .5); }
+html[data-look="paper"] .sv-edge { color: rgba(20, 20, 19, .7); }
+html[data-look="paper"] .sv-edge:hover .icon { color: #141413; }
+html[data-look="paper"].fx-viewer .sv-edge:focus-visible::before { outline-color: var(--accent); }
+html[data-look="paper"] .sv-cap-text h2 { font-weight: 500; }
+html[data-look="paper"] .sv-cap-text p { color: #6c6b65; }
+html[data-look="paper"] .sv-cap-text p button { color: #3d3d3a; }
+html[data-look="paper"] .sv-cap-text p button:hover { color: var(--accent); }
+html[data-look="paper"] .sv-pages button { border-radius: 5px; }
+html[data-look="paper"] .sv-pages button[aria-current="true"] { border-color: var(--accent); }
+html[data-look="paper"] :is(.sv-num small, .sv-count > small) { color: #8a8880; }
+html[data-look="paper"].fx-popover.fx-mat-glass .sv-menu { color: #141413; }
+html[data-look="paper"].fx-popover.fx-mat-glass :is(.sv-menu a:hover, .sv-menu button:hover) { background: rgba(20, 20, 19, .055); }
+html[data-look="paper"].fx-popover.fx-mat-glass .sv-menu .danger { color: #b53434; }
+html[data-look="paper"].fx-popover.fx-mat-glass .sv-menu a[aria-disabled="true"] { color: #9c9a92; }
+html[data-look="paper"].fx-popover.fx-mat-glass .sv-menu kbd { border-color: rgba(20, 20, 19, .14); color: #73726c; }
+
+/* 深色看图器：近黑的暖灰，工具回到烟色玻璃 */
+html[data-look="paper"][data-mode="dark"] .viewer {
+    --v-bg: #121211;
+    --gd-bg: linear-gradient(180deg, rgba(255, 255, 255, .1), rgba(255, 255, 255, .03)), rgba(37, 37, 35, .6);
+    --gd-bg-panel: linear-gradient(180deg, rgba(255, 255, 255, .07), rgba(255, 255, 255, .02)), rgba(37, 37, 35, .86);
+    --gd-edge: inset 0 1px 0 rgba(255, 255, 255, .12), inset 0 -1px 0 rgba(0, 0, 0, .25), 0 0 0 1px rgba(0, 0, 0, .45);
+    --gd-drop: 0 12px 30px -10px rgba(0, 0, 0, .7);
+    --gd-rim: linear-gradient(150deg, rgba(255, 255, 255, .38), rgba(255, 255, 255, .08) 32%, rgba(255, 255, 255, 0) 55%, rgba(255, 255, 255, .16));
+    color: #f0eee6;
+}
+html[data-look="paper"][data-mode="dark"] .sv-canvas img { box-shadow: 0 0 0 1px rgba(255, 255, 255, .04), 0 30px 70px -20px rgba(0, 0, 0, .8); }
+html[data-look="paper"][data-mode="dark"] .viewer .sv-btn:not(.sv-btn-strong),
+html[data-look="paper"][data-mode="dark"].fx-viewer.fx-mat-glass .sv-top-right .sv-btn:not(.sv-btn-strong),
+html[data-look="paper"][data-mode="dark"].fx-viewer.fx-mat-glass #sv-back { color: rgba(240, 238, 230, .84); }
+html[data-look="paper"][data-mode="dark"] .viewer .sv-btn:not(.sv-btn-strong):is(:hover, [aria-pressed="true"], [aria-expanded="true"]),
+html[data-look="paper"][data-mode="dark"] #sv-back:hover { color: #fff; }
+html[data-look="paper"][data-mode="dark"].fx-viewer .sv-top-right .sv-btn[aria-pressed="true"],
+html[data-look="paper"][data-mode="dark"].fx-viewer .sv-top-right .fx-glider { background: rgba(255, 255, 255, .1); }
+html[data-look="paper"][data-mode="dark"] .viewer .sv-btn-strong { color: #1a1918; }
+html[data-look="paper"][data-mode="dark"].fx-viewer.fx-mat-glass #sv-back:hover,
+html[data-look="paper"][data-mode="dark"].fx-viewer.fx-mat-glass .sv-edge:hover::before { background: linear-gradient(180deg, rgba(255, 255, 255, .16), rgba(255, 255, 255, .06)), rgba(37, 37, 35, .7); }
+html[data-look="paper"][data-mode="dark"] .sv-zoom { color: rgba(240, 238, 230, .5); }
+html[data-look="paper"][data-mode="dark"] .sv-edge { color: rgba(240, 238, 230, .75); }
+html[data-look="paper"][data-mode="dark"] .sv-edge:hover .icon { color: #fff; }
+html[data-look="paper"][data-mode="dark"] .sv-cap-text p { color: #9c9a92; }
+html[data-look="paper"][data-mode="dark"] .sv-cap-text p button { color: #cfccc2; }
+html[data-look="paper"][data-mode="dark"] :is(.sv-num small, .sv-count > small) { color: #6f6d67; }
+html[data-look="paper"][data-mode="dark"].fx-popover.fx-mat-glass .sv-menu { color: #f0eee6; }
+html[data-look="paper"][data-mode="dark"].fx-popover.fx-mat-glass :is(.sv-menu a:hover, .sv-menu button:hover) { background: rgba(255, 255, 255, .08); }
+html[data-look="paper"][data-mode="dark"].fx-popover.fx-mat-glass .sv-menu .danger { color: #e0715f; }
+html[data-look="paper"][data-mode="dark"].fx-popover.fx-mat-glass .sv-menu a[aria-disabled="true"] { color: #6f6d67; }
+html[data-look="paper"][data-mode="dark"].fx-popover.fx-mat-glass .sv-menu kbd { border-color: rgba(255, 255, 255, .16); color: #9c9a92; }
+
+/* ===================== 信息与编辑面板：实底卡片纸 ===================== */
+html[data-look="paper"] .sv-info { border-top: 1px solid var(--line); background: var(--card); }
+/* 展签式小标题：赤陶、加字距（参考稿“01 / COLOR PALETTE”的做法），全界面只在这里出现 */
+html[data-look="paper"] .sv-info h3 { color: var(--accent-text); font-size: 11.5px; font-weight: 500; letter-spacing: .14em; }
+html[data-look="paper"] .info-author { font-weight: 500; }
+html[data-look="paper"] .info-tags button { border-radius: 8px; }
+html[data-look="paper"] .sv-editor { background: var(--card); box-shadow: -1px 0 0 var(--line), -24px 0 48px -12px rgba(20, 20, 19, .18); }
+html[data-look="paper"][data-mode="dark"] .sv-editor { box-shadow: -1px 0 0 var(--line), -24px 0 48px -12px rgba(0, 0, 0, .6); }
+html[data-look="paper"] .ed-head h2 { font-weight: 500; }
+html[data-look="paper"] :is(.ed-field input, .ed-field textarea, .ed-picker) { border-radius: 10px; background: var(--paper); }
+html[data-look="paper"] :is(.ed-field input, .ed-field textarea):focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+html[data-look="paper"] .ed-tag { border-radius: 8px; }
+html[data-look="paper"] .ed-tag-add { border-radius: 8px; }
+html[data-look="paper"] .ed-dirty { color: #8a4a2c; background: var(--accent-soft); }
+html[data-look="paper"][data-mode="dark"] .ed-dirty { color: var(--accent-hi); }
+html[data-look="paper"] .sheet { border-radius: 18px; background: var(--card); box-shadow: 0 0 0 1px var(--line), 0 30px 70px -20px rgba(40, 30, 20, .35); }
+html[data-look="paper"][data-mode="dark"] .sheet { box-shadow: 0 0 0 1px var(--line), 0 30px 70px -20px rgba(0, 0, 0, .7); }
+html[data-look="paper"] .sheet-backdrop { background: rgba(20, 20, 19, .28); }

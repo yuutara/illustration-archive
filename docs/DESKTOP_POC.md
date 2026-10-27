@@ -136,6 +136,25 @@ Codex 只读 Review 指出两点，均只改 `DesktopServer` 的桌面启动参�
 - 未重跑全量测试与 GUI 验收：改动仅限桌面启动参数，沿用前一节结果。
 - 重新打包后从资源管理器启动：Flyway 在已有 PoC 库上校验 7 个迁移、无需迁移，5.1 秒启动，无错误日志。
 
+## C 图库浏览（只读预览，2026-10-28）
+
+第一个接入包：把原型 B 的 C 暖纸视觉与已验收交互接到现有只读 API，作为 `/c/` 页面由同一个 Spring Boot 提供，经过同一个 `LocalAccessFilter`（无启动会话一律 403）。旧图库 `/` 不变，其“操作”菜单增加“新版图库（预览，只读）”入口。
+
+- 文件：`static/c/`（`archive-client.js` 数据读取、`c-gallery.js` 浏览、`fx.js` 牌堆与动效、样式与 `theme-mode.js`），`CGalleryPageController` 只负责 `/c` → `/c/` → `index.html`。
+- 读取：`GET /api/illustrations?page&size=30` 分页（接近底部自动载入，失败可重试）；封面先载入缩略图量出比例与主色，缩略图缺失时退回原图，再失败用占位图；看图器先显示缩略图再换原图；详情（标签、备注、来源、文件名与大小）按需读取。
+- 禁用：编辑、删除、导入、批量整理、搜索、作者 / 标签筛选、“最近导入 / 待整理”、其他排序——入口保留但不可用，快捷键只提示“尚未接入”，页面只发 GET。视频页显示“暂不支持预览”并链接旧图库详情。
+- 页面声明 `<meta name="darkreader-lock">`：页面自带浅 / 深色，避免 Dark Reader 之类扩展二次改色（验收时 ego 中的 Dark Reader 曾把浅色页面改暗）。
+- 测试：`DesktopServerIntegrationTest` 新增 C 图库用例（访问保护、分页、多图顺序、GIF / 缺失缩略图的回退来源、重启后读取）；`src/test/js/c-archive-client.test.js` 覆盖分页、空图库、请求失败重试、会话失效、缩略图回退、多图 / GIF / 视频、详情重试。
+- 隔离验收图库：`CGalleryAcceptanceServer` 是显式开启的测试工具（不加参数不运行），在指定目录（仓库外）建立独立 H2 图库：64 张生成图、55 件作品，含 2 / 3 / 4 页作品、GIF 与一张删掉缩略图的 JPEG；把一次性会话地址写入 `<目录>\acceptance-session.txt`，直到出现 `<目录>\acceptance-stop` 才退出；同一目录再次运行即读取已有图库。
+
+```powershell
+.\mvnw.cmd '-Dmaven.repo.local=C:\Users\YuanYuChou\.m2\repository' '-Dtest=CGalleryAcceptanceServer' '-Dsurefire.failIfNoSpecifiedTests=false' '-DargLine=-Djava.io.tmpdir=D:\IdeaProjects\illustration-archive\target\test-temp -Djdk.net.unixdomain.tmpdir=D:\IdeaProjects\illustration-archive\target\test-temp -Dc.acceptance.home=D:\ClaudeProjects\2026-10-28\c-gallery-acceptance' test
+```
+
+用真实桌面启动器体验同一份验收图库：`mvnw package -DskipTests` 后，设置 `ILLUSTRATION_ARCHIVE_DESKTOP_HOME` 指向该目录，再 `java -Dillustration-archive.desktop=true -jar target\illustration-archive-0.0.1-SNAPSHOT.jar`，在控制窗“打开图库”后从“操作”菜单进入新版图库。
+
+验证（2026-10-28）：全量 `mvnw test` 396 tests，0 failures / errors，4 skipped（同前），BUILD SUCCESS；`node --test` 145/145。ego 浏览器在隔离图库上实测：分页（30 → 55，无重复）、空图库、首屏与翻页请求失败后重试、缺失缩略图回退、GIF、2 / 3 / 4 页循环牌堆与从当前页进入看图器、原图替换与翻页、详情、禁用入口只提示不操作、只发 GET、重启后读取、浅 / 深色。ego 窗口不刷新画面，动画与手感仍需人工验收。
+
 ## 已知问题与后续候选
 
 - Flyway 12.4 提示 H2 2.4.240 高于其验证版本，当前功能未受影响。

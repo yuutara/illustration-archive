@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="zh-CN" data-look="paper" data-mode="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- 页面自带浅色 / 深色：请 Dark Reader 等改色扩展不要再改一遍（会把作品墙和玻璃控件的配色打乱） -->
+    <meta name="darkreader-lock">
+    <meta name="color-scheme" content="light dark">
+    <title>插画档案 · 新版图库（预览）</title>
+    <link rel="stylesheet" href="gallery.css">
+    <link rel="stylesheet" href="fx.css">
+    <link rel="stylesheet" href="theme-paper.css">
+    <link rel="stylesheet" href="c.css">
+    <script src="theme-mode.js"></script>
+    <script src="archive-client.js" defer></script>
+    <script src="c-gallery.js" defer></script>
+    <script src="fx.js" defer></script>
+</head>
+<body>
+<header class="masthead" id="masthead">
+    <a class="wordmark" href="/c/" title="新版图库">插画档案<span>Illustration Archive</span><em class="preview-badge">预览</em></a>
+    <div class="omnibox is-disabled" id="omnibox" title="搜索与作者 / 标签筛选将在下一个接入包中接入">
+        <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+        <label class="visually-hidden" for="q">搜索（尚未接入）</label>
+        <input id="q" type="search" placeholder="搜索尚未接入，可在旧图库中搜索" autocomplete="off" disabled>
+    </div>
+    <div class="mast-actions">
+        <a class="mast-link" href="/" title="打开原有图库：导入、编辑、删除与搜索都在那里">旧图库</a>
+        <button class="btn btn-ink" id="import-open" type="button" data-not-yet="导入尚未接入新版图库，请在旧图库中导入">
+            <svg class="icon" aria-hidden="true"><use href="#i-import"/></svg>导入作品
+        </button>
+        <button class="icon-btn theme-toggle" id="theme-toggle" type="button" aria-pressed="false" aria-label="切换浅色 / 深色">
+            <svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg>
+        </button>
+        <button class="icon-btn help-btn" id="help-open" type="button" title="快捷键（?）" aria-label="快捷键">?</button>
+    </div>
+</header>
+
+<div class="filterbar">
+    <nav class="scopes" aria-label="范围">
+        <button type="button" data-scope="all" aria-current="true">全部<sup id="count-all"></sup></button>
+        <button type="button" data-scope="recent" disabled title="“最近导入”需要新的查询参数，列为后续事项">最近导入</button>
+        <button type="button" data-scope="untidy" disabled title="“待整理”需要新的查询参数，列为后续事项">待整理</button>
+    </nav>
+    <div class="active-filters" id="active-filters" aria-live="polite"></div>
+    <div class="filter-tools">
+        <button class="text-btn" id="author-filter" type="button" data-not-yet="作者筛选将在下一个接入包中接入">作者 <span class="caret">▾</span></button>
+        <button class="text-btn" id="tag-filter" type="button" data-not-yet="标签筛选将在下一个接入包中接入">标签 <span class="caret">▾</span></button>
+        <span class="sep" aria-hidden="true"></span>
+        <button class="text-btn" id="select-toggle" type="button" aria-pressed="false" data-not-yet="批量整理尚未接入新版图库">选择</button>
+        <label class="text-select" title="其他排序方式需要新的查询参数，列为后续事项">
+            <span class="visually-hidden">排序</span>
+            <select id="sort" disabled>
+                <option value="newest">最新导入</option>
+            </select>
+        </label>
+        <div class="density" role="group" aria-label="排列密度">
+            <button type="button" data-density="roomy" aria-pressed="true" title="舒展">
+                <svg class="icon" aria-hidden="true"><use href="#i-roomy"/></svg>
+            </button>
+            <button type="button" data-density="compact" aria-pressed="false" title="紧凑">
+                <svg class="icon" aria-hidden="true"><use href="#i-compact"/></svg>
+            </button>
+        </div>
+    </div>
+</div>
+
+<main class="wall-wrap">
+    <h1 class="visually-hidden">插画图库</h1>
+    <div class="wall" id="wall"></div>
+    <div class="empty" id="empty" hidden>
+        <p class="empty-title">图库里还没有作品</p>
+        <p>新版图库暂时只能浏览。可以先到<a href="/">旧图库</a>导入作品，回来刷新即可看到。</p>
+    </div>
+    <div class="wall-status" id="wall-status" aria-live="polite">
+        <span id="wall-status-text">正在载入图库…</span>
+        <button class="btn" id="wall-retry" type="button" hidden>重试</button>
+        <button class="btn" id="wall-more" type="button" hidden>载入更多</button>
+    </div>
+</main>
+
+<!-- 批量操作条：本包不提供选择模式，保留结构仅供动效层引用 -->
+<div class="batchbar" id="batchbar" role="toolbar" aria-label="批量操作" hidden>
+    <span class="bb-count" id="bb-count"></span>
+    <button class="bb-btn" id="bb-all" type="button" disabled>全选</button>
+</div>
+
+<!-- 看图器 -->
+<div class="viewer" id="viewer" role="dialog" aria-modal="true" aria-label="看图器" hidden>
+    <div class="sv-canvas" id="sv-canvas">
+        <img id="sv-img" alt="" draggable="false">
+    </div>
+    <div class="sv-notice" id="sv-notice" role="status" hidden></div>
+    <button class="sv-edge sv-prev" id="sv-prev" type="button" aria-label="上一件（←）"><svg class="icon"><use href="#i-left"/></svg></button>
+    <button class="sv-edge sv-next" id="sv-next" type="button" aria-label="下一件（→）"><svg class="icon"><use href="#i-right"/></svg></button>
+    <header class="sv-top">
+        <button class="sv-btn" id="sv-back" type="button" title="返回图库（Esc）"><svg class="icon"><use href="#i-left"/></svg>图库</button>
+        <div class="sv-top-right">
+            <span class="sv-zoom" id="sv-zoom" aria-live="polite"></span>
+            <button class="sv-btn" id="sv-info-toggle" type="button" aria-pressed="false" title="作品信息（I）">信息</button>
+            <button class="sv-btn sv-btn-strong" id="sv-edit-toggle" type="button" data-not-yet="编辑尚未接入新版图库，请在旧图库中编辑">
+                <svg class="icon"><use href="#i-pen"/></svg>编辑
+            </button>
+            <div class="sv-more">
+                <button class="sv-btn sv-icon" id="sv-more" type="button" aria-label="更多操作" aria-expanded="false">⋯</button>
+                <div class="sv-menu" id="sv-menu" hidden>
+                    <a id="sv-original" href="#" target="_blank" rel="noopener">在新标签页打开原图</a>
+                    <a id="sv-source" href="#" target="_blank" rel="noreferrer" aria-disabled="true">打开来源链接</a>
+                    <button type="button" id="sv-fit">适应窗口 <kbd>0</kbd></button>
+                    <button type="button" id="sv-actual">原始大小 <kbd>1</kbd></button>
+                    <button type="button" id="sv-delete" class="danger" data-not-yet="删除尚未接入新版图库，请在旧图库中删除">删除作品（尚未接入）</button>
+                </div>
+            </div>
+        </div>
+    </header>
+    <footer class="sv-caption" id="sv-caption">
+        <div class="sv-cap-text">
+            <h2 id="sv-title"></h2>
+            <p id="sv-by"></p>
+        </div>
+        <div class="sv-pages" id="sv-pages"></div>
+        <div class="sv-count">
+            <span class="sv-num" id="sv-num"></span>
+            <small id="sv-pos"></small>
+        </div>
+    </footer>
+    <section class="sv-info" id="sv-info" aria-label="作品信息" hidden></section>
+</div>
+
+<div class="sheet-backdrop" id="shortcuts" hidden>
+    <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
+        <header class="sheet-head">
+            <h2 id="shortcuts-title">快捷键</h2>
+            <button class="icon-btn" id="shortcuts-close" type="button" aria-label="关闭"><svg class="icon"><use href="#i-close"/></svg></button>
+        </header>
+        <div class="shortcut-columns">
+            <dl>
+                <dt class="sc-group">图库</dt>
+                <dt><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd></dt><dd>移动焦点</dd>
+                <dt><kbd>Enter</kbd></dt><dd>打开看图器</dd>
+                <dt>按住左右拖动多图作品</dt><dd>循环换页</dd>
+                <dt>按住上下拖动</dt><dd>浏览图库</dd>
+            </dl>
+            <dl>
+                <dt class="sc-group">看图器</dt>
+                <dt><kbd>←</kbd><kbd>→</kbd></dt><dd>上一件 / 下一件</dd>
+                <dt><kbd>PgUp</kbd><kbd>PgDn</kbd></dt><dd>多页作品翻页</dd>
+                <dt><kbd>+</kbd><kbd>-</kbd> / 滚轮</dt><dd>缩放</dd>
+                <dt><kbd>0</kbd> / <kbd>1</kbd></dt><dd>适应窗口 / 原始大小</dd>
+                <dt><kbd>I</kbd></dt><dd>作品信息</dd>
+                <dt><kbd>Esc</kbd></dt><dd>逐层返回</dd>
+            </dl>
+        </div>
+        <p class="sheet-note">新版图库目前只读：编辑、删除、导入、批量整理、搜索与筛选请在<a href="/">旧图库</a>中进行。</p>
+    </section>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+        <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></symbol>
+        <symbol id="i-import" viewBox="0 0 24 24"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 19h14"/></symbol>
+        <symbol id="i-left" viewBox="0 0 24 24"><path d="M14.5 6 8.5 12l6 6"/></symbol>
+        <symbol id="i-right" viewBox="0 0 24 24"><path d="m9.5 6 6 6-6 6"/></symbol>
+        <symbol id="i-close" viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></symbol>
+        <symbol id="i-pen" viewBox="0 0 24 24"><path d="M4.5 19.5 5.5 15 15.5 5a2.1 2.1 0 0 1 3 3l-10 10-4 1.5Z"/></symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24"><path d="M19.5 14.5A7.5 7.5 0 0 1 9.5 4.5a7.5 7.5 0 1 0 10 10Z"/></symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4"/></symbol>
+        <symbol id="i-roomy" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="9" rx="1"/><rect x="13" y="4" width="7" height="6" rx="1"/><rect x="4" y="15" width="7" height="5" rx="1"/><rect x="13" y="12" width="7" height="8" rx="1"/></symbol>
+        <symbol id="i-compact" viewBox="0 0 24 24"><rect x="3.5" y="4" width="4.5" height="6" rx=".8"/><rect x="9.75" y="4" width="4.5" height="4" rx=".8"/><rect x="16" y="4" width="4.5" height="7" rx=".8"/><rect x="3.5" y="12" width="4.5" height="8" rx=".8"/><rect x="9.75" y="10" width="4.5" height="10" rx=".8"/><rect x="16" y="13" width="4.5" height="7" rx=".8"/></symbol>
+    </defs>
+</svg>
+</body>
+</html>

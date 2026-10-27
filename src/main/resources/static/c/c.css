@@ -1,0 +1,65 @@
+/* C 图库 · 页面专属样式：载入状态、未接入入口、看图器提示（配色来自 theme-paper.css 的令牌） */
+
+/* 未接入的入口：保留位置、明显变淡，悬停显示原因 */
+button:disabled[data-not-yet], .piece-edit:disabled { cursor: not-allowed; opacity: .45; }
+.piece-edit:disabled:hover { background: var(--gl-bg); }
+.scopes button:disabled { color: var(--faint); cursor: not-allowed; }
+.text-select select:disabled { cursor: not-allowed; opacity: .5; }
+.omnibox.is-disabled { opacity: .62; }
+.omnibox.is-disabled input { cursor: not-allowed; }
+.mast-actions { display: flex; align-items: center; gap: 8px; justify-self: end; }
+.mast-link { padding: 0 6px; color: var(--muted); font-size: 13px; text-decoration: none; white-space: nowrap; }
+.mast-link:hover { color: var(--accent-text, var(--accent)); text-decoration: underline; text-underline-offset: 3px; }
+.preview-badge { margin-left: 2px; padding: 2px 7px; border-radius: 6px; color: var(--accent-text, var(--accent)); background: var(--accent-soft); font: 500 11px/1.4 var(--sans); letter-spacing: .04em; align-self: center; }
+
+/* 墙下状态行 */
+.wall-status { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 44px 0 8px; color: var(--muted); font-size: 13px; text-align: center; }
+.wall-status.is-error { color: var(--danger); }
+.wall-status.is-loading #wall-status-text::before {
+    content: "";
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    margin-right: 8px;
+    border: 1.5px solid var(--line);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    vertical-align: -1px;
+    animation: c-spin .8s linear infinite;
+}
+@keyframes c-spin { to { transform: rotate(360deg); } }
+.empty a { color: var(--accent-text, var(--accent)); }
+
+/* 作品图片坏掉时的占位卡片：保持版面，不误导为真实作品 */
+.piece.is-broken .piece-open img { opacity: .9; }
+
+/* 看图器：信息里的标签只展示（筛选尚未接入） */
+.info-tag { display: inline-flex; align-items: center; height: 28px; padding: 0 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); font-size: 13px; }
+.info-author { margin: 0; font: 500 16px var(--serif); }
+.sv-menu a[aria-disabled="true"] { pointer-events: none; }
+.sv-menu button:disabled { color: var(--faint); cursor: not-allowed; }
+.sv-notice {
+    position: absolute;
+    left: 50%;
+    top: 72px;
+    z-index: 3;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    padding: 9px 16px;
+    border-radius: 12px;
+    color: var(--ink);
+    background: var(--gl-bg-panel);
+    -webkit-backdrop-filter: var(--gl-blur-l);
+    backdrop-filter: var(--gl-blur-l);
+    box-shadow: var(--gl-inset), var(--gl-line), var(--gl-drop);
+    font-size: 13px;
+    transform: translateX(-50%);
+}
+.sv-notice a { color: var(--accent-text, var(--accent)); }
+
+/* 深色：顶栏滚动后的分隔线（原型里由 themes.css 提供） */
+html[data-mode="dark"] .masthead.is-scrolled { box-shadow: 0 1px 0 var(--line); }
+.theme-toggle .icon { width: 17px; height: 17px; }
+.sheet-note { margin: 16px 0 0; color: var(--muted); font-size: 13px; }
+.sheet-note a { color: var(--accent-text, var(--accent)); }
