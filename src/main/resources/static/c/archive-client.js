@@ -8,6 +8,7 @@
  *                                      作者 / 标签筛选候选，按名称排序、分页
  *   GET /api/illustrations/{id}        详情：标题、作者、标签、备注、来源、文件名与大小
  *   PATCH /api/illustrations/{id}      单件编辑：只发送改动过的字段，清空作者为 null、清空标签为 []；成功为 204，无响应体
+ *   POST /api/illustrations/import     本地导入：每次只带一个文件，按逐项结果判断成功 / 已存在 / 失败
  *   GET /api/assets/{id}/thumbnail     缩略图；GIF、视频没有缩略图，缩略图缺失时退回原图
  *   GET /api/assets/{id}/content       原图
  *
@@ -15,8 +16,8 @@
  * 缩略图失败时退回原图，再失败就用占位图，作品墙不会因为单张图片坏掉而空出一块或错位。
  * 查询条件一变，结果、页码和总数全部重来：旧查询还在路上的列表请求被取消，迟到的响应、错误和图片测量一律丢弃，
  * 不会混进新结果。量过的封面按 asset id 记住，换条件后再遇到同一张图不必重量。
- * 唯一的写操作是单件编辑（PATCH）。保存后强制重读这件作品的详情；有搜索或筛选时，再按服务端结果重读已载入的各页，
- * 作品因修改不再符合条件就从结果中移出、总数随之变化，分页不重复。
+ * 单件编辑（PATCH）：保存后强制重读这件作品的详情；有搜索或筛选时，再按服务端结果重读已载入的各页，
+ * 作品因修改不再符合条件就从结果中移出、总数随之变化，分页不重复。导入完成后同样按服务端结果重读已载入的各页。
  */
 (function () {
     'use strict';
@@ -609,6 +610,169 @@
         };
     }
 
+    /* ---------------- 本地导入 ---------------- */
+
+    // 与服务端单个文件上限一致；超过的在本地直接拒绝，免得白传大文件（格式校验仍以服务端为准）
+    const IMPORT_MAX_BYTES = 50 * 1024 * 1024;
+
+    // 服务端逐项结果里的英文原因 → 界面上的中文说明
+    function importFailureText(errorCode, message) {
+        const m = String(message || '');
+        if (/must not be empty/i.test(m)) return '文件是空的';
+        if (/must not exceed/i.test(m)) return '超过 50 MB 上限';
+        if (/supported extension|Only JPEG/i.test(m)) return '只支持 JPEG、PNG、GIF';
+        if (/not a supported image format/i.test(m)) return '文件内容不是可识别的图片';
+        if (/does not match the image content/i.test(m)) return '扩展名与图片内容不符';
+        if (errorCode === 'STORAGE_FAILED') return '保存文件失败';
+        if (errorCode === 'IMPORT_FAILED') return '写入图库失败';
+        return m || '导入失败';
+    }
+
+    /*
+     * 导入队列：每个文件单独发一次 POST /api/illustrations/import（files 只有这一个），按顺序逐个处理，
+     * 进度只按服务端返回的真实结果推进；结果按请求对应到文件，同名文件互不影响。
+     *
+     * 每项状态：queued 等待 → uploading 上传中 → success 已导入 / duplicate 图库中已存在 / failed 失败 / unknown 无法确认。
+     * - unknown：连接中断或回应读不出来，无法确认是否已经落库。队列随即暂停，后面没发出的保持 queued，
+     *   由用户决定“继续导入”；不自动重传。重试一张其实已落库的，服务端按内容去重会返回 duplicate，结果仍如实。
+     * - 会话失效（403）也暂停：后面的请求同样会被拒绝。
+     * - retry() 只把 failed（可重试的）与 unknown 放回队列；success、duplicate 永不重发，本地拒绝的（文件夹、超限）不重试。
+     * - 同一时间只有一个处理循环：处理中再加入的文件排到队尾，不会并发或重复提交。
+     * - 暂停时再加入的文件同样排队（queued），不会自动发出；“继续”一并发出所有没发过的，“重试”的范围不变。
+     */
+    function importQueue({ onChange = () => {} } = {}) {
+        const items = [];
+        let keySeq = 0;
+        let running = null;
+        let paused = null;
+        const changed = () => onChange();
+
+        function add(entries) {
+            const added = [...entries].map((entry) => {
+                const file = entry.file || entry;
+                const item = {
+                    key: ++keySeq, file, name: file.name || '（未命名）', size: file.size,
+                    status: 'queued', message: '', illustrationId: null, retryable: true
+                };
+                if (entry.directory) Object.assign(item, { status: 'failed', message: '不支持导入文件夹，请选择其中的图片', retryable: false });
+                else if (file.size > IMPORT_MAX_BYTES) Object.assign(item, { status: 'failed', message: '超过 50 MB 上限', retryable: false });
+                return item;
+            });
+            items.push(...added);
+            changed();
+            return added;
+        }
+
+        async function upload(item) {
+            item.status = 'uploading';
+            item.message = '';
+            changed();
+            const form = new FormData();
+            form.append('files', item.file, item.name);
+            let response;
+            try {
+                response = await fetch('/api/illustrations/import', {
+                    method: 'POST', body: form, credentials: 'same-origin', headers: { Accept: 'application/json' }
+                });
+            } catch (e) {
+                item.status = 'unknown';
+                item.message = '连接中断，无法确认这张是否已导入';
+                item.wasUnknown = true;
+                paused = 'network';
+                return;
+            }
+            if (response.status === 403) {
+                item.status = 'failed';
+                item.message = '本机访问会话已失效，请从控制窗口重新打开图库';
+                paused = 'session';
+                return;
+            }
+            if (!response.ok) {
+                item.status = 'failed';
+                item.message = response.status === 413 ? '文件太大，超出上传上限' : `服务返回 ${response.status}，没有导入`;
+                return;
+            }
+            let result = null;
+            try { result = (await response.json()).items[0]; } catch (e) { /* 回应读不出来 */ }
+            if (!result) {
+                item.status = 'unknown';
+                item.message = '服务的回应无法读取，无法确认这张是否已导入';
+                item.wasUnknown = true;
+                paused = 'network';
+                return;
+            }
+            item.illustrationId = result.illustrationId == null ? null : result.illustrationId;
+            if (result.status === 'SUCCESS') {
+                item.status = 'success';
+            } else if (result.status === 'DUPLICATE') {
+                item.status = 'duplicate';
+                // 之前那次“无法确认”其实已经落库：仍算“已存在”，但它是这一轮新进图库的作品，列表要同步
+                item.recovered = !!item.wasUnknown;
+                item.message = item.recovered ? '图库中已存在（之前那次其实已经导入）' : '图库中已存在';
+            } else {
+                item.status = 'failed';
+                item.message = importFailureText(result.errorCode, result.message);
+                item.retryable = result.errorCode !== 'INVALID_FILE';
+            }
+        }
+
+        function run() {
+            if (running) return running;
+            running = (async () => {
+                // 先让出一拍：没有可处理的文件（全被本地拒绝、或已暂停）时循环会同步跑完，
+                // 若不等这一拍，结束时置空的 running 会被外层赋值覆盖，队列就永远停在“处理中”
+                await null;
+                let next;
+                while (!paused && (next = items.find((i) => i.status === 'queued'))) {
+                    await upload(next);
+                    changed();
+                }
+                running = null;
+                changed();
+            })();
+            return running;
+        }
+
+        const count = (status) => items.filter((i) => i.status === status).length;
+
+        return {
+            items,
+            add(entries) { const added = add(entries); run(); return added; },
+            run,
+            // 暂停后继续处理还没发出的
+            resume() { paused = null; return run(); },
+            // 只重试失败（可重试）与无法确认的
+            retry() {
+                items.forEach((i) => {
+                    if ((i.status === 'failed' && i.retryable) || i.status === 'unknown') {
+                        i.status = 'queued';
+                        i.message = '';
+                    }
+                });
+                paused = null;
+                return run();
+            },
+            isRunning: () => !!running,
+            pausedReason: () => paused,
+            retryable: () => items.filter((i) => (i.status === 'failed' && i.retryable) || i.status === 'unknown').length,
+            summary: () => ({
+                total: items.length, queued: count('queued'), uploading: count('uploading'), success: count('success'),
+                duplicate: count('duplicate'), failed: count('failed'), unknown: count('unknown')
+            }),
+            importedIds: () => items.filter((i) => i.status === 'success').map((i) => i.illustrationId),
+            // 这一轮新进图库的作品：成功导入的，加上“无法确认”后重试才知道其实已导入的
+            newIds: () => items.filter((i) => i.status === 'success' || (i.status === 'duplicate' && i.recovered))
+                .map((i) => i.illustrationId).filter((id) => id != null),
+            clear() { if (!running) items.length = 0; changed(); }
+        };
+    }
+
+    // 整个图库（不带条件）的作品数：筛选时导入后用来更新“全部”旁的数字
+    async function libraryCount() {
+        const page = await getJson('/api/illustrations?page=0&size=1');
+        return page.totalElements;
+    }
+
     // 看图器用：载入原图并记下真实尺寸；失败时返回 null，界面保留缩略图并说明
     async function loadFull(page) {
         if (!page.full) return null;
@@ -680,6 +844,9 @@
         facetSearch,
         editSession,
         refreshLoaded,
+        importQueue,
+        libraryCount,
+        IMPORT_MAX_BYTES,
         hasMore,
         isLoading: () => loading != null,
         lastError: () => lastError,

@@ -56,7 +56,7 @@ function setup({ responses = {}, brokenImages = [], ignoreAbort = false } = {}) 
             const method = init.method || "GET";
             const key = method === "GET" ? url : `${method} ${url}`;
             requests.push(key);
-            calls.push({ url, method, signal: init.signal, body: init.body ? JSON.parse(init.body) : undefined });
+            calls.push({ url, method, signal: init.signal, body: typeof init.body === "string" ? JSON.parse(init.body) : init.body });
             let reply = responses[key];
             if (typeof reply === "function") reply = await reply();
             if (init.signal?.aborted && !ignoreAbort) throw new DOMException("aborted", "AbortError");
@@ -70,6 +70,7 @@ function setup({ responses = {}, brokenImages = [], ignoreAbort = false } = {}) 
         // Browser globals the page relies on; a vm context only has the JavaScript built-ins.
         URLSearchParams,
         AbortController,
+        FormData,
         setImmediate,
         console
     };
@@ -600,4 +601,241 @@ test("of two detail reads for one work, the later one wins even if the earlier a
     assert.equal((await first).title, "新", "the superseded read resolves to the latest detail");
     assert.equal(env.Archive.get(5).title, "新");
     assert.equal(env.Archive.get(5).detail.title, "新");
+});
+
+/* ---------------- 本地导入 ---------------- */
+
+const IMPORT = "POST /api/illustrations/import";
+const pic = (name, body = name, type = "image/png") => new File([body], name, { type });
+const itemResult = (status, extra = {}) => ({ total: 1, items: [{ filename: "x", status, success: status === "SUCCESS", illustrationId: null, ...extra }] });
+
+/**
+ * Scripts the import endpoint: `script(file, index)` returns the reply for the file in each request (a body, a status
+ * number, an Error, NO_CONTENT …). Records which file each request carried and how many requests overlapped.
+ */
+function importEnv(script, responses = {}) {
+    const sent = [];
+    let inflight = 0;
+    let maxInflight = 0;
+    const env = setup({ responses: {
+        ...responses,
+        [IMPORT]: async () => {
+            const call = env.calls.filter((c) => c.method === "POST").at(-1);
+            const files = call.body.getAll("files");
+            sent.push(files);
+            inflight++;
+            maxInflight = Math.max(maxInflight, inflight);
+            await new Promise((r) => setImmediate(r));
+            inflight--;
+            return script(files[0], sent.length - 1);
+        }
+    } });
+    return { env, sent, maxInflight: () => maxInflight };
+}
+
+test("each file goes in its own request, one at a time; results map to files by request, not by name", async () => {
+    const a1 = pic("a.png", "red");
+    const b = pic("b.png", "blue");
+    const a2 = pic("a.png", "green");
+    const fake = pic("photo.jpg", "not really a jpeg", "image/jpeg");
+    // The reply depends on what was uploaded (FormData hands back copies of the File objects)
+    const replies = new Map([
+        ["red", itemResult("SUCCESS", { illustrationId: 11 })],
+        ["blue", itemResult("DUPLICATE", { illustrationId: 3, errorCode: "DUPLICATE_ILLUSTRATION", message: "Duplicate illustration: 3" })],
+        ["green", itemResult("SUCCESS", { illustrationId: 12 })],
+        ["not really a jpeg", itemResult("FAILED", { errorCode: "INVALID_FILE", message: "Filename extension does not match the image content." })]
+    ]);
+    const { env, sent, maxInflight } = importEnv(async (file) => replies.get(await file.text()));
+    let changes = 0;
+    const queue = env.Archive.importQueue({ onChange: () => changes++ });
+    queue.add([a1, b, a2, fake]);
+    queue.run(); queue.run(); // repeated triggers join the same loop
+    await queue.run();
+    assert.equal(maxInflight(), 1, "never two uploads at once");
+    assert.deepEqual(sent.map((files) => files.length), [1, 1, 1, 1], "one file per request");
+    const uploaded = await Promise.all(sent.map(async (files) => [files[0].name, await files[0].text()]));
+    assert.deepEqual(uploaded, [["a.png", "red"], ["b.png", "blue"], ["a.png", "green"], ["photo.jpg", "not really a jpeg"]],
+        "in the order they were added, each with its own content");
+    assert.deepEqual(plain(queue.items.map((i) => [i.name, i.status, i.illustrationId, i.message])), [
+        ["a.png", "success", 11, ""],
+        ["b.png", "duplicate", 3, "图库中已存在"],
+        ["a.png", "success", 12, ""],
+        ["photo.jpg", "failed", null, "扩展名与图片内容不符"]
+    ], "two files with the same name are both imported");
+    assert.deepEqual(plain(queue.summary()), { total: 4, queued: 0, uploading: 0, success: 2, duplicate: 1, failed: 1, unknown: 0 });
+    assert.deepEqual(plain(queue.importedIds()), [11, 12]);
+    assert.equal(queue.retryable(), 0, "an invalid file is not offered for retry");
+    assert.ok(changes > 4);
+});
+
+test("folders and files over 50 MB are rejected locally without a request and are not retried", async () => {
+    const { env, sent } = importEnv(() => itemResult("SUCCESS", { illustrationId: 1 }));
+    const queue = env.Archive.importQueue();
+    const big = { name: "huge.png", size: 50 * 1024 * 1024 + 1, type: "image/png" };
+    queue.add([{ file: pic("folder", ""), directory: true }, big, pic("ok.png")]);
+    await queue.run();
+    assert.deepEqual(plain(queue.items.map((i) => [i.status, i.message])), [
+        ["failed", "不支持导入文件夹，请选择其中的图片"], ["failed", "超过 50 MB 上限"], ["success", ""]
+    ]);
+    assert.equal(sent.length, 1);
+    await queue.retry();
+    assert.equal(sent.length, 1, "local rejections are not retried");
+});
+
+test("when every file is rejected locally the queue goes idle and still takes new files", async () => {
+    const { env, sent } = importEnv(() => itemResult("SUCCESS", { illustrationId: 7 }));
+    const queue = env.Archive.importQueue();
+    queue.add([{ file: pic("folder", ""), directory: true }, { name: "huge.png", size: 51 * 1024 * 1024, type: "image/png" }]);
+    await queue.run();
+    assert.equal(queue.isRunning(), false, "nothing to send: the queue is idle, not stuck in a run");
+    assert.equal(sent.length, 0);
+    queue.add([pic("ok.png")]);
+    await queue.run();
+    assert.equal(queue.isRunning(), false);
+    assert.deepEqual(plain(queue.items.map((i) => i.status)), ["failed", "failed", "success"]);
+    assert.equal(sent.length, 1);
+});
+
+test("files added while paused wait without being sent; resume sends every unsent file, retry only the unknown", async () => {
+    let online = false;
+    const { env, sent } = importEnv((file) => (file.name === "1.png" && !online
+        ? new TypeError("Failed to fetch")
+        : itemResult("SUCCESS", { illustrationId: Number(file.name[0]) })));
+    const queue = env.Archive.importQueue();
+    queue.add([pic("1.png"), pic("2.png")]);
+    await queue.run();
+    assert.equal(queue.pausedReason(), "network");
+    queue.add([pic("3.png")]);
+    await queue.run();
+    assert.equal(queue.isRunning(), false, "adding while paused does not hang the queue");
+    assert.deepEqual(plain(queue.items.map((i) => i.status)), ["unknown", "queued", "queued"]);
+    assert.equal(sent.length, 1, "nothing new was sent while paused");
+
+    await queue.resume();
+    assert.deepEqual(sent.map((f) => f[0].name), ["1.png", "2.png", "3.png"], "resume sends what was never sent, not the unknown one");
+    assert.deepEqual(plain(queue.items.map((i) => i.status)), ["unknown", "success", "success"]);
+    online = true;
+    await queue.retry();
+    assert.deepEqual(sent.map((f) => f[0].name), ["1.png", "2.png", "3.png", "1.png"]);
+    assert.equal(queue.isRunning(), false);
+});
+
+test("a file whose reply was lost but which the server had stored comes back as a duplicate that is new to the gallery", async () => {
+    let attempt = 0;
+    const { env } = importEnv(() => (attempt++ === 0
+        ? new TypeError("connection reset")
+        : itemResult("DUPLICATE", { illustrationId: 77, errorCode: "DUPLICATE_ILLUSTRATION" })));
+    const queue = env.Archive.importQueue();
+    queue.add([pic("lost.png")]);
+    await queue.run();
+    assert.equal(queue.items[0].status, "unknown");
+    assert.deepEqual(plain(queue.newIds()), []);
+    await queue.retry();
+    const it = queue.items[0];
+    assert.equal(it.status, "duplicate");
+    assert.equal(it.recovered, true);
+    assert.match(it.message, /图库中已存在（之前那次其实已经导入）/);
+    assert.deepEqual(plain(queue.newIds()), [77], "the list must pick it up");
+    assert.deepEqual(plain(queue.importedIds()), [], "it is not counted as imported in this run");
+    assert.equal(queue.summary().duplicate, 1);
+
+    // An ordinary duplicate (never unknown) is not new to the gallery
+    const plainDup = importEnv(() => itemResult("DUPLICATE", { illustrationId: 5 }));
+    const q2 = plainDup.env.Archive.importQueue();
+    q2.add([pic("old.png")]);
+    await q2.run();
+    assert.deepEqual(plain(q2.newIds()), []);
+});
+
+test("a dropped connection marks that file unknown and pauses; the rest stay unsent until resumed", async () => {
+    const files = [pic("1.png"), pic("2.png"), pic("3.png"), pic("4.png")];
+    let offline = true;
+    const { env, sent } = importEnv((file, n) => {
+        if (file.name === "2.png" && offline) return new TypeError("Failed to fetch");
+        if (file.name === "2.png") return itemResult("DUPLICATE", { illustrationId: 22, errorCode: "DUPLICATE_ILLUSTRATION" });
+        return itemResult("SUCCESS", { illustrationId: 20 + n });
+    });
+    const queue = env.Archive.importQueue();
+    queue.add(files);
+    await queue.run();
+    assert.deepEqual(plain(queue.items.map((i) => i.status)), ["success", "unknown", "queued", "queued"]);
+    assert.match(queue.items[1].message, /无法确认/);
+    assert.equal(queue.pausedReason(), "network");
+    assert.equal(sent.length, 2, "nothing after the failure was sent");
+
+    await queue.resume();
+    assert.deepEqual(plain(queue.items.map((i) => i.status)), ["success", "unknown", "success", "success"]);
+    assert.deepEqual(sent.map((f) => f[0].name), ["1.png", "2.png", "3.png", "4.png"], "resume only sends what was never sent");
+
+    offline = false;
+    assert.equal(queue.retryable(), 1);
+    await queue.retry();
+    assert.deepEqual(sent.map((f) => f[0].name), ["1.png", "2.png", "3.png", "4.png", "2.png"], "retry resends only the unknown one");
+    assert.equal(queue.items[1].status, "duplicate", "it had in fact been stored: the server reports it as already there");
+});
+
+test("request-level failures: 403 pauses as an expired session, 413 and 500 fail that file, an unreadable reply is unknown", async () => {
+    const files = [pic("a.png"), pic("b.png"), pic("c.png"), pic("d.png")];
+    const replies = [413, 500, { notTheBatchShape: true }];
+    const { env, sent } = importEnv((file, n) => replies[n]);
+    const queue = env.Archive.importQueue();
+    queue.add(files.slice(0, 3));
+    await queue.run();
+    assert.deepEqual(plain(queue.items.map((i) => [i.status, i.message])), [
+        ["failed", "文件太大，超出上传上限"],
+        ["failed", "服务返回 500，没有导入"],
+        ["unknown", "服务的回应无法读取，无法确认这张是否已导入"]
+    ]);
+    assert.equal(queue.pausedReason(), "network");
+
+    const session = importEnv(() => 403);
+    const q2 = session.env.Archive.importQueue();
+    q2.add([files[3], pic("e.png")]);
+    await q2.run();
+    assert.deepEqual(plain(q2.items.map((i) => i.status)), ["failed", "queued"]);
+    assert.match(q2.items[0].message, /会话已失效/);
+    assert.equal(q2.pausedReason(), "session");
+    assert.equal(session.sent.length, 1);
+    assert.equal(sent.length, 3);
+});
+
+test("files added while a run is going join the same queue in order; success and duplicates are never resent", async () => {
+    const { env, sent, maxInflight } = importEnv((file, n) => (n === 1
+        ? itemResult("FAILED", { errorCode: "STORAGE_FAILED", message: "Failed to store file." })
+        : itemResult(n === 2 ? "DUPLICATE" : "SUCCESS", { illustrationId: 30 + n })));
+    const queue = env.Archive.importQueue();
+    queue.add([pic("1.png"), pic("2.png")]);
+    queue.add([pic("3.png")]);
+    await queue.run();
+    assert.equal(maxInflight(), 1);
+    assert.deepEqual(plain(queue.items.map((i) => [i.name, i.status])), [["1.png", "success"], ["2.png", "failed"], ["3.png", "duplicate"]]);
+    assert.equal(queue.items[1].message, "保存文件失败");
+    assert.equal(queue.retryable(), 1, "a storage failure can be retried");
+    await queue.retry();
+    assert.deepEqual(sent.map((f) => f[0].name), ["1.png", "2.png", "3.png", "2.png"]);
+});
+
+test("after an import the loaded list is re-read: new works appear unfiltered, and under a filter they can be told apart", async () => {
+    let imported = false;
+    const old = Array.from({ length: 3 }, (_, i) => item(10 - i, [jpeg(800 + i)]));
+    const fresh = item(50, [jpeg(850)]);
+    const { env } = importEnv(() => { imported = true; return itemResult("SUCCESS", { illustrationId: 50 }); }, {
+        [listUrl(0)]: () => pageOf(0, imported ? 4 : 3, imported ? [fresh, ...old] : old),
+        [listUrl(0, "&tagId=1")]: pageOf(0, 2, old.slice(0, 2)),
+        "/api/illustrations?page=0&size=1": () => pageOf(0, imported ? 4 : 3, [])
+    });
+    await env.Archive.setQuery({});
+    const queue = env.Archive.importQueue();
+    queue.add([pic("new.png")]);
+    await queue.run();
+    await env.Archive.refreshLoaded();
+    assert.equal(env.Archive.total(), 4);
+    assert.equal(env.Archive.works[0].id, 50, "the newest work leads the wall");
+    assert.equal(env.Archive.listed(50), true);
+
+    await env.Archive.setQuery({ tagIds: [1] });
+    await env.Archive.refreshLoaded();
+    assert.equal(env.Archive.listed(50), false, "the new work does not match the tag filter");
+    assert.equal(env.Archive.total(), 2);
+    assert.equal(await env.Archive.libraryCount(), 4, "the whole library count is read separately");
 });

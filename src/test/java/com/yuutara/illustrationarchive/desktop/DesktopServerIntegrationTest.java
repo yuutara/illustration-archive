@@ -52,6 +52,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -160,7 +161,7 @@ class DesktopServerIntegrationTest {
 	@Test
 	void cGalleryIsServedBehindTheLaunchSessionAndReadsAPagedMultiPageLibraryAcrossRestart() throws Exception {
 		DesktopServer.Running first = start();
-		List<String> pageFiles = List.of("/c/", "/c/archive-client.js", "/c/c-gallery.js", "/c/c-filters.js", "/c/c-editor.js", "/c/fx.js", "/c/theme-mode.js",
+		List<String> pageFiles = List.of("/c/", "/c/archive-client.js", "/c/c-gallery.js", "/c/c-filters.js", "/c/c-editor.js", "/c/c-import.js", "/c/fx.js", "/c/theme-mode.js",
 				"/c/gallery.css", "/c/fx.css", "/c/theme-paper.css", "/c/c.css");
 		for (String path : pageFiles) {
 			assertEquals(403, send(first, null, get(first, path)).statusCode(), path + " must need the launch session");
@@ -394,6 +395,84 @@ class DesktopServerIntegrationTest {
 		assertEquals("新的备注", persisted.get("note").asString());
 		assertTrue(persisted.get("author").isNull());
 		assertEquals(0, persisted.get("tags").size());
+	}
+
+	/**
+	 * The C gallery imports one file per request to the existing batch endpoint and reads each item's result. On the
+	 * desktop (H2) server: same names with different content are separate works, the same content under another name
+	 * is reported as a duplicate of the first, forged images fail without leaving rows or files, a mixed request keeps
+	 * its items in order, and the launch session still guards the endpoint.
+	 */
+	@Test
+	void cGalleryImportOneFilePerRequestKeepsDedupValidationAndCleanupOnH2() throws Exception {
+		DesktopServer.Running running = start();
+		String cookie = openSession(running);
+		byte[] red = png(Color.RED);
+		byte[] blue = png(Color.BLUE);
+		byte[] green = png(Color.GREEN);
+
+		var first = importOne(running, cookie, "red.png", red);
+		assertEquals("SUCCESS", first.get("status").asString());
+		long redId = first.get("illustrationId").asLong();
+		assertEquals("SUCCESS", importOne(running, cookie, "blue.png", blue).get("status").asString());
+		var sameName = importOne(running, cookie, "red.png", green);
+		assertEquals("SUCCESS", sameName.get("status").asString(), "a different picture with the same name is a new work");
+		assertNotEquals(redId, sameName.get("illustrationId").asLong());
+		var renamed = importOne(running, cookie, "renamed-red.png", red);
+		assertEquals("DUPLICATE", renamed.get("status").asString(), "the same content under another name is a duplicate");
+		assertEquals(redId, renamed.get("illustrationId").asLong(), "the duplicate points at the work already in the library");
+		var forged = importOne(running, cookie, "forged.png", "not an image at all".getBytes(StandardCharsets.UTF_8));
+		assertEquals("FAILED", forged.get("status").asString());
+		assertEquals("INVALID_FILE", forged.get("errorCode").asString());
+		var mismatch = importOne(running, cookie, "photo.jpg", png(Color.MAGENTA));
+		assertEquals("FAILED", mismatch.get("status").asString(), "a PNG named .jpg is rejected");
+		assertEquals("INVALID_FILE", mismatch.get("errorCode").asString());
+
+		// One request with several files: results stay in file order and one failure does not stop the others
+		HttpResponse<String> mixed = send(running, cookie, multipart(running, "/api/illustrations/import", List.of(
+				new Part("yellow.png", png(Color.YELLOW)), new Part("blue-again.png", blue),
+				new Part("notes.gif", "just some text".getBytes(StandardCharsets.US_ASCII)), new Part("cyan.png", png(Color.CYAN)))));
+		assertEquals(200, mixed.statusCode(), mixed.body());
+		var items = mapper.readTree(mixed.body()).get("items");
+		List<String> statuses = new ArrayList<>();
+		items.forEach(item -> statuses.add(item.get("filename").asString() + ":" + item.get("status").asString()));
+		assertEquals(List.of("yellow.png:SUCCESS", "blue-again.png:DUPLICATE", "notes.gif:FAILED", "cyan.png:SUCCESS"), statuses);
+
+		// Rows and files: 5 works (red, blue, green, yellow, cyan), one asset and one original file each; failures left nothing
+		assertEquals(5, jdbc(running).queryForObject("SELECT COUNT(*) FROM illustration", Integer.class));
+		assertEquals(5, jdbc(running).queryForObject("SELECT COUNT(*) FROM asset", Integer.class));
+		assertEquals(5, originalFiles().size());
+		try (Stream<Path> thumbnails = Files.walk(media().resolve("thumbnails"))) {
+			assertEquals(5, thumbnails.filter(Files::isRegularFile).count());
+		}
+		var list = mapper.readTree(send(running, cookie, get(running, "/api/illustrations?page=0&size=30")).body());
+		assertEquals(5, list.get("totalElements").asLong(), "the gallery list sees the new works");
+
+		// Known limit of the existing validation (not changed here): it checks the file signature against the
+		// extension, not whether the image decodes, so a truncated GIF that starts with a GIF header is accepted.
+		assertEquals("SUCCESS", importOne(running, cookie, "truncated.gif",
+				"GIF89a?".getBytes(StandardCharsets.US_ASCII)).get("status").asString());
+		assertEquals(6, originalFiles().size());
+
+		// The launch session still guards imports, and a rejected request stores nothing
+		assertEquals(403, send(running, null, multipart(running, "/api/illustrations/import",
+				List.of(new Part("intruder.png", png(Color.ORANGE))))).statusCode());
+		HttpRequest crossOrigin = HttpRequest.newBuilder(multipart(running, "/api/illustrations/import",
+				List.of(new Part("intruder.png", png(Color.ORANGE)))), (name, value) -> true)
+				.header("Origin", "http://localhost:3000").build();
+		assertEquals(403, send(running, cookie, crossOrigin).statusCode());
+		assertEquals(6, jdbc(running).queryForObject("SELECT COUNT(*) FROM illustration", Integer.class));
+		assertEquals(6, originalFiles().size());
+	}
+
+	private tools.jackson.databind.JsonNode importOne(DesktopServer.Running running, String cookie, String name, byte[] content)
+			throws Exception {
+		HttpResponse<String> response = send(running, cookie, multipart(running, "/api/illustrations/import",
+				List.of(new Part(name, content))));
+		assertEquals(200, response.statusCode(), response.body());
+		var result = mapper.readTree(response.body());
+		assertEquals(1, result.get("total").asInt());
+		return result.get("items").get(0);
 	}
 
 	private HttpResponse<String> patch(DesktopServer.Running running, String cookie, long id, String body) throws Exception {

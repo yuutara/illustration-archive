@@ -16,6 +16,7 @@
     <script src="c-gallery.js" defer></script>
     <script src="c-filters.js" defer></script>
     <script src="c-editor.js" defer></script>
+    <script src="c-import.js" defer></script>
     <script src="fx.js" defer></script>
 </head>
 <body>
@@ -29,8 +30,8 @@
         <button class="omni-clear" id="q-clear" type="button" aria-label="清除搜索" hidden><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button>
     </div>
     <div class="mast-actions">
-        <a class="mast-link" href="/" title="打开原有图库：导入、编辑、删除与搜索都在那里">旧图库</a>
-        <button class="btn btn-ink" id="import-open" type="button" data-not-yet="导入尚未接入新版图库，请在旧图库中导入">
+        <a class="mast-link" href="/" title="打开原有图库：删除、批量整理与 X 导入在那里">旧图库</a>
+        <button class="btn btn-ink" id="import-open" type="button" title="导入本地图片（Ctrl + O），也可以直接把图片拖进图库">
             <svg class="icon" aria-hidden="true"><use href="#i-import"/></svg>导入作品
         </button>
         <button class="icon-btn theme-toggle" id="theme-toggle" type="button" aria-pressed="false" aria-label="切换浅色 / 深色">
@@ -74,7 +75,8 @@
     <div class="wall" id="wall"></div>
     <div class="empty" id="empty" hidden>
         <p class="empty-title">图库里还没有作品</p>
-        <p>新版图库还不能导入作品。可以先到<a href="/">旧图库</a>导入，回来刷新即可看到。</p>
+        <p>把 JPEG、PNG、GIF 图片拖进这里，或者从电脑中选择。</p>
+        <button class="btn btn-ink" id="empty-import" type="button">导入作品</button>
     </div>
     <div class="empty" id="no-match" hidden>
         <p class="empty-title">没有符合条件的作品</p>
@@ -180,6 +182,30 @@
     </aside>
 </div>
 
+<!-- 本地导入：逐个文件提交，按服务端逐项结果显示状态 -->
+<input id="import-input" type="file" multiple accept="image/jpeg,image/png,image/gif,.jpg,.jpeg,.png,.gif" hidden>
+<div class="sheet-backdrop" id="import-sheet" hidden>
+    <section class="sheet sheet-import" role="dialog" aria-modal="true" aria-labelledby="import-title">
+        <header class="sheet-head">
+            <h2 id="import-title">导入作品</h2>
+            <button class="icon-btn" id="import-close" type="button" aria-label="关闭"><svg class="icon"><use href="#i-close"/></svg></button>
+        </header>
+        <div class="dropzone" id="dropzone">
+            <p class="dz-title">把图片拖到这里</p>
+            <p>或 <button class="link" id="import-pick" type="button">从电脑中选择</button>　·　JPEG / PNG / GIF，可多选，单个不超过 50 MB</p>
+        </div>
+        <div class="import-bar" id="import-bar" hidden><span></span></div>
+        <ul class="import-list" id="import-list" aria-label="导入进度"></ul>
+        <div class="import-notice" id="import-notice" role="status" hidden></div>
+        <footer class="sheet-foot">
+            <span id="import-summary" aria-live="polite"></span>
+            <button class="btn" id="import-retry" type="button" hidden>重试</button>
+            <button class="btn" id="import-resume" type="button" hidden>继续导入</button>
+            <button class="btn btn-ink" id="import-done" type="button" hidden>完成</button>
+        </footer>
+    </section>
+</div>
+
 <!-- 离开编辑时的确认：有未保存的修改才会出现 -->
 <div class="sheet-backdrop" id="confirm" hidden>
     <section class="sheet sheet-small" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-text">
@@ -202,6 +228,7 @@
             <dl>
                 <dt class="sc-group">图库</dt>
                 <dt><kbd>/</kbd></dt><dd>搜索</dd>
+                <dt><kbd>Ctrl</kbd><kbd>O</kbd></dt><dd>导入本地图片（也可直接拖入）</dd>
                 <dt><kbd>Esc</kbd>（搜索框内）</dt><dd>清空搜索</dd>
                 <dt><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd></dt><dd>移动焦点</dd>
                 <dt><kbd>Enter</kbd></dt><dd>打开看图器</dd>
@@ -220,7 +247,7 @@
                 <dt><kbd>Esc</kbd></dt><dd>逐层返回</dd>
             </dl>
         </div>
-        <p class="sheet-note">新版图库可以搜索、按作者 / 标签筛选和编辑单件作品；删除、导入与批量整理请在<a href="/">旧图库</a>中进行。</p>
+        <p class="sheet-note">新版图库可以导入本地图片、搜索、按作者 / 标签筛选和编辑单件作品；删除与批量整理请在<a href="/">旧图库</a>中进行。</p>
     </section>
 </div>
 

@@ -65,6 +65,27 @@ button:disabled[data-not-yet], .piece-edit:disabled { cursor: not-allowed; opaci
 /* 作品图片坏掉时的占位卡片：保持版面，不误导为真实作品 */
 .piece.is-broken .piece-open img { opacity: .9; }
 
+/* 导入面板：逐项状态 + 细进度条；“图库中已存在”用中性的琥珀色，不当作错误 */
+.sheet-import .import-list { max-height: min(46vh, 360px); }
+.sheet-import .import-list li { grid-template-columns: 40px minmax(0, 1fr) auto auto; }
+.import-list li > div { min-width: 0; }
+.import-list .name { display: block; }
+.imp-action:empty { display: none; }
+.imp-action .link { font-size: 13px; }
+.st-uploading { color: var(--ink-2); }
+.st-unknown { color: var(--danger); font-weight: 500; }
+html[data-mode="dark"] .st-duplicate { color: #d9b26a; }
+.import-list li.is-uploading .thumb { animation: c-pulse 1.1s ease-in-out infinite alternate; }
+@keyframes c-pulse { from { opacity: 1; } to { opacity: .45; } }
+.import-bar { height: 3px; margin: 14px 0 0; border-radius: 2px; background: var(--paper-2); overflow: hidden; }
+.import-bar span { display: block; height: 100%; width: 0; border-radius: inherit; background: var(--accent); transition: width .25s ease; }
+.import-notice { margin-top: 12px; padding: 10px 12px; border-radius: 10px; color: var(--ink-2); background: var(--paper-2); font-size: 13px; }
+.import-notice p { margin: 0; }
+.import-notice p + p { margin-top: 6px; }
+.import-notice .link { font-size: 13px; }
+#import-close:disabled { cursor: not-allowed; opacity: .4; }
+.dropzone .link { font: inherit; }
+
 /* 看图器打开时焦点先落在它自身（只为接住键盘），不画焦点框；里面的按钮、输入框照常显示焦点提示 */
 .viewer:focus { outline: none; }
 

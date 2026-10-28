@@ -3,7 +3,7 @@
  * 作品墙、看图器、多图翻页与循环牌堆沿用原型 B 已验收的交互；数据来自 archive-client.js。
  * 搜索与作者 / 标签筛选的界面在 c-filters.js，单件编辑在 c-editor.js；这里负责按当前查询结果铺墙、显示状态，
  * 看图器只在当前结果里前后翻。离开当前作品（关闭、切换、点作者 / 标签）都先经过编辑器的“离开”确认。
- * 删除、导入、批量整理尚未接入：入口保留但明确禁用，快捷键只提示“尚未接入”。
+ * 本地导入在 c-import.js。删除、批量整理尚未接入：入口保留但明确禁用，快捷键只提示“尚未接入”。
  */
 (function () {
     'use strict';
@@ -17,7 +17,7 @@
         return node;
     };
     const icon = (name) => `<svg class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
-    const NOT_YET = '删除、导入与批量整理尚未接入新版图库，请在旧图库中操作';
+    const NOT_YET = '删除与批量整理尚未接入新版图库，请在旧图库中操作';
 
     const state = {
         density: 'roomy', results: A.works, viewer: null,
@@ -40,6 +40,12 @@
     };
     // 离开当前作品前问编辑器：没在编辑或没有改动时直接放行；有改动时确认；保存中不放行
     const leaveEditor = async () => (await editor('requestLeave')) !== false;
+    const importer = (name, ...args) => {
+        const api = window.CImport;
+        return api && typeof api[name] === 'function' ? api[name](...args) : undefined;
+    };
+    // 刚导入的作品：下次上墙时高亮一下
+    const freshIds = new Set();
 
     function toast(text) {
         const t = $('toast');
@@ -109,6 +115,10 @@
         ab.classList.toggle('is-none', !name);
         ab.disabled = !work.author;
         ab.title = work.author ? `只看 ${name} 的作品` : '';
+        if (freshIds.delete(work.id)) {
+            fig.classList.add('is-fresh');
+            fig.addEventListener('animationend', () => fig.classList.remove('is-fresh'), { once: true });
+        }
         const marks = fig.querySelector('.piece-marks');
         marks.innerHTML = '';
         // 多页角标必须排在第一个：牌堆会把它改成“当前页 / 总页数”
@@ -716,8 +726,12 @@
             if (e.key === 'Escape' || e.key === '?') { e.preventDefault(); $('shortcuts').hidden = true; }
             return;
         }
-        // 放弃修改的确认框、编辑面板里的按键由编辑器自己处理，不触发图库快捷键
+        // 放弃修改的确认框、编辑面板、导入面板里的按键由它们自己处理，不触发图库快捷键
         if (editor('isConfirming')) return;
+        if (importer('isOpen')) {
+            if (e.key === 'Escape') { e.preventDefault(); importer('close'); }
+            return;
+        }
         const typing = e.target instanceof Element && e.target.matches('input, textarea, select');
         if (typing) return;
         if (e.target instanceof Element && e.target.closest('#sv-editor')) return;
@@ -759,7 +773,8 @@
 
         if (e.key === '?') { openShortcuts(); return; }
         if (e.key === '/' && !ctrl) { e.preventDefault(); $('q').focus(); $('q').select(); return; }
-        if (ctrl && ['a', 'o'].includes(e.key.toLowerCase())) { notYet(); return; }
+        if (ctrl && e.key.toLowerCase() === 'o') { e.preventDefault(); importer('open', { pick: true }); return; }
+        if (ctrl && e.key.toLowerCase() === 'a') { notYet(); return; }
         const active = document.activeElement;
         const onPiece = !active || active === document.body || active.classList.contains('piece-open');
         const activePiece = active && active.closest ? active.closest('.piece') : null;
@@ -798,7 +813,11 @@
 
     window.GalleryApi = {
         state, pieces, canvas, img, viewer, clampPan, applyTransform, fitImage, renderWall, renderStatus, toast, showChrome,
-        prepareQueryChange
+        prepareQueryChange, setBackgroundInert, openViewer,
+        isViewerOpen: () => !!state.viewer,
+        markFresh: (ids) => ids.forEach((id) => freshIds.add(id)),
+        // 筛选时列表总数不是整库数量：导入后由导入面板读一次整库数量，更新“全部”旁的数字
+        setLibraryTotal: (n) => { libraryTotal = n; renderStatus(); }
     };
 
     renderWall();
