@@ -1,12 +1,13 @@
 /*
- * C 图库 · 数据读取层：把现有只读 API 转成作品墙、看图器和牌堆共用的作品对象（window.Archive）。
+ * C 图库 · 数据层：把现有 API 转成作品墙、看图器和牌堆共用的作品对象（window.Archive）。
  *
  *   GET /api/illustrations?page&size&q&authorId&tagId
  *                                      分页作品列表（按导入时间倒序），由服务端在全库上筛选：
  *                                      作者之间、标签之间为“或”，作者、标签、关键词三组之间为“且”
  *   GET /api/authors|tags?keyword&limit&offset
  *                                      作者 / 标签筛选候选，按名称排序、分页
- *   GET /api/illustrations/{id}        详情：标签、备注、来源、文件名与大小
+ *   GET /api/illustrations/{id}        详情：标题、作者、标签、备注、来源、文件名与大小
+ *   PATCH /api/illustrations/{id}      单件编辑：只发送改动过的字段，清空作者为 null、清空标签为 []；成功为 204，无响应体
  *   GET /api/assets/{id}/thumbnail     缩略图；GIF、视频没有缩略图，缩略图缺失时退回原图
  *   GET /api/assets/{id}/content       原图
  *
@@ -14,7 +15,8 @@
  * 缩略图失败时退回原图，再失败就用占位图，作品墙不会因为单张图片坏掉而空出一块或错位。
  * 查询条件一变，结果、页码和总数全部重来：旧查询还在路上的列表请求被取消，迟到的响应、错误和图片测量一律丢弃，
  * 不会混进新结果。量过的封面按 asset id 记住，换条件后再遇到同一张图不必重量。
- * 本层只读：没有任何写接口。
+ * 唯一的写操作是单件编辑（PATCH）。保存后强制重读这件作品的详情；有搜索或筛选时，再按服务端结果重读已载入的各页，
+ * 作品因修改不再符合条件就从结果中移出、总数随之变化，分页不重复。
  */
 (function () {
     'use strict';
@@ -27,7 +29,11 @@
     // works 始终是同一个数组（作品墙和动效层直接引用），换查询时清空重填
     const works = [];
     const byId = new Map();
+    // 编辑后因不再符合当前条件而移出结果的作品：看图器还停在它上面时仍要能读到，换查询时清空
+    const retained = new Map();
     const measured = new Map();
+    const detailLoads = new Map();
+    let detailSeq = 0;
     const listeners = new Set();
     let query = { q: '', authorIds: [], tagIds: [] };
     let generation = 0;
@@ -272,16 +278,24 @@
         return loading;
     }
 
+    // 换查询前的最后一道闸（由编辑器登记）：返回 false 时拒绝换查询，列表、页码、总数都不动，并发出 blocked
+    let queryGuard = null;
+
     // 换查询：取消旧请求，清空结果、页码与总数，从第一页重新载入。条件没变且已经开始载入时什么都不做。
     function setQuery(next) {
         const q = normalizeQuery(next);
         if (started && sameQuery(q, query)) return loading || Promise.resolve(false);
+        if (started && queryGuard && !queryGuard()) {
+            emit('blocked');
+            return Promise.resolve(false);
+        }
         generation++;
         if (controller) controller.abort();
         controller = typeof AbortController === 'function' ? new AbortController() : null;
         query = q;
         works.length = 0;
         byId.clear();
+        retained.clear();
         nextPage = 0;
         total = null;
         filters = null;
@@ -289,6 +303,68 @@
         lastError = null;
         emit('reset');
         return loadMore();
+    }
+
+    /*
+     * 编辑保存后按服务端结果重读已载入的各页（条件不变）：已在列表里的作品沿用原对象（封面尺寸、详情不丢），
+     * 不再符合条件的移出结果、记入 retained；总数、筛选回带信息与页码一并更新，之后的“载入更多”接着往下翻，不会重复。
+     * 失败时保持原列表不动并返回错误；查询在此期间换了，结果作废。
+     */
+    function refreshLoaded() {
+        const pages = Math.max(1, nextPage);
+        generation++;
+        if (controller) controller.abort();
+        controller = typeof AbortController === 'function' ? new AbortController() : null;
+        const gen = generation;
+        const current = () => gen === generation;
+        const signal = controller ? controller.signal : undefined;
+        lastError = null;
+        const run = (async () => {
+            try {
+                const items = [];
+                let last = null;
+                for (let p = 0; p < pages; p++) {
+                    last = await getJson(listUrl(query, p), signal);
+                    if (!current()) return { stale: true };
+                    items.push(...last.items);
+                    if (last.items.length < PAGE_SIZE) break;
+                }
+                const seen = new Set();
+                const next = [];
+                items.forEach((item) => {
+                    if (seen.has(item.id)) return;
+                    seen.add(item.id);
+                    const old = byId.get(item.id) || retained.get(item.id);
+                    if (old) {
+                        old.title = item.title || '';
+                        old.author = item.author || null;
+                        next.push(old);
+                    } else next.push(toWork(item));
+                });
+                const covers = next.map((w) => w.pages[0]).filter((p) => !p.width);
+                covers.forEach(reuseMeasured);
+                await measureAll(covers, current);
+                if (!current()) return { stale: true };
+                covers.forEach(rememberMeasured);
+                const removed = works.map((w, index) => ({ id: w.id, index })).filter((r) => !seen.has(r.id));
+                removed.forEach((r) => retained.set(r.id, byId.get(r.id)));
+                works.length = 0;
+                byId.clear();
+                next.forEach((w) => { works.push(w); byId.set(w.id, w); retained.delete(w.id); });
+                total = last.totalElements;
+                filters = last.filters || null;
+                nextPage = last.page + 1;
+                loading = null;
+                emit('refresh', { removed });
+                return { removed };
+            } catch (error) {
+                if (!current()) return { stale: true };
+                loading = null;
+                return { error };
+            }
+        })();
+        loading = run.then((r) => !r.error && !r.stale);
+        return run;
     }
 
     /*
@@ -340,33 +416,197 @@
         };
     }
 
-    async function loadDetail(id) {
-        const work = byId.get(id);
-        if (!work) return null;
-        if (work.detail) return work.detail;
+    const getWork = (id) => byId.get(id) || retained.get(id) || null;
+
+    /*
+     * 详情：默认用缓存；force 时一定重读（打开编辑器、保存之后）。同一件作品同时有多次读取时只采用最后发出的那次，
+     * 先发后到的旧结果不会覆盖新结果。详情里的标题、作者也同步到作品对象上，作品墙与看图器据此显示。
+     */
+    function loadDetail(id, { force = false } = {}) {
+        const work = getWork(id);
+        if (!work) return Promise.resolve(null);
+        if (work.detail && !force) return Promise.resolve(work.detail);
+        const pending = detailLoads.get(id);
+        if (pending && !force) return pending.promise;
+        const seq = ++detailSeq;
+        const latest = () => detailLoads.get(id)?.seq === seq;
+        // 被后发的读取取代：交给最新的那次（还在路上就等它，已完成就用它写下的结果）
+        const superseded = () => {
+            const newer = detailLoads.get(id);
+            return newer ? newer.promise : (getWork(id) || work).detail || null;
+        };
         work.detailError = null;
+        const promise = (async () => {
+            try {
+                const detail = await getJson(`/api/illustrations/${id}`);
+                if (!latest()) return superseded();
+                const target = getWork(id) || work;
+                target.title = detail.title || '';
+                target.author = detail.author || null;
+                target.detail = {
+                    title: detail.title || '',
+                    author: detail.author || null,
+                    sourceUrl: detail.sourceUrl || '',
+                    note: detail.note || '',
+                    tags: detail.tags || [],
+                    updatedAt: detail.updatedAt ? Date.parse(detail.updatedAt) : null
+                };
+                target.detailError = null;
+                (detail.assets || []).forEach((asset) => {
+                    const page = target.pages.find((p) => p.assetId === asset.id);
+                    if (page) {
+                        page.originalFilename = asset.originalFilename;
+                        page.size = asset.fileSize;
+                    }
+                });
+                emit('detail', { id });
+                return target.detail;
+            } catch (error) {
+                if (!latest()) return superseded();
+                (getWork(id) || work).detailError = error;
+                emit('detail', { id });
+                return null;
+            } finally {
+                if (latest()) detailLoads.delete(id);
+            }
+        })();
+        detailLoads.set(id, { seq, promise });
+        return promise;
+    }
+
+    /* ---------------- 单件编辑 ---------------- */
+
+    const EDIT_TEXT_FIELDS = ['title', 'sourceUrl', 'note'];
+
+    // 详情 → 可编辑的原值（编辑器的草稿从它复制）
+    function editableOf(detail) {
+        return {
+            title: detail.title || '',
+            authorId: detail.author ? detail.author.id : null,
+            tagIds: (detail.tags || []).map((t) => t.id),
+            sourceUrl: detail.sourceUrl || '',
+            note: detail.note || ''
+        };
+    }
+
+    /*
+     * PATCH 请求体：只放改动过的字段。文本去掉首尾空白，空白即 null（与旧图库一致）；作者清空为 null；
+     * 标签按集合比较（顺序无关），清空为 []。没有改动时得到空对象。
+     */
+    function buildPatch(original, draft) {
+        const text = (v) => String(v == null ? '' : v).trim() || null;
+        const tagKey = (ids) => [...new Set(ids)].sort((a, b) => a - b).join();
+        const patch = {};
+        EDIT_TEXT_FIELDS.forEach((k) => { if (text(draft[k]) !== text(original[k])) patch[k] = text(draft[k]); });
+        const authorId = draft.authorId == null ? null : draft.authorId;
+        if (authorId !== (original.authorId == null ? null : original.authorId)) patch.authorId = authorId;
+        if (tagKey(draft.tagIds) !== tagKey(original.tagIds)) patch.tagIds = [...new Set(draft.tagIds)];
+        return patch;
+    }
+
+    async function saveFailure(response) {
+        let message = '';
         try {
-            const detail = await getJson(`/api/illustrations/${id}`);
-            work.detail = {
-                sourceUrl: detail.sourceUrl || '',
-                note: detail.note || '',
-                tags: detail.tags || [],
-                updatedAt: detail.updatedAt ? Date.parse(detail.updatedAt) : null
-            };
-            (detail.assets || []).forEach((asset) => {
-                const page = work.pages.find((p) => p.assetId === asset.id);
-                if (page) {
-                    page.originalFilename = asset.originalFilename;
-                    page.size = asset.fileSize;
-                }
+            const body = await response.json();
+            if (body && typeof body.message === 'string') message = body.message;
+        } catch (e) { /* 没有可读的错误说明 */ }
+        if (response.status === 403) return '本机访问会话已失效，请从控制窗口重新打开图库';
+        if (response.status === 404) return '这件作品已不存在，可能已在旧图库中删除';
+        if (response.status === 400) return '内容不符合要求' + (message ? '：' + message : '');
+        return `服务没有保存这次修改（${response.status}）。所选作者或标签可能已在别处被删除，请刷新后重试`;
+    }
+
+    /*
+     * 保存：PATCH 成功（204，无响应体，不解析）后强制重读详情；有搜索或筛选时再按服务端结果刷新已载入的列表。
+     * 返回 { listed, detailError, refreshError }：listed 为 false 表示这件作品已不符合当前条件、移出了结果。
+     * PATCH 失败时抛出带说明的错误，本地数据不变。
+     */
+    async function saveWork(id, patch) {
+        let response;
+        try {
+            response = await fetch(`/api/illustrations/${id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify(patch)
             });
-            emit('detail', { id });
-            return work.detail;
-        } catch (error) {
-            work.detailError = error;
-            emit('detail', { id });
-            return null;
+        } catch (e) {
+            throw new RequestError(0, '无法连接到本地图库服务，修改没有保存');
         }
+        if (!response.ok) throw new RequestError(response.status, await saveFailure(response));
+        const filtered = !!(query.q || query.authorIds.length || query.tagIds.length);
+        const result = { listed: true, detailError: null, refreshError: null };
+        if (!(await loadDetail(id, { force: true }))) result.detailError = getWork(id) ? getWork(id).detailError : null;
+        if (filtered) {
+            const refreshed = await refreshLoaded();
+            if (refreshed.error) result.refreshError = refreshed.error;
+        }
+        result.listed = byId.has(id);
+        emit('updated', { id, listed: result.listed });
+        return result;
+    }
+
+    /*
+     * 一次编辑的状态：loading（读详情）→ ready（可编辑）→ saving → saved；读详情失败为 error。
+     * 只有 ready 时能改草稿和保存，保存中再次提交直接忽略；保存失败回到 ready，草稿原样保留并记下原因。
+     * 详情读完之前没有草稿，避免把没载入的字段当成空值发出去。
+     */
+    function editSession(id) {
+        const s = { id, phase: 'loading', original: null, draft: null, error: null };
+        const listeners = new Set();
+        let disposed = false;
+        const changed = () => { if (!disposed) listeners.forEach((fn) => fn(s)); };
+        const patch = () => (s.original ? buildPatch(s.original, s.draft) : {});
+        return {
+            state: s,
+            onChange(fn) { listeners.add(fn); },
+            patch,
+            dirty: () => Object.keys(patch()).length > 0,
+            async load() {
+                s.phase = 'loading';
+                s.error = null;
+                changed();
+                const detail = await loadDetail(id, { force: true });
+                if (disposed) return false;
+                if (!detail) {
+                    const work = getWork(id);
+                    s.phase = 'error';
+                    s.error = (work && work.detailError && work.detailError.message) || '作品信息载入失败';
+                    changed();
+                    return false;
+                }
+                s.original = editableOf(detail);
+                s.draft = { ...s.original, tagIds: [...s.original.tagIds] };
+                s.phase = 'ready';
+                changed();
+                return true;
+            },
+            set(key, value) {
+                if (s.phase !== 'ready') return;
+                s.draft[key] = key === 'tagIds' ? [...value] : value;
+                changed();
+            },
+            async save() {
+                if (s.phase !== 'ready') return null;
+                const body = patch();
+                if (!Object.keys(body).length) return { unchanged: true };
+                s.phase = 'saving';
+                s.error = null;
+                changed();
+                try {
+                    const result = await saveWork(id, body);
+                    s.phase = 'saved';
+                    changed();
+                    return result;
+                } catch (error) {
+                    s.phase = 'ready';
+                    s.error = error.message;
+                    changed();
+                    return null;
+                }
+            },
+            dispose() { disposed = true; listeners.clear(); }
+        };
     }
 
     // 看图器用：载入原图并记下真实尺寸；失败时返回 null，界面保留缩略图并说明
@@ -426,16 +666,20 @@
     window.Archive = {
         PAGE_SIZE,
         works,
-        get: (id) => byId.get(id) || null,
+        get: getWork,
+        listed: (id) => byId.has(id),
         total: () => total,
         query: () => ({ q: query.q, authorIds: [...query.authorIds], tagIds: [...query.tagIds] }),
         isFiltered: () => !!(query.q || query.authorIds.length || query.tagIds.length),
         filters: () => filters,
         generation: () => generation,
         setQuery,
+        setQueryGuard: (fn) => { queryGuard = fn; },
         queryFromSearch,
         searchOf,
         facetSearch,
+        editSession,
+        refreshLoaded,
         hasMore,
         isLoading: () => loading != null,
         lastError: () => lastError,
@@ -450,6 +694,6 @@
         relativeDay,
         subscribe: (fn) => { listeners.add(fn); return () => listeners.delete(fn); },
         // 供测试使用的纯函数
-        _internal: { toWork, pageFor, formatOf, placeholder, listUrl, normalizeQuery }
+        _internal: { toWork, pageFor, formatOf, placeholder, listUrl, normalizeQuery, buildPatch, editableOf, saveWork }
     };
 })();

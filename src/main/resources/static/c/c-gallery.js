@@ -1,8 +1,9 @@
 /*
- * C 图库 · 浏览（只读）
- * 作品墙、看图器、多图翻页与循环牌堆沿用原型 B 已验收的交互；数据来自 archive-client.js 的只读 API。
- * 搜索与作者 / 标签筛选的界面在 c-filters.js；这里负责按当前查询结果铺墙、显示状态，看图器只在当前结果里前后翻。
- * 编辑、删除、导入、批量整理尚未接入：入口保留但明确禁用，快捷键只提示“尚未接入”，不会显示保存成功。
+ * C 图库 · 浏览
+ * 作品墙、看图器、多图翻页与循环牌堆沿用原型 B 已验收的交互；数据来自 archive-client.js。
+ * 搜索与作者 / 标签筛选的界面在 c-filters.js，单件编辑在 c-editor.js；这里负责按当前查询结果铺墙、显示状态，
+ * 看图器只在当前结果里前后翻。离开当前作品（关闭、切换、点作者 / 标签）都先经过编辑器的“离开”确认。
+ * 删除、导入、批量整理尚未接入：入口保留但明确禁用，快捷键只提示“尚未接入”。
  */
 (function () {
     'use strict';
@@ -16,7 +17,7 @@
         return node;
     };
     const icon = (name) => `<svg class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
-    const NOT_YET = '编辑、删除、导入与批量整理尚未接入新版图库，请在旧图库中操作';
+    const NOT_YET = '删除、导入与批量整理尚未接入新版图库，请在旧图库中操作';
 
     const state = {
         density: 'roomy', results: A.works, viewer: null,
@@ -28,11 +29,17 @@
         const hooks = window.GalleryFx;
         return hooks && typeof hooks[name] === 'function' ? hooks[name](...args) : undefined;
     };
-    // c-filters.js 在本文件之后载入，用到时再取
+    // c-filters.js、c-editor.js 在本文件之后载入，用到时再取
     const filters = (name, ...args) => {
         const api = window.CFilters;
         return api && typeof api[name] === 'function' ? api[name](...args) : undefined;
     };
+    const editor = (name, ...args) => {
+        const api = window.CEditor;
+        return api && typeof api[name] === 'function' ? api[name](...args) : undefined;
+    };
+    // 离开当前作品前问编辑器：没在编辑或没有改动时直接放行；有改动时确认；保存中不放行
+    const leaveEditor = async () => (await editor('requestLeave')) !== false;
 
     function toast(text) {
         const t = $('toast');
@@ -69,12 +76,17 @@
             fig.innerHTML = `<div class="piece-media">
                     <button class="piece-open" type="button"><img alt="" loading="lazy" decoding="async" draggable="false"></button>
                     <div class="piece-marks"></div>
-                    <button class="piece-edit" type="button" disabled title="${NOT_YET}">${icon('pen')}编辑</button>
+                    <button class="piece-edit" type="button" title="编辑作品信息（E）">${icon('pen')}编辑</button>
                 </div>
                 <figcaption><span class="piece-title"></span><button class="piece-author" type="button"></button></figcaption>`;
             fig.querySelector('.piece-open').addEventListener('click', () => {
                 state.focusId = work.id;
                 openViewer(work.id);
+            });
+            // 卡片上的“编辑”：打开看图器并直接进入编辑，与看图器里的“编辑”、E 键同一流程
+            fig.querySelector('.piece-edit').addEventListener('click', () => {
+                state.focusId = work.id;
+                openViewer(work.id, { edit: true });
             });
             // 点作者名：只看这位作者（关键词和标签条件保留）
             fig.querySelector('.piece-author').addEventListener('click', () => {
@@ -250,17 +262,36 @@
 
     function indexOf(id) { return state.results.findIndex((w) => w.id === id); }
 
-    function openViewer(id) {
-        state.viewer = { id, page: 0, info: false, scale: 1, fit: true, tx: 0, ty: 0 };
+    /*
+     * 看图器是模态的：打开期间顶栏、筛选行和作品墙设为 inert，Tab / Shift+Tab 只在看图器里走，
+     * 也点不到、输不进背景（不会在编辑时从背后改动搜索或筛选）。候选弹层、确认框、提示条都直接挂在 body 下，不受影响。
+     */
+    const background = () => document.querySelectorAll('body > .masthead, body > .filterbar, body > .wall-wrap');
+    function setBackgroundInert(on) {
+        background().forEach((node) => { node.inert = on; });
+    }
+
+    function openViewer(id, { edit = false } = {}) {
+        // 打开前还在排队的搜索（停顿后才提交的那次）作废，不在看图 / 编辑期间改掉结果
+        filters('cancelPendingSearch');
+        filters('closePicker');
+        state.viewer = { id, page: 0, info: false, scale: 1, fit: true, tx: 0, ty: 0, anchor: null };
         viewer.hidden = false;
+        setBackgroundInert(true);
         document.body.classList.add('is-locked');
+        viewer.focus({ preventScroll: true });
         showChrome();
         showWork(id, fx('startPage', id) || 0);
         fx('viewerOpened', id);
+        if (edit) editor('open', id);
     }
 
-    function closeViewer() {
-        if (!state.viewer) return;
+    // 返回 false 表示用户选择留下继续编辑（或正在保存）；force 用于换查询等不可拒绝的场合
+    async function closeViewer({ force = false } = {}) {
+        if (!state.viewer) return true;
+        if (force) editor('close');
+        else if (!(await leaveEditor())) return false;
+        if (!state.viewer) return true;
         const id = state.viewer.id;
         fx('viewerClosing', id);
         state.viewer = null;
@@ -268,21 +299,45 @@
         viewer.style.setProperty('--info', '0px');
         setNotice(null);
         document.body.classList.remove('is-locked');
+        setBackgroundInert(false);
         const fig = pieces.get(id);
-        if (fig) { fig.scrollIntoView({ block: 'nearest' }); fig.querySelector('.piece-open').focus({ preventScroll: true }); }
+        if (fig && fig.isConnected) { fig.scrollIntoView({ block: 'nearest' }); fig.querySelector('.piece-open').focus({ preventScroll: true }); }
+        return true;
+    }
+
+    /*
+     * 序号与上一件 / 下一件。编辑保存后这件作品可能已不在当前结果中：序号显示“—”，
+     * anchor 记着它原来的位置，上一件 / 下一件从那里接着翻，不会跳回开头。
+     */
+    function updatePosition() {
+        const v = state.viewer;
+        if (!v) return;
+        const i = indexOf(v.id);
+        const total = A.total() ?? state.results.length;
+        const num = $('sv-num');
+        if (i >= 0) {
+            v.anchor = null;
+            $('sv-prev').disabled = i <= 0;
+            $('sv-next').disabled = i >= state.results.length - 1 && !A.hasMore();
+            num.innerHTML = `${String(i + 1).padStart(2, '0')}<small>/ ${total}</small>`;
+            num.title = '';
+        } else {
+            const k = v.anchor ?? 0;
+            $('sv-prev').disabled = k <= 0;
+            $('sv-next').disabled = k >= state.results.length && !A.hasMore();
+            num.innerHTML = `—<small>/ ${total}</small>`;
+            num.title = '这件作品已不在当前的搜索或筛选结果中';
+        }
     }
 
     function showWork(id, page = 0) {
         fx('settle');
         const v = state.viewer;
         const work = A.get(id);
+        if (v.id !== id) v.anchor = null;
         v.id = id;
-        const i = indexOf(id);
         viewer.style.setProperty('--tint', mix(work.pages[0].tone || '#d8d3c8', '#121110', 0.32));
-        $('sv-prev').disabled = i <= 0;
-        $('sv-next').disabled = i < 0 || (i >= state.results.length - 1 && !A.hasMore());
-        const total = A.total() ?? state.results.length;
-        $('sv-num').innerHTML = i >= 0 ? `${String(i + 1).padStart(2, '0')}<small>/ ${total}</small>` : '';
+        updatePosition();
         const pagesBox = $('sv-pages');
         pagesBox.innerHTML = '';
         if (work.pages.length > 1) {
@@ -414,15 +469,23 @@
     }
 
     // 翻到已载入列表的末尾时，先载入下一页再前进；只在当前查询的结果里翻，查询换了就停下
+    // 切到另一件作品前先过编辑器的“离开”确认；当前作品已移出结果时从原位置接着翻
     async function step(delta) {
         const v = state.viewer;
         const gen = A.generation();
-        let i = indexOf(v.id) + delta;
+        let i = indexOf(v.id);
+        if (i < 0 && v.anchor != null) i = delta > 0 ? v.anchor - 1 : v.anchor;
+        i += delta;
+        if (i < 0) return;
         if (i >= state.results.length && A.hasMore()) {
             await A.loadMore();
             if (state.viewer !== v || A.generation() !== gen) return;
         }
-        if (state.results[i]) { fx('navigate', delta); showWork(state.results[i].id); }
+        const target = state.results[i];
+        if (!target) return;
+        if (!(await leaveEditor()) || state.viewer !== v) return;
+        fx('navigate', delta);
+        showWork(target.id);
     }
 
     function stepPage(delta) {
@@ -473,7 +536,7 @@
         clearTimeout(chromeTimer);
         chromeTimer = setTimeout(() => {
             const v = state.viewer;
-            if (!v || v.info || !$('sv-menu').hidden) return;
+            if (!v || v.info || editor('isOpen') || !$('sv-menu').hidden) return;
             if (viewer.querySelector('.sv-top:hover, .sv-caption:hover')) return;
             viewer.classList.remove('chrome-on');
         }, 2500);
@@ -510,7 +573,7 @@
             const b = el('button', cls, label);
             b.type = 'button';
             b.title = `回到图库，只看“${label}”`;
-            b.addEventListener('click', () => { closeViewer(); filters('only', kind, value); });
+            b.addEventListener('click', async () => { if (await closeViewer()) filters('only', kind, value); });
             return b;
         };
         const sa = section(c1, '作者');
@@ -567,8 +630,9 @@
 
     A.subscribe((event) => {
         if (event.type === 'reset') {
-            // 换了查询：看图器不再翻旧结果；旧作品墙先变淡、不可点，等新结果第一页到了再整体换掉（动效层据此过渡）
-            closeViewer();
+            // 换了查询：看图器不再翻旧结果；旧作品墙先变淡、不可点，等新结果第一页到了再整体换掉（动效层据此过渡）。
+            // 看图器开着时换查询只来自“点作者 / 标签”，那条路径已先经过编辑器的离开确认，这里直接关闭。
+            closeViewer({ force: true });
             state.focusId = null;
             const wall = $('wall');
             wall.classList.add('is-refreshing');
@@ -577,7 +641,23 @@
             renderStatus();
         } else if (event.type === 'append') {
             renderWall();
-            if (state.viewer) showWorkCounters();
+            updatePosition();
+        } else if (event.type === 'refresh') {
+            // 编辑保存后按服务端结果重读了已载入的列表：看图器停在已移出结果的作品上时记下它原来的位置
+            const v = state.viewer;
+            const gone = v && event.removed.find((r) => r.id === v.id);
+            if (gone) v.anchor = gone.index;
+            renderWall();
+            updatePosition();
+        } else if (event.type === 'updated') {
+            const work = A.get(event.id);
+            if (work && pieces.has(event.id)) pieceFor(work);
+            if (state.viewer && state.viewer.id === event.id) {
+                renderCaption();
+                if (state.viewer.info) renderInfo();
+            }
+            updatePosition();
+            renderStatus();
         } else if (event.type === 'error') {
             if (!state.results.length) renderWall();
             else renderStatus();
@@ -589,13 +669,8 @@
         }
     });
 
-    function showWorkCounters() {
-        const v = state.viewer;
-        const i = indexOf(v.id);
-        $('sv-next').disabled = i < 0 || (i >= state.results.length - 1 && !A.hasMore());
-    }
-
-    $('sv-back').addEventListener('click', closeViewer);
+    $('sv-back').addEventListener('click', () => closeViewer());
+    $('sv-edit-toggle').addEventListener('click', () => { if (state.viewer) editor('open', state.viewer.id); });
     $('sv-prev').addEventListener('click', () => step(-1));
     $('sv-next').addEventListener('click', () => step(1));
     $('sv-info-toggle').addEventListener('click', () => setInfo(!state.viewer.info));
@@ -641,8 +716,11 @@
             if (e.key === 'Escape' || e.key === '?') { e.preventDefault(); $('shortcuts').hidden = true; }
             return;
         }
+        // 放弃修改的确认框、编辑面板里的按键由编辑器自己处理，不触发图库快捷键
+        if (editor('isConfirming')) return;
         const typing = e.target instanceof Element && e.target.matches('input, textarea, select');
         if (typing) return;
+        if (e.target instanceof Element && e.target.closest('#sv-editor')) return;
         // 作者 / 标签弹层开着而焦点不在它的输入框（例如刚点了筛选按钮）：Esc 关弹层，其余按键不触发作品墙快捷键
         if (filters('isPickerOpen')) {
             if (e.key === 'Escape') { e.preventDefault(); filters('closePicker', true); }
@@ -655,6 +733,7 @@
         if (v) {
             if (e.key === 'Escape') {
                 if (!$('sv-menu').hidden) setMenu(false);
+                else if (editor('isOpen')) editor('requestLeave');
                 else if (v.info) setInfo(false);
                 else closeViewer();
                 return;
@@ -669,7 +748,8 @@
                 case '0': fitImage(); break;
                 case '1': zoomTo(1); break;
                 case 'i': case 'I': setInfo(!v.info); break;
-                case 'e': case 'E': case 't': case 'T': case 'Delete': notYet(); break;
+                case 'e': case 'E': e.preventDefault(); editor('open', v.id); break;
+                case 'Delete': notYet(); break;
                 case '?': openShortcuts(); break;
                 default: return;
             }
@@ -684,7 +764,7 @@
         const onPiece = !active || active === document.body || active.classList.contains('piece-open');
         const activePiece = active && active.closest ? active.closest('.piece') : null;
         if (activePiece) state.focusId = Number(activePiece.dataset.id);
-        const focus = state.focusId != null && A.get(state.focusId) ? state.focusId : null;
+        const focus = state.focusId != null && A.listed(state.focusId) ? state.focusId : null;
         if (e.key === 'Enter' && !onPiece) return;
         switch (e.key) {
             case 'ArrowLeft': case 'ArrowRight': case 'ArrowUp': case 'ArrowDown':
@@ -692,7 +772,11 @@
                 moveFocus(e.key);
                 break;
             case 'Enter': if (focus != null) { e.preventDefault(); openViewer(focus); } break;
-            case 'e': case 'E': case 't': case 'T': case 'Delete': notYet(); break;
+            case 'e': case 'E':
+                if (focus != null) { e.preventDefault(); openViewer(focus, { edit: true }); }
+                else toast('先用方向键或鼠标选中一件作品，再按 E 编辑');
+                break;
+            case 'Delete': notYet(); break;
             default: return;
         }
     });
@@ -706,7 +790,16 @@
     $('shortcuts').addEventListener('mousedown', (e) => { if (e.target === $('shortcuts')) $('shortcuts').hidden = true; });
 
     // 供 fx.js 读取看图器状态、复用平移约束
-    window.GalleryApi = { state, pieces, canvas, img, viewer, clampPan, applyTransform, fitImage, renderWall, renderStatus };
+    /*
+     * 搜索、筛选要换查询之前先问这里：看图器开着时先关闭它（有未保存的编辑会先确认，保存中不放行），
+     * 返回 false 时调用方不改查询。这样 setQuery 只在确认离开之后才清空列表状态。
+     */
+    const prepareQueryChange = async () => !state.viewer || closeViewer();
+
+    window.GalleryApi = {
+        state, pieces, canvas, img, viewer, clampPan, applyTransform, fitImage, renderWall, renderStatus, toast, showChrome,
+        prepareQueryChange
+    };
 
     renderWall();
     // 页面地址里带着条件（刷新、或从别处带条件打开）时直接按条件载入

@@ -160,7 +160,7 @@ class DesktopServerIntegrationTest {
 	@Test
 	void cGalleryIsServedBehindTheLaunchSessionAndReadsAPagedMultiPageLibraryAcrossRestart() throws Exception {
 		DesktopServer.Running first = start();
-		List<String> pageFiles = List.of("/c/", "/c/archive-client.js", "/c/c-gallery.js", "/c/c-filters.js", "/c/fx.js", "/c/theme-mode.js",
+		List<String> pageFiles = List.of("/c/", "/c/archive-client.js", "/c/c-gallery.js", "/c/c-filters.js", "/c/c-editor.js", "/c/fx.js", "/c/theme-mode.js",
 				"/c/gallery.css", "/c/fx.css", "/c/theme-paper.css", "/c/c.css");
 		for (String path : pageFiles) {
 			assertEquals(403, send(first, null, get(first, path)).statusCode(), path + " must need the launch session");
@@ -316,6 +316,94 @@ class DesktopServerIntegrationTest {
 					+ java.net.URLEncoder.encode(beyond, StandardCharsets.UTF_8))).body());
 			assertTrue(names(found, field).contains(beyond), "keyword search finds " + beyond);
 		}
+	}
+
+	/**
+	 * The C gallery's single-work editor relies on the existing PATCH contract on the desktop (H2) server: only the
+	 * fields sent change, null clears the author and [] clears the tags, success is 204 with no body, a request naming
+	 * an unknown author or tag changes nothing, the launch session still guards writes, and edits survive a restart.
+	 */
+	@Test
+	void cGalleryEditPatchesOnlySentFieldsClearsAuthorAndTagsRejectsUnknownIdsAtomicallyAndPersists() throws Exception {
+		DesktopServer.Running first = start();
+		String cookie = openSession(first);
+		CGalleryTestLibrary.build(first, 24);
+		JdbcTemplate jdbc = jdbc(first);
+		long id = jdbc.queryForObject("SELECT MIN(i.id) FROM illustration i WHERE i.author_id IS NOT NULL "
+				+ "AND EXISTS (SELECT 1 FROM illustration_tag it WHERE it.illustration_id = i.id)", Long.class);
+		var before = detail(first, cookie, id);
+		long authorId = before.get("author").get("id").asLong();
+		List<Long> tagIds = new ArrayList<>();
+		before.get("tags").forEach(tag -> tagIds.add(tag.get("id").asLong()));
+		long sea = jdbc.queryForObject("SELECT id FROM tag WHERE name = '海'", Long.class);
+
+		// Text fields only: author and tags are not sent and stay as they were
+		HttpResponse<String> text = patch(first, cookie, id, "{\"title\":\"编辑后的标题\",\"note\":\"新的备注\",\"sourceUrl\":null}");
+		assertEquals(204, text.statusCode(), text.body());
+		assertEquals("", text.body(), "204 carries no body");
+		var afterText = detail(first, cookie, id);
+		assertEquals("编辑后的标题", afterText.get("title").asString());
+		assertEquals("新的备注", afterText.get("note").asString());
+		assertTrue(afterText.get("sourceUrl").isNull());
+		assertEquals(authorId, afterText.get("author").get("id").asLong());
+		assertEquals(tagIds.size(), afterText.get("tags").size());
+
+		// Unknown author or tag: the whole request fails and nothing in it is applied
+		for (String body : List.of("{\"title\":\"不应写入\",\"authorId\":999999}",
+				"{\"note\":\"不应写入\",\"tagIds\":[" + sea + ",999999]}",
+				"{\"title\":\"不应写入\",\"tagIds\":null}")) {
+			HttpResponse<String> rejected = patch(first, cookie, id, body);
+			assertTrue(rejected.statusCode() >= 400, body + " -> " + rejected.statusCode());
+			var unchanged = detail(first, cookie, id);
+			assertEquals("编辑后的标题", unchanged.get("title").asString(), body);
+			assertEquals("新的备注", unchanged.get("note").asString(), body);
+			assertEquals(authorId, unchanged.get("author").get("id").asLong(), body);
+			assertEquals(tagIds.size(), unchanged.get("tags").size(), body);
+		}
+
+		// The launch session still guards writes
+		assertEquals(403, send(first, null, json(first, "PATCH", "/api/illustrations/" + id, "{\"title\":\"x\"}")).statusCode());
+		HttpRequest crossOrigin = request(first, cookie, "/api/illustrations/" + id).header("Origin", "http://localhost:3000")
+				.header("Content-Type", "application/json").method("PATCH", HttpRequest.BodyPublishers.ofString("{\"title\":\"x\"}")).build();
+		assertEquals(403, send(first, cookie, crossOrigin).statusCode());
+		assertEquals("编辑后的标题", detail(first, cookie, id).get("title").asString());
+
+		// Clear author (null) and tags ([]); the work then leaves a tag filter it used to match
+		boolean hadSea = tagIds.contains(sea);
+		assertEquals(204, patch(first, cookie, id, "{\"authorId\":null,\"tagIds\":[]}").statusCode());
+		var cleared = detail(first, cookie, id);
+		assertTrue(cleared.get("author").isNull());
+		assertEquals(0, cleared.get("tags").size());
+		assertEquals("编辑后的标题", cleared.get("title").asString(), "fields not sent are kept");
+		var seaList = mapper.readTree(send(first, cookie, get(first, "/api/illustrations?size=100&tagId=" + sea)).body());
+		List<Long> seaIds = new ArrayList<>();
+		seaList.get("items").forEach(item -> seaIds.add(item.get("id").asLong()));
+		assertFalse(seaIds.contains(id), "the cleared work no longer matches the tag filter");
+		if (hadSea) {
+			assertEquals(jdbc.queryForObject("SELECT COUNT(DISTINCT illustration_id) FROM illustration_tag WHERE tag_id = ?",
+					Long.class, sea), seaList.get("totalElements").asLong());
+		}
+
+		// Edits persist across a restart of the desktop server on the same home
+		first.context().close();
+		started.remove(first);
+		DesktopServer.Running second = start();
+		String secondCookie = openSession(second);
+		var persisted = detail(second, secondCookie, id);
+		assertEquals("编辑后的标题", persisted.get("title").asString());
+		assertEquals("新的备注", persisted.get("note").asString());
+		assertTrue(persisted.get("author").isNull());
+		assertEquals(0, persisted.get("tags").size());
+	}
+
+	private HttpResponse<String> patch(DesktopServer.Running running, String cookie, long id, String body) throws Exception {
+		return send(running, cookie, json(running, "PATCH", "/api/illustrations/" + id, body));
+	}
+
+	private tools.jackson.databind.JsonNode detail(DesktopServer.Running running, String cookie, long id) throws Exception {
+		HttpResponse<String> response = send(running, cookie, get(running, "/api/illustrations/" + id));
+		assertEquals(200, response.statusCode(), response.body());
+		return mapper.readTree(response.body());
 	}
 
 	private final tools.jackson.databind.ObjectMapper mapper = new tools.jackson.databind.ObjectMapper();

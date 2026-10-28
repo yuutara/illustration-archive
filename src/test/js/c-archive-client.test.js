@@ -23,6 +23,8 @@ function item(id, assets) {
 const plain = (value) => JSON.parse(JSON.stringify(value));
 const jpeg = (id, sortOrder = 0) => ({ id, mimeType: "image/jpeg", sortOrder });
 
+const NO_CONTENT = Symbol("204 No Content");
+
 /**
  * Loads archive-client.js with a scripted fetch and Image. `responses` maps a URL to a JSON body, a status
  * number, an Error to reject with, or a function returning a promise of one of those (to hold a reply back);
@@ -48,14 +50,20 @@ function setup({ responses = {}, brokenImages = [], ignoreAbort = false } = {}) 
         window,
         Image: FakeImage,
         document: { createElement() { return { getContext() { throw new Error("no canvas in tests"); } }; } },
+        // GET replies are keyed by URL; other methods by "METHOD url". NO_CONTENT is a 204 whose body must not be read;
+        // { status, body } is an error reply with a JSON body.
         fetch: async (url, init = {}) => {
-            requests.push(url);
-            calls.push({ url, signal: init.signal });
-            let reply = responses[url];
+            const method = init.method || "GET";
+            const key = method === "GET" ? url : `${method} ${url}`;
+            requests.push(key);
+            calls.push({ url, method, signal: init.signal, body: init.body ? JSON.parse(init.body) : undefined });
+            let reply = responses[key];
             if (typeof reply === "function") reply = await reply();
             if (init.signal?.aborted && !ignoreAbort) throw new DOMException("aborted", "AbortError");
             if (reply instanceof Error) throw reply;
+            if (reply === NO_CONTENT) return { ok: true, status: 204, json: async () => { throw new SyntaxError("Unexpected end of JSON input"); } };
             if (typeof reply === "number") return { ok: false, status: reply, json: async () => ({}) };
+            if (reply && reply.status >= 400) return { ok: false, status: reply.status, json: async () => reply.body };
             if (!reply) return { ok: false, status: 404, json: async () => ({}) };
             return { ok: true, status: 200, json: async () => reply };
         },
@@ -258,6 +266,27 @@ test("changing the query resets results, page and total, then pages through the 
     assert.equal(env.Archive.get(100), null, "works from the previous query are not reachable");
 });
 
+test("a query guard that says no leaves results, page, total and query untouched and reports 'blocked'", async () => {
+    const env = setup({ responses: {
+        [listUrl(0)]: pageOf(0, 31, Array.from({ length: 30 }, (_, i) => item(90 - i, [jpeg(6000 + i)]))),
+        [listUrl(0, "&q=x")]: pageOf(0, 0, [])
+    } });
+    await env.Archive.setQuery({});
+    let allow = false;
+    env.Archive.setQueryGuard(() => allow);
+    env.events.length = 0;
+    assert.equal(await env.Archive.setQuery({ q: "x" }), false);
+    assert.deepEqual(env.events, ["blocked"]);
+    assert.equal(env.Archive.works.length, 30);
+    assert.equal(env.Archive.total(), 31);
+    assert.equal(env.Archive.query().q, "");
+    assert.equal(env.requests.length, 1, "no request for the refused query");
+    allow = true;
+    await env.Archive.setQuery({ q: "x" });
+    assert.equal(env.Archive.query().q, "x");
+    assert.equal(env.Archive.total(), 0);
+});
+
 test("re-applying the same query (in any id order) does not reload", async () => {
     const env = setup({ responses: { [listUrl(0, "&tagId=1&tagId=2")]: pageOf(0, 1, works(5, 1)) } });
     await env.Archive.setQuery({ tagIds: [2, 1] });
@@ -369,4 +398,206 @@ test("tag candidates search by keyword, drop a stale keyword's reply, and retry 
     assert.deepEqual(plain(facet.state.items.map((t) => t.name)), ["海边"]);
     assert.equal(facet.state.error, null);
     assert.equal(facet.state.done, true);
+});
+
+/* ---------------- 单件编辑 ---------------- */
+
+const detailOf = (id, extra = {}) => ({
+    id, title: `Work ${id}`, author: { id: 7, displayName: "雨宫ゆき", xUsername: "amamiya" },
+    sourceUrl: "https://example.com/" + id, note: "原备注", tags: [{ id: 1, name: "海" }, { id: 2, name: "夜空" }],
+    assets: [], updatedAt: "2026-10-28T10:00:00", ...extra
+});
+const detailUrl = (id) => `/api/illustrations/${id}`;
+const patchKey = (id) => `PATCH /api/illustrations/${id}`;
+
+test("the PATCH body carries only changed fields: trimmed text, blank as null, cleared author null, cleared tags []", () => {
+    const { Archive } = setup();
+    const { buildPatch, editableOf } = Archive._internal;
+    const original = editableOf(detailOf(5));
+    assert.deepEqual(plain(original), { title: "Work 5", authorId: 7, tagIds: [1, 2], sourceUrl: "https://example.com/5", note: "原备注" });
+    assert.deepEqual(plain(buildPatch(original, { ...original, title: "  Work 5 ", tagIds: [2, 1, 2] })), {},
+        "surrounding spaces and tag order are not changes");
+    assert.deepEqual(plain(buildPatch(original, { ...original, title: " 新标题 ", note: "   ", authorId: null, tagIds: [] })),
+        { title: "新标题", note: null, authorId: null, tagIds: [] });
+    assert.deepEqual(plain(buildPatch(original, { ...original, sourceUrl: "", tagIds: [2, 3, 3] })), { sourceUrl: null, tagIds: [2, 3] });
+    const blank = editableOf({ title: null, author: null, sourceUrl: null, note: null, tags: [] });
+    assert.deepEqual(plain(buildPatch(blank, { ...blank, authorId: 9 })), { authorId: 9 });
+});
+
+async function editEnv(responses = {}, items = [item(5, [jpeg(50)])]) {
+    const env = setup({ responses: {
+        [listUrl(0)]: pageOf(0, items.length, items),
+        [detailUrl(5)]: detailOf(5),
+        ...responses
+    } });
+    await env.Archive.setQuery({});
+    env.events.length = 0;
+    return env;
+}
+
+test("nothing can be edited or saved until the full detail has loaded; a failed load cannot be saved", async () => {
+    const slow = held(detailOf(5));
+    const env = await editEnv({ [detailUrl(5)]: slow });
+    const session = env.Archive.editSession(5);
+    const loading = session.load();
+    assert.equal(session.state.phase, "loading");
+    session.set("title", "抢先修改");
+    assert.equal(session.state.draft, null, "no draft before the detail arrives");
+    assert.equal(await session.save(), null);
+    slow.release();
+    assert.equal(await loading, true);
+    assert.equal(session.state.draft.title, "Work 5");
+    assert.equal(session.dirty(), false);
+
+    env.responses[detailUrl(5)] = 500;
+    const failing = env.Archive.editSession(5);
+    assert.equal(await failing.load(), false);
+    assert.equal(failing.state.phase, "error");
+    assert.match(failing.state.error, /500/);
+    assert.equal(await failing.save(), null);
+    assert.equal(env.requests.filter((r) => r.startsWith("PATCH")).length, 0);
+});
+
+test("saving sends one PATCH, treats 204 as success without reading a body, and refreshes card and detail", async () => {
+    let saved = false;
+    const env = await editEnv({
+        [patchKey(5)]: () => { saved = true; return NO_CONTENT; },
+        [detailUrl(5)]: () => (saved ? detailOf(5, { title: "新标题", author: null, tags: [] }) : detailOf(5))
+    });
+    const session = env.Archive.editSession(5);
+    await session.load();
+    session.set("title", "新标题 ");
+    session.set("authorId", null);
+    session.set("tagIds", []);
+    assert.equal(session.dirty(), true);
+    const first = session.save();
+    assert.equal(session.state.phase, "saving");
+    assert.equal(await session.save(), null, "a second submit while saving is ignored");
+    const result = await first;
+    assert.deepEqual(plain(result), { listed: true, detailError: null, refreshError: null });
+    const patches = env.calls.filter((c) => c.method === "PATCH");
+    assert.equal(patches.length, 1);
+    assert.deepEqual(patches[0].body, { title: "新标题", authorId: null, tagIds: [] });
+    assert.equal(session.state.phase, "saved");
+    const work = env.Archive.get(5);
+    assert.equal(work.title, "新标题", "the card reads the saved title");
+    assert.equal(work.author, null);
+    assert.deepEqual(plain(work.detail.tags), []);
+    assert.ok(env.events.includes("updated"));
+    assert.equal(env.requests.filter((r) => r.startsWith("/api/illustrations?")).length, 1, "no list reload without filters");
+});
+
+test("a failed save keeps the draft and the reason, and the same draft can be retried", async () => {
+    const env = await editEnv({ [patchKey(5)]: { status: 400, body: { message: "Title must not exceed 255 characters." } } });
+    const session = env.Archive.editSession(5);
+    await session.load();
+    session.set("note", "新的备注");
+    assert.equal(await session.save(), null);
+    assert.equal(session.state.phase, "ready");
+    assert.match(session.state.error, /内容不符合要求：Title must not exceed 255/);
+    assert.equal(session.state.draft.note, "新的备注", "the draft is kept");
+    assert.equal(session.dirty(), true);
+
+    env.responses[patchKey(5)] = 500;
+    assert.equal(await session.save(), null);
+    assert.match(session.state.error, /服务没有保存这次修改（500）/);
+    env.responses[patchKey(5)] = 404;
+    assert.equal(await session.save(), null);
+    assert.match(session.state.error, /已不存在/);
+    env.responses[patchKey(5)] = new TypeError("offline");
+    assert.equal(await session.save(), null);
+    assert.match(session.state.error, /无法连接/);
+
+    env.responses[patchKey(5)] = NO_CONTENT;
+    assert.ok(await session.save());
+    assert.equal(session.state.error, null);
+    assert.deepEqual(env.calls.filter((c) => c.method === "PATCH").map((c) => c.body), Array(5).fill({ note: "新的备注" }));
+});
+
+test("cancelling (disposing) writes nothing, and an unchanged draft saves without a request", async () => {
+    const env = await editEnv();
+    const session = env.Archive.editSession(5);
+    await session.load();
+    assert.deepEqual(plain(await session.save()), { unchanged: true });
+    session.set("title", "不要了");
+    session.dispose();
+    assert.equal(env.requests.filter((r) => r.startsWith("PATCH")).length, 0);
+    assert.equal(env.Archive.get(5).title, "Work 5");
+});
+
+test("after an edit under a filter, loaded pages are re-read from the server: the work leaves, the count drops, no page repeats", async () => {
+    const filter = "&tagId=1";
+    const before = Array.from({ length: 35 }, (_, i) => item(100 - i, [jpeg(3000 + i)]));
+    const after = before.filter((w) => w.id !== 98);
+    let saved = false;
+    const env = setup({ responses: {
+        [listUrl(0, filter)]: () => pageOf(0, saved ? 34 : 35, (saved ? after : before).slice(0, 30)),
+        [listUrl(1, filter)]: () => pageOf(1, saved ? 34 : 35, (saved ? after : before).slice(30)),
+        [detailUrl(98)]: () => detailOf(98, { tags: saved ? [] : [{ id: 1, name: "海" }] }),
+        [patchKey(98)]: () => { saved = true; return NO_CONTENT; }
+    } });
+    const removed = [];
+    env.Archive.subscribe((e) => { if (e.type === "refresh") removed.push(...e.removed); });
+    await env.Archive.setQuery({ tagIds: [1] });
+    await env.Archive.loadMore();
+    assert.equal(env.Archive.works.length, 35);
+    const kept = env.Archive.get(100);
+
+    const session = env.Archive.editSession(98);
+    await session.load();
+    session.set("tagIds", []);
+    const result = await session.save();
+    assert.equal(result.listed, false, "the work no longer matches the filter");
+    assert.equal(env.Archive.total(), 34);
+    assert.equal(env.Archive.works.length, 34);
+    assert.equal(new Set(env.Archive.works.map((w) => w.id)).size, 34, "no work twice");
+    assert.equal(env.Archive.listed(98), false);
+    assert.equal(env.Archive.get(98).id, 98, "the viewer can still read the work it is showing");
+    assert.deepEqual(plain(removed), [{ id: 98, index: 2 }]);
+    assert.equal(env.Archive.get(100), kept, "works that stay keep their objects (measured covers, details)");
+    assert.equal(env.Archive.hasMore(), false);
+    assert.equal(env.Archive.query().tagIds[0], 1, "the filter is kept");
+    assert.deepEqual(env.requests.filter((r) => r.startsWith("/api/illustrations?")),
+        [listUrl(0, filter), listUrl(1, filter), listUrl(0, filter), listUrl(1, filter)]);
+});
+
+test("a page still loading when the list is re-read after a save is dropped, so nothing is appended twice", async () => {
+    const all = Array.from({ length: 65 }, (_, i) => item(200 - i, [jpeg(4000 + i)]));
+    const slowPage2 = held(pageOf(2, 65, all.slice(60)));
+    const env = setup({ responses: {
+        [listUrl(0, "&q=a")]: pageOf(0, 65, all.slice(0, 30)),
+        [listUrl(1, "&q=a")]: pageOf(1, 65, all.slice(30, 60)),
+        [listUrl(2, "&q=a")]: slowPage2,
+        [detailUrl(200)]: detailOf(200),
+        [patchKey(200)]: NO_CONTENT
+    } });
+    await env.Archive.setQuery({ q: "a" });
+    await env.Archive.loadMore();
+    const pending = env.Archive.loadMore();
+    const session = env.Archive.editSession(200);
+    await session.load();
+    session.set("note", "x");
+    const saving = session.save();
+    slowPage2.release();
+    assert.equal(await pending, false, "the page that was in flight is discarded");
+    await saving;
+    assert.equal(env.Archive.works.length, 60);
+    assert.equal(new Set(env.Archive.works.map((w) => w.id)).size, 60);
+    env.responses[listUrl(2, "&q=a")] = pageOf(2, 65, all.slice(60));
+    await env.Archive.loadMore();
+    assert.equal(env.Archive.works.length, 65, "loading continues from the next page");
+    assert.equal(new Set(env.Archive.works.map((w) => w.id)).size, 65);
+});
+
+test("of two detail reads for one work, the later one wins even if the earlier answers last", async () => {
+    const older = held(detailOf(5, { title: "旧" }));
+    const env = await editEnv({ [detailUrl(5)]: older });
+    const first = env.Archive.loadDetail(5);
+    env.responses[detailUrl(5)] = detailOf(5, { title: "新" });
+    const second = env.Archive.loadDetail(5, { force: true });
+    assert.equal((await second).title, "新");
+    older.release();
+    assert.equal((await first).title, "新", "the superseded read resolves to the latest detail");
+    assert.equal(env.Archive.get(5).title, "新");
+    assert.equal(env.Archive.get(5).detail.title, "新");
 });

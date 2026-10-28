@@ -15,6 +15,7 @@
     <script src="archive-client.js" defer></script>
     <script src="c-gallery.js" defer></script>
     <script src="c-filters.js" defer></script>
+    <script src="c-editor.js" defer></script>
     <script src="fx.js" defer></script>
 </head>
 <body>
@@ -73,7 +74,7 @@
     <div class="wall" id="wall"></div>
     <div class="empty" id="empty" hidden>
         <p class="empty-title">图库里还没有作品</p>
-        <p>新版图库暂时只能浏览。可以先到<a href="/">旧图库</a>导入作品，回来刷新即可看到。</p>
+        <p>新版图库还不能导入作品。可以先到<a href="/">旧图库</a>导入，回来刷新即可看到。</p>
     </div>
     <div class="empty" id="no-match" hidden>
         <p class="empty-title">没有符合条件的作品</p>
@@ -94,7 +95,7 @@
 </div>
 
 <!-- 看图器 -->
-<div class="viewer" id="viewer" role="dialog" aria-modal="true" aria-label="看图器" hidden>
+<div class="viewer" id="viewer" role="dialog" aria-modal="true" aria-label="看图器" tabindex="-1" hidden>
     <div class="sv-canvas" id="sv-canvas">
         <img id="sv-img" alt="" draggable="false">
     </div>
@@ -106,7 +107,7 @@
         <div class="sv-top-right">
             <span class="sv-zoom" id="sv-zoom" aria-live="polite"></span>
             <button class="sv-btn" id="sv-info-toggle" type="button" aria-pressed="false" title="作品信息（I）">信息</button>
-            <button class="sv-btn sv-btn-strong" id="sv-edit-toggle" type="button" data-not-yet="编辑尚未接入新版图库，请在旧图库中编辑">
+            <button class="sv-btn sv-btn-strong" id="sv-edit-toggle" type="button" title="编辑作品信息（E）">
                 <svg class="icon"><use href="#i-pen"/></svg>编辑
             </button>
             <div class="sv-more">
@@ -133,6 +134,62 @@
         </div>
     </footer>
     <section class="sv-info" id="sv-info" aria-label="作品信息" hidden></section>
+    <!-- 编辑：读完完整详情后才能修改；只保存改动过的字段 -->
+    <aside class="sv-editor" id="sv-editor" aria-label="编辑作品" hidden>
+        <form id="edit-form" novalidate>
+            <header class="ed-head">
+                <h2>编辑作品</h2>
+                <span class="ed-dirty" id="ed-dirty" hidden>未保存</span>
+            </header>
+            <div class="ed-body">
+                <p class="ed-status" id="ed-status" role="status" hidden></p>
+                <fieldset class="ed-fields" id="ed-fields" disabled>
+                    <legend class="visually-hidden">作品信息</legend>
+                    <label class="ed-field">
+                        <span>标题</span>
+                        <input id="ed-title" type="text" maxlength="255" placeholder="未命名作品" autocomplete="off">
+                    </label>
+                    <div class="ed-field">
+                        <span id="ed-author-label">作者</span>
+                        <div class="ed-author-row">
+                            <button class="ed-picker" id="ed-author" type="button" aria-haspopup="dialog" aria-expanded="false" aria-labelledby="ed-author-label ed-author"></button>
+                            <button class="ed-clear" id="ed-author-clear" type="button" hidden>清空</button>
+                        </div>
+                    </div>
+                    <div class="ed-field">
+                        <span id="ed-tags-label">标签</span>
+                        <div class="ed-tags" id="ed-tags" role="group" aria-labelledby="ed-tags-label"></div>
+                    </div>
+                    <label class="ed-field">
+                        <span>来源链接</span>
+                        <input id="ed-source" type="url" maxlength="2048" placeholder="https://" autocomplete="off" spellcheck="false">
+                    </label>
+                    <label class="ed-field">
+                        <span>备注</span>
+                        <textarea id="ed-note" rows="5" placeholder="记录喜欢它的理由、参考点或出处"></textarea>
+                    </label>
+                </fieldset>
+            </div>
+            <p class="ed-error" id="ed-error" role="alert" hidden></p>
+            <footer class="ed-actions">
+                <span class="ed-hint">Ctrl + Enter 保存 · Esc 取消</span>
+                <button class="btn" id="ed-cancel" type="button">取消</button>
+                <button class="btn btn-ink" id="ed-save" type="submit" disabled>保存</button>
+            </footer>
+        </form>
+    </aside>
+</div>
+
+<!-- 离开编辑时的确认：有未保存的修改才会出现 -->
+<div class="sheet-backdrop" id="confirm" hidden>
+    <section class="sheet sheet-small" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-text">
+        <h2 id="confirm-title">放弃未保存的修改？</h2>
+        <p id="confirm-text">这件作品的修改还没有保存，离开后会丢失。</p>
+        <div class="sheet-foot">
+            <button class="btn" id="confirm-cancel" type="button">继续编辑</button>
+            <button class="btn btn-danger" id="confirm-ok" type="button">放弃修改</button>
+        </div>
+    </section>
 </div>
 
 <div class="sheet-backdrop" id="shortcuts" hidden>
@@ -158,10 +215,12 @@
                 <dt><kbd>+</kbd><kbd>-</kbd> / 滚轮</dt><dd>缩放</dd>
                 <dt><kbd>0</kbd> / <kbd>1</kbd></dt><dd>适应窗口 / 原始大小</dd>
                 <dt><kbd>I</kbd></dt><dd>作品信息</dd>
+                <dt><kbd>E</kbd></dt><dd>编辑作品（图库中先选中一件）</dd>
+                <dt><kbd>Ctrl</kbd><kbd>Enter</kbd></dt><dd>保存编辑</dd>
                 <dt><kbd>Esc</kbd></dt><dd>逐层返回</dd>
             </dl>
         </div>
-        <p class="sheet-note">新版图库目前只读：可以搜索和按作者 / 标签筛选；编辑、删除、导入与批量整理请在<a href="/">旧图库</a>中进行。</p>
+        <p class="sheet-note">新版图库可以搜索、按作者 / 标签筛选和编辑单件作品；删除、导入与批量整理请在<a href="/">旧图库</a>中进行。</p>
     </section>
 </div>
 

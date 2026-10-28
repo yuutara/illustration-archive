@@ -65,6 +65,30 @@ button:disabled[data-not-yet], .piece-edit:disabled { cursor: not-allowed; opaci
 /* 作品图片坏掉时的占位卡片：保持版面，不误导为真实作品 */
 .piece.is-broken .piece-open img { opacity: .9; }
 
+/* 看图器打开时焦点先落在它自身（只为接住键盘），不画焦点框；里面的按钮、输入框照常显示焦点提示 */
+.viewer:focus { outline: none; }
+
+/* 编辑面板：读详情 / 保存时字段锁定；失败原因留在保存按钮上方 */
+.sv-editor { z-index: 4; }
+.ed-fields { display: flex; flex-direction: column; gap: 18px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.ed-fields:disabled { opacity: .55; }
+.ed-status { margin: 0; padding: 10px 12px; border-radius: 10px; color: var(--muted); background: var(--paper-2); font-size: 13px; }
+.ed-status.is-loading::before { content: ""; display: inline-block; width: 11px; height: 11px; margin-right: 8px; border: 1.5px solid var(--line); border-top-color: var(--accent); border-radius: 50%; vertical-align: -1px; animation: c-spin .8s linear infinite; }
+.ed-status.is-error { color: var(--danger); }
+.ed-status .link { font-size: 13px; }
+.ed-author-row { display: flex; align-items: center; gap: 8px; }
+.ed-author-row .ed-picker { flex: 1; min-width: 0; }
+.ed-picker > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-clear { flex: none; height: 40px; padding: 0 10px; border: 0; border-radius: 8px; color: var(--muted); background: none; font-size: 13px; }
+.ed-clear:hover { color: var(--ink); background: var(--paper-2); }
+.ed-error { margin: 0 28px; padding: 10px 12px; border-radius: 10px; color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); font-size: 13px; }
+.ed-actions .btn:disabled { cursor: not-allowed; opacity: .5; }
+
+/* 放弃修改的确认按钮：暖纸主题的 .btn 会盖掉 .btn-danger 的底色，这里按主题补回 */
+html[data-look="paper"] .btn-danger { border-color: var(--danger); color: #fff; background: var(--danger); }
+html[data-look="paper"] .btn-danger:hover { filter: brightness(.94); }
+html[data-look="paper"][data-mode="dark"] .btn-danger { color: #1a1918; }
+
 /* 看图器：信息里的作者和标签可以点，回到图库只看它 */
 .info-author { margin: 0; font: 500 16px var(--serif); text-align: left; }
 .sv-menu a[aria-disabled="true"] { pointer-events: none; }

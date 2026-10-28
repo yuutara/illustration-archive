@@ -117,7 +117,7 @@ function setup({ search = "" } = {}) {
     vm.runInContext(filtersSource, context);
     const runTimers = () => { const due = timers.splice(0); due.forEach((t) => t.fn && t.fn()); return due.filter((t) => t.fn).map((t) => t.ms); };
     const settle = () => new Promise((resolve) => setImmediate(resolve));
-    return { ids, requests, urls, runTimers, settle, document, Archive: window.Archive, CFilters: window.CFilters };
+    return { ids, requests, urls, runTimers, settle, document, window, Archive: window.Archive, CFilters: window.CFilters };
 }
 
 const searchRequests = (requests) => requests.map((u) => new URL(u, "http://localhost").searchParams.get("q"));
@@ -229,6 +229,46 @@ test("the author picker pages past 30 candidates and keeps arrow keys, Space and
     assert.equal(env.CFilters.isPickerOpen(), false, "Esc closes the picker, not the page's layers");
     assert.equal(root.removed, true);
     assert.equal(env.ids["author-filter"].focused, anchorFocus + 1, "focus returns to the 作者 button");
+});
+
+test("a search still waiting for its pause is dropped when the viewer opens, and the box shows the applied query", async () => {
+    const env = setup({ search: "?q=sea" });
+    await env.settle();
+    const q = env.ids.q;
+    q.value = "sea 海";
+    q.dispatch("input");
+    env.CFilters.cancelPendingSearch(); // what openViewer does before showing the viewer / editor
+    assert.deepEqual(env.runTimers(), [], "the queued search never fires");
+    await env.settle();
+    assert.deepEqual(searchRequests(env.requests), ["sea"], "no new list request");
+    assert.equal(q.value, "sea");
+});
+
+test("when the gallery refuses to leave (继续编辑 or saving), search and chip changes do not touch the query", async () => {
+    const env = setup({ search: "?q=sea&authorId=1" });
+    await env.settle();
+    const asked = [];
+    let answer = false;
+    env.window.GalleryApi = { prepareQueryChange: async () => { asked.push(true); return answer; }, toast() {} };
+    const q = env.ids.q;
+    const before = env.requests.length;
+
+    q.value = "moon";
+    q.dispatch("keydown", { key: "Enter" });
+    await env.settle();
+    const chip = env.ids["active-filters"].children.find((c) => c.className === "fchip" && c.children[1].textContent === "雨宫ゆき");
+    chip.children[2].dispatch("click");
+    await env.settle();
+    assert.equal(asked.length, 2, "each change asks first");
+    assert.equal(env.requests.length, before, "nothing was requested");
+    assert.deepEqual(JSON.parse(JSON.stringify(env.Archive.query())), { q: "sea", authorIds: [1], tagIds: [] });
+    assert.equal(q.value, "sea", "the search box returns to the applied query");
+
+    answer = true;
+    q.value = "moon";
+    q.dispatch("keydown", { key: "Enter" });
+    await env.settle();
+    assert.equal(env.Archive.query().q, "moon", "once leaving is allowed the search applies");
 });
 
 test("“only this author” replaces the author group and keeps the other conditions", async () => {

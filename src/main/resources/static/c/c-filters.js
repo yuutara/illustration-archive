@@ -1,5 +1,5 @@
 /*
- * C 图库 · 搜索与作者 / 标签筛选（只读）
+ * C 图库 · 搜索与作者 / 标签筛选，以及编辑器复用的候选弹层
  *
  * 条件只有三组：关键词、作者（可多选）、标签（可多选）。作者之间、标签之间是“或”，三组之间是“且”，
  * 全部交给服务端在整个图库上筛选（archive-client.js 的 setQuery），不在已载入的作品里过滤。
@@ -56,8 +56,34 @@
         return A.filters() ? `已不存在的${KINDS[kind].label} #${id}` : `${KINDS[kind].label} #${id}`;
     }
 
-    function apply(change) {
-        A.setQuery({ ...A.query(), ...change });
+    const gallery = (name, ...args) => {
+        const api = window.GalleryApi;
+        return api && typeof api[name] === 'function' ? api[name](...args) : undefined;
+    };
+
+    /*
+     * 换查询前先问图库：看图器开着就先关闭它，有未保存的编辑会先确认、保存中不放行。
+     * 被拒绝时不改查询（列表状态不动），搜索框回到当前条件。条件没变时直接交给 setQuery（它什么都不做）。
+     */
+    async function apply(change) {
+        const next = { ...A.query(), ...change };
+        if (A.searchOf(next) !== A.searchOf(A.query()) && (await gallery('prepareQueryChange')) === false) {
+            restoreSearchBox();
+            return false;
+        }
+        return A.setQuery(next);
+    }
+
+    function restoreSearchBox() {
+        clearTimeout(searchTimer);
+        input.value = A.query().q;
+        syncSearchBox();
+    }
+
+    // 打开看图器时调用：还在停顿等待中的那次搜索作废，搜索框回到已生效的条件
+    function cancelPendingSearch() {
+        clearTimeout(searchTimer);
+        if (input.value.trim() !== A.query().q) restoreSearchBox();
     }
 
     function only(kind, item) {
@@ -201,28 +227,44 @@
         if (restoreFocus) p.anchor.focus();
     }
 
-    function openPicker(kind) {
-        if (picker && picker.kind === kind) { closePicker(); return; }
-        closePicker();
+    /*
+     * 候选弹层。默认用于筛选（勾选即改查询）；编辑器传入 options 复用同一套搜索、翻页与键盘处理：
+     *   anchor     弹层贴着的按钮          selected()  当前已选的 id 列表
+     *   onToggle   勾选 / 取消某个 id      single      单选：选中即关闭
+     *   clearLabel / onClear              关键词为空且已有选择时，顶部显示一行“清空”
+     *   title / hint                      无障碍名称与提示文字
+     */
+    function openPicker(kind, options = {}) {
         const cfg = KINDS[kind];
-        const anchor = $(cfg.button);
+        const anchor = options.anchor || $(cfg.button);
+        if (picker && picker.anchor === anchor) { closePicker(); return; }
+        closePicker();
         const root = el('div', 'pk');
         root.setAttribute('role', 'dialog');
-        root.setAttribute('aria-label', `按${cfg.label}筛选`);
+        root.setAttribute('aria-label', options.title || `按${cfg.label}筛选`);
         root.innerHTML = '<input class="pk-input" type="search" autocomplete="off" spellcheck="false" maxlength="100">'
-            + '<p class="pk-hint"></p><ul class="pk-list" role="listbox" aria-multiselectable="true"></ul>';
+            + '<p class="pk-hint"></p><ul class="pk-list" role="listbox"></ul>';
         const p = {
             kind, cfg, anchor, root,
             input: root.querySelector('.pk-input'),
             list: root.querySelector('.pk-list'),
             search: A.facetSearch(kind),
+            selected: options.selected || (() => A.query()[cfg.key]),
+            onToggle: options.onToggle || ((id) => {
+                const ids = A.query()[cfg.key];
+                apply({ [cfg.key]: ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id] });
+            }),
+            single: !!options.single,
+            clearLabel: options.clearLabel || null,
+            onClear: options.onClear || null,
             // 打开（或换关键词）时已选的项排在最前；勾选 / 取消只改勾，不让行在鼠标下跳动
             pinned: [],
             rows: [], active: 0, composing: false, timer: 0
         };
+        if (!p.single) p.list.setAttribute('aria-multiselectable', 'true');
         p.input.placeholder = cfg.placeholder;
         p.input.setAttribute('aria-label', cfg.placeholder);
-        root.querySelector('.pk-hint').textContent = cfg.hint;
+        root.querySelector('.pk-hint').textContent = options.hint || cfg.hint;
         p.onOutside = (e) => { if (!root.contains(e.target) && !anchor.contains(e.target)) closePicker(); };
         document.addEventListener('mousedown', p.onOutside, true);
         picker = p;
@@ -235,7 +277,7 @@
     }
 
     function runFacetSearch(p, keyword) {
-        p.pinned = keyword.trim() ? [] : [...A.query()[p.cfg.key]];
+        p.pinned = keyword.trim() ? [] : [...p.selected()];
         p.active = 0;
         const pending = p.search.search(keyword);
         renderPicker(p);
@@ -252,23 +294,25 @@
 
     function renderPicker(p) {
         const s = p.search.state;
-        const selected = new Set(A.query()[p.cfg.key]);
+        const selected = new Set(p.selected());
         const pinned = new Set(p.pinned);
         const rowOf = (id) => ({ id, label: nameOf(p.kind, id), meta: (names[p.kind].get(id) || {}).meta || '' });
         s.items.forEach((item) => learn(p.kind, item));
-        p.rows = [...p.pinned.map(rowOf), ...s.items.filter((item) => !pinned.has(item.id)).map((item) => rowOf(item.id))];
+        const clearRow = p.clearLabel && !s.keyword && selected.size ? [{ id: null, clear: true, label: p.clearLabel, meta: '' }] : [];
+        p.rows = [...clearRow, ...p.pinned.map(rowOf), ...s.items.filter((item) => !pinned.has(item.id)).map((item) => rowOf(item.id))];
         p.active = Math.min(p.active, Math.max(0, p.rows.length - 1));
+        const firstPinned = clearRow.length;
 
         const list = p.list;
         const scroll = list.scrollTop;
         list.innerHTML = '';
         const section = (text) => list.appendChild(el('li', 'pk-section', text)).setAttribute('role', 'presentation');
-        if (p.pinned.length) section('已选');
         p.rows.forEach((row, i) => {
-            if (p.pinned.length && i === p.pinned.length && p.rows.length > i) section(`全部${p.cfg.label}`);
-            const li = el('li', 'pk-item');
+            if (p.pinned.length && i === firstPinned) section('已选');
+            if (p.pinned.length && i === firstPinned + p.pinned.length) section(`全部${p.cfg.label}`);
+            const li = el('li', row.clear ? 'pk-item pk-clear' : 'pk-item');
             li.setAttribute('role', 'option');
-            const on = selected.has(row.id);
+            const on = !row.clear && selected.has(row.id);
             li.setAttribute('aria-selected', String(on));
             li.classList.toggle('is-selected', on);
             li.classList.toggle('is-active', i === p.active);
@@ -276,7 +320,7 @@
             li.querySelector('.pk-label').textContent = row.label;
             li.querySelector('.pk-meta').textContent = row.meta;
             li.addEventListener('mousedown', (e) => e.preventDefault());
-            li.addEventListener('click', () => { p.active = i; toggle(p, row.id); });
+            li.addEventListener('click', () => { p.active = i; toggle(p, row); });
             li.addEventListener('mousemove', () => { if (p.active !== i) { p.active = i; markActive(p); } });
             list.appendChild(li);
         });
@@ -321,10 +365,15 @@
         if (li) li.scrollIntoView({ block: 'nearest' });
     }
 
-    function toggle(p, id) {
-        const ids = A.query()[p.cfg.key];
-        apply({ [p.cfg.key]: ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id] });
-        renderPicker(p);
+    function toggle(p, row) {
+        if (row.clear) {
+            p.onClear();
+            closePicker(true);
+            return;
+        }
+        p.onToggle(row.id);
+        if (p.single) closePicker(true);
+        else renderPicker(p);
     }
 
     function wirePicker(p) {
@@ -353,7 +402,7 @@
                 markActive(p);
             } else if (e.key === 'Enter') {
                 e.preventDefault();
-                if (p.rows[p.active]) toggle(p, p.rows[p.active].id);
+                if (p.rows[p.active]) toggle(p, p.rows[p.active]);
             } else if (e.key === 'Escape') {
                 e.preventDefault();
                 if (p.input.value) { p.input.value = ''; runFacetSearch(p, ''); } else closePicker(true);
@@ -391,6 +440,10 @@
             if (picker) renderPicker(picker);
         } else if (event.type === 'error') {
             renderSummary();
+        } else if (event.type === 'blocked') {
+            // 数据层拒绝了换查询（有未保存的编辑或正在保存）：条件不变，搜索框回到当前条件
+            restoreSearchBox();
+            gallery('toast', '有未保存的编辑，先保存或取消后再搜索、筛选');
         }
     });
 
@@ -398,5 +451,9 @@
     syncSearchBox();
     renderSummary();
 
-    window.CFilters = { only, clearAll, renderSummary, closePicker, isPickerOpen: () => !!picker };
+    window.CFilters = {
+        only, clearAll, renderSummary, closePicker, openPicker, learn, nameOf, cancelPendingSearch,
+        known: (kind, id) => names[kind].get(id) || null,
+        isPickerOpen: () => !!picker
+    };
 })();
