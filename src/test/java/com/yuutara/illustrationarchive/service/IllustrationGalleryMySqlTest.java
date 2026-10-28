@@ -3,6 +3,7 @@ package com.yuutara.illustrationarchive.service;
 import com.yuutara.illustrationarchive.dto.IllustrationGalleryQuery;
 import com.yuutara.illustrationarchive.dto.IllustrationGalleryPage;
 import com.yuutara.illustrationarchive.repository.AuthorRepository;
+import com.yuutara.illustrationarchive.repository.GalleryMapperSupport;
 import com.yuutara.illustrationarchive.repository.IllustrationRepository;
 import com.yuutara.illustrationarchive.repository.TagRepository;
 import org.flywaydb.core.Flyway;
@@ -55,7 +56,7 @@ class IllustrationGalleryMySqlTest {
 			context.register(Transactions.class);
 			context.registerBean(DataSource.class, () -> dataSource);
 			context.registerBean(PlatformTransactionManager.class, () -> new DataSourceTransactionManager(dataSource));
-			context.registerBean(IllustrationRepository.class, () -> new IllustrationRepository(jdbc) {
+			context.registerBean(IllustrationRepository.class, () -> new IllustrationRepository(jdbc, GalleryMapperSupport.mapper(dataSource)) {
 				@Override public long count(IllustrationGalleryQuery query) {
 					assertTrue(TransactionSynchronizationManager.isActualTransactionActive());
 					assertTrue(TransactionSynchronizationManager.isCurrentTransactionReadOnly());
@@ -156,7 +157,7 @@ class IllustrationGalleryMySqlTest {
             context.registerBean(AuthorRepository.class, () -> new AuthorRepository(jdbc));
             var inbox = new com.yuutara.illustrationarchive.repository.XLikeRepository(jdbc);
             context.registerBean(com.yuutara.illustrationarchive.repository.XLikeRepository.class, () -> inbox);
-            context.registerBean(IllustrationRepository.class, () -> new IllustrationRepository(jdbc));
+            context.registerBean(IllustrationRepository.class, () -> GalleryMapperSupport.repository(jdbc));
             context.registerBean(com.yuutara.illustrationarchive.repository.AssetRepository.class, () -> new com.yuutara.illustrationarchive.repository.AssetRepository(jdbc) {
                 @Override public long insert(long illustrationId, String filename, String key, String mime, long size, int order, String sha) {
                     super.insert(illustrationId, filename, key, mime, size, order, sha);

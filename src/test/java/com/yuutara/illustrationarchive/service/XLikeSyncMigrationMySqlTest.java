@@ -132,7 +132,7 @@ class XLikeSyncMigrationMySqlTest {
 
 				// Different Posts with the same source photo are Pending; SHA-256 rejects them only at Archive.
 				var post = items.findForImport(jdbc.queryForObject("SELECT id FROM x_like_item WHERE x_post_id='2'", Long.class), false).orElseThrow();
-				var archive = new XPostPersistenceService(items, new AuthorRepository(jdbc), new IllustrationRepository(jdbc), new AssetRepository(jdbc));
+				var archive = new XPostPersistenceService(items, new AuthorRepository(jdbc), GalleryMapperSupport.repository(jdbc), new AssetRepository(jdbc));
 				assertThrows(XPostDuplicateException.class, () -> archive.persist(post, media.findByItemId(post.id()),
 						List.of(new StoredFile("same.jpg", "fixture/same.jpg", "image/jpeg", 1, "a".repeat(64)))));
 				assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM illustration", Integer.class));

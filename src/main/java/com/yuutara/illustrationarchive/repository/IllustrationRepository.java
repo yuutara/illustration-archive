@@ -13,7 +13,6 @@ import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,34 +26,7 @@ public class IllustrationRepository {
 			VALUES (NULL, NULL, NULL, NULL)
 			""";
 
-	private static final String GALLERY_FROM_SQL = "FROM illustration i LEFT JOIN author a ON i.author_id = a.id ";
 	private static final String DELETE_BY_ID_SQL = "DELETE FROM illustration WHERE id = ?";
-
-	private static final String FIND_GALLERY_PAGE_SQL = """
-			SELECT
-				i.id AS illustration_id,
-				i.title AS illustration_title,
-				a.id AS author_id,
-				a.display_name AS author_display_name,
-				a.x_username AS author_x_username,
-			cover_asset.id AS cover_asset_id,
-			cover_asset.mime_type AS cover_mime_type,
-				(
-					SELECT COUNT(*)
-					FROM asset asset_count
-					WHERE asset_count.illustration_id = i.id
-				) AS asset_count,
-				i.created_at AS illustration_created_at
-			FROM illustration i
-			LEFT JOIN author a ON i.author_id = a.id
-			LEFT JOIN asset cover_asset ON cover_asset.id = (
-				SELECT candidate.id
-				FROM asset candidate
-				WHERE candidate.illustration_id = i.id
-				ORDER BY candidate.sort_order ASC, candidate.id ASC
-				LIMIT 1
-			)
-			""";
 
 	private static final String FIND_DETAIL_BASE_BY_ID_SQL = """
 			SELECT
@@ -98,9 +70,12 @@ public class IllustrationRepository {
 	private static final String[] GENERATED_ID = {"id"};
 
 	private final JdbcTemplate jdbcTemplate;
+	// Gallery list reads only. Both run on the same DataSource and join the caller's Spring transaction.
+	private final IllustrationGalleryMapper galleryMapper;
 
-	public IllustrationRepository(JdbcTemplate jdbcTemplate) {
+	public IllustrationRepository(JdbcTemplate jdbcTemplate, IllustrationGalleryMapper galleryMapper) {
 		this.jdbcTemplate = jdbcTemplate;
+		this.galleryMapper = galleryMapper;
 	}
 
 	public long insert() {
@@ -129,92 +104,30 @@ public class IllustrationRepository {
 		return id.longValue();
 	}
 
-	// EXISTS preserves one outer row per Illustration, even when several tags match.
-	// Both count and page use this same predicate and parameter order.
-	private GalleryPredicate galleryPredicate(IllustrationGalleryQuery query) {
-		List<String> conditions = new ArrayList<>();
-		List<Object> parameters = new ArrayList<>();
-		if (!query.authorIds().isEmpty()) {
-			conditions.add("i.author_id IN (" + String.join(", ", java.util.Collections.nCopies(query.authorIds().size(), "?")) + ")");
-			parameters.addAll(query.authorIds());
-		}
-		if (!query.tagIds().isEmpty()) {
-			conditions.add("EXISTS (SELECT 1 FROM illustration_tag selected_tag "
-					+ "WHERE selected_tag.illustration_id = i.id AND selected_tag.tag_id IN ("
-                    + String.join(", ", java.util.Collections.nCopies(query.tagIds().size(), "?")) + "))");
-			parameters.addAll(query.tagIds());
-		}
-		if (query.q() != null) {
-			String pattern = "%" + query.q().replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%";
-			conditions.add("""
-					(i.title LIKE ? ESCAPE '!' OR i.note LIKE ? ESCAPE '!'
-					OR a.display_name LIKE ? ESCAPE '!' OR a.x_username LIKE ? ESCAPE '!'
-					OR LOWER(CONCAT('@', a.x_username)) LIKE LOWER(?) ESCAPE '!'
-					OR EXISTS (SELECT 1 FROM illustration_tag it JOIN tag t ON t.id = it.tag_id
-					WHERE it.illustration_id = i.id AND t.name LIKE ? ESCAPE '!'))
-					""");
-			for (int index = 0; index < 6; index++) parameters.add(pattern);
-		}
-		return new GalleryPredicate(conditions.isEmpty() ? "" : "WHERE " + String.join(" AND ", conditions), parameters);
-	}
-
-	private record GalleryPredicate(String sql, List<Object> parameters) {}
-
 	public long count(IllustrationGalleryQuery query) {
-		GalleryPredicate predicate = galleryPredicate(query);
-		Long total = jdbcTemplate.queryForObject("SELECT COUNT(*) " + GALLERY_FROM_SQL + predicate.sql(),
-				Long.class, predicate.parameters().toArray());
-		if (total == null) {
-			throw new IllegalStateException("Failed to obtain illustration count.");
-		}
-		return total;
+		return galleryMapper.count(query.authorIds(), query.tagIds(), likePattern(query.q()));
 	}
 
 	public List<IllustrationGalleryItem> findGalleryPage(IllustrationGalleryQuery query, int size, long offset) {
-		GalleryPredicate predicate = galleryPredicate(query);
-		List<Object> parameters = new ArrayList<>(predicate.parameters());
-		parameters.add(size);
-		parameters.add(offset);
-		String sql = FIND_GALLERY_PAGE_SQL + predicate.sql()
-				+ " ORDER BY i.created_at DESC, i.id DESC LIMIT ? OFFSET ?";
-		return jdbcTemplate.query(sql, (resultSet, rowNum) -> {
-			Long authorId = resultSet.getObject("author_id", Long.class);
-			AuthorSummary author = authorId == null
-					? null
-					: new AuthorSummary(
-							authorId,
-							resultSet.getString("author_display_name"),
-							resultSet.getString("author_x_username")
-					);
-
-			return new IllustrationGalleryItem(
-					resultSet.getLong("illustration_id"),
-					resultSet.getString("illustration_title"),
-					author,
-					resultSet.getObject("cover_asset_id", Long.class),
-					resultSet.getString("cover_mime_type"),
-					resultSet.getInt("asset_count"),
-					resultSet.getTimestamp("illustration_created_at").toLocalDateTime(),
-					List.of()
-			);
-		}, parameters.toArray());
+		return galleryMapper.findPage(query.authorIds(), query.tagIds(), likePattern(query.q()), size, offset);
 	}
 
+	/** Works without assets are absent from the map; callers default to an empty list. */
 	public Map<Long, List<GalleryAsset>> findGalleryAssetsByIllustrationIds(List<Long> illustrationIds) {
 		if (illustrationIds.isEmpty()) {
 			return Map.of();
 		}
-		String placeholders = String.join(", ", Collections.nCopies(illustrationIds.size(), "?"));
-		String sql = "SELECT illustration_id, id, mime_type, sort_order FROM asset "
-				+ "WHERE illustration_id IN (" + placeholders + ") "
-				+ "ORDER BY illustration_id, sort_order ASC, id ASC";
 		Map<Long, List<GalleryAsset>> assets = new LinkedHashMap<>();
-		jdbcTemplate.query(sql, resultSet -> {
-			assets.computeIfAbsent(resultSet.getLong("illustration_id"), ignored -> new ArrayList<>())
-					.add(new GalleryAsset(resultSet.getLong("id"), resultSet.getString("mime_type"),
-							resultSet.getInt("sort_order")));
-		}, illustrationIds.toArray());
+		for (IllustrationGalleryMapper.AssetRow row : galleryMapper.findAssets(illustrationIds)) {
+			assets.computeIfAbsent(row.illustrationId(), ignored -> new ArrayList<>())
+					.add(new GalleryAsset(row.id(), row.mimeType(), row.sortOrder()));
+		}
 		return assets;
+	}
+
+	// The keyword is matched literally: '!' is the ESCAPE character in the mapper's LIKE clauses.
+	private static String likePattern(String q) {
+		return q == null ? null : "%" + q.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%";
 	}
 
 	public Optional<IllustrationDetailBase> findDetailBaseById(long id) {

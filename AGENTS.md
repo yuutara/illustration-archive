@@ -12,8 +12,8 @@
 - Automated tests and `BUILD SUCCESS` are evidence, not substitutes for real-environment acceptance when behavior depends on MySQL, filesystem state, HTTP, or browser behavior.
 - One-off maintenance or backfill jobs must be explicit opt-in operations, default to disabled, and be safe to rerun where practical.
 
-- Preserve the current Controller / Service / Repository structure and JdbcTemplate style unless the task explicitly requires architectural change.
-- The current foundation is Java, Spring Boot, Maven, MySQL, JdbcTemplate, Flyway, and local filesystem storage.
+- Preserve the current Controller / Service / Repository structure and JdbcTemplate style unless the task explicitly requires architectural change. Since 2026-10-29 the gallery list read (count, page, page assets) goes through a MyBatis mapper behind `IllustrationRepository`; move further SQL to MyBatis only as an explicitly approved, whole use case.
+- The current foundation is Java, Spring Boot, Maven, MySQL, JdbcTemplate (plus MyBatis for the gallery list read), Flyway, and local filesystem storage.
 - Do not distort production design merely to make tests easier; tests should adapt to sound production code.
 
 - Store user archive media outside the Git repository. Documentation screenshots and repository documentation assets are allowed.

@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  Gallery list read. The same SQL runs on MySQL and on the desktop H2 database (MODE=MySQL).
+  #{...} always binds a JDBC parameter; never use ${...} here, user input reaches these statements.
+-->
+<mapper namespace="com.yuutara.illustrationarchive.repository.IllustrationGalleryMapper">
+
+	<resultMap id="authorSummary" type="com.yuutara.illustrationarchive.dto.AuthorSummary">
+		<constructor>
+			<idArg column="id" javaType="java.lang.Long"/>
+			<arg column="display_name" javaType="java.lang.String"/>
+			<arg column="x_username" javaType="java.lang.String"/>
+		</constructor>
+	</resultMap>
+
+	<!-- A work without an author has NULL in every author_* column, which MyBatis maps to a null author. -->
+	<resultMap id="galleryItem" type="com.yuutara.illustrationarchive.dto.IllustrationGalleryItem">
+		<constructor>
+			<idArg column="illustration_id" javaType="java.lang.Long"/>
+			<arg column="illustration_title" javaType="java.lang.String"/>
+			<arg javaType="com.yuutara.illustrationarchive.dto.AuthorSummary" resultMap="authorSummary" columnPrefix="author_"/>
+			<arg column="cover_asset_id" javaType="java.lang.Long"/>
+			<arg column="cover_mime_type" javaType="java.lang.String"/>
+			<arg column="asset_count" javaType="_int"/>
+			<arg column="illustration_created_at" javaType="java.time.LocalDateTime"/>
+		</constructor>
+	</resultMap>
+
+	<resultMap id="assetRow" type="com.yuutara.illustrationarchive.repository.IllustrationGalleryMapper$AssetRow">
+		<constructor>
+			<arg column="illustration_id" javaType="java.lang.Long"/>
+			<arg column="id" javaType="java.lang.Long"/>
+			<arg column="mime_type" javaType="java.lang.String"/>
+			<arg column="sort_order" javaType="_int"/>
+		</constructor>
+	</resultMap>
+
+	<!--
+	  Shared by count and page so both always filter identically. Authors are OR-ed, tags are OR-ed, and the
+	  author, tag and keyword groups are AND-ed. Tags use EXISTS so a work matching several tags stays one row.
+	-->
+	<sql id="galleryFilter">
+		<where>
+			<if test="!authorIds.isEmpty()">
+				i.author_id IN
+				<foreach collection="authorIds" item="authorId" open="(" separator=", " close=")">#{authorId}</foreach>
+			</if>
+			<if test="!tagIds.isEmpty()">
+				AND EXISTS (SELECT 1 FROM illustration_tag selected_tag
+					WHERE selected_tag.illustration_id = i.id AND selected_tag.tag_id IN
+					<foreach collection="tagIds" item="tagId" open="(" separator=", " close=")">#{tagId}</foreach>)
+			</if>
+			<if test="pattern != null">
+				<!-- The concatenated handle does not inherit H2's IGNORECASE, so both sides are lowered. -->
+				AND (i.title LIKE #{pattern} ESCAPE '!' OR i.note LIKE #{pattern} ESCAPE '!'
+					OR a.display_name LIKE #{pattern} ESCAPE '!' OR a.x_username LIKE #{pattern} ESCAPE '!'
+					OR LOWER(CONCAT('@', a.x_username)) LIKE LOWER(#{pattern}) ESCAPE '!'
+					OR EXISTS (SELECT 1 FROM illustration_tag it JOIN tag t ON t.id = it.tag_id
+						WHERE it.illustration_id = i.id AND t.name LIKE #{pattern} ESCAPE '!'))
+			</if>
+		</where>
+	</sql>
+
+	<select id="count" resultType="long">
+		SELECT COUNT(*)
+		FROM illustration i
+		LEFT JOIN author a ON i.author_id = a.id
+		<include refid="galleryFilter"/>
+	</select>
+
+	<!-- Newest import first; id breaks created_at ties so pages neither skip nor repeat. -->
+	<select id="findPage" resultMap="galleryItem">
+		SELECT
+			i.id AS illustration_id,
+			i.title AS illustration_title,
+			a.id AS author_id,
+			a.display_name AS author_display_name,
+			a.x_username AS author_x_username,
+			cover_asset.id AS cover_asset_id,
+			cover_asset.mime_type AS cover_mime_type,
+			(SELECT COUNT(*) FROM asset asset_count WHERE asset_count.illustration_id = i.id) AS asset_count,
+			i.created_at AS illustration_created_at
+		FROM illustration i
+		LEFT JOIN author a ON i.author_id = a.id
+		LEFT JOIN asset cover_asset ON cover_asset.id = (
+			SELECT candidate.id
+			FROM asset candidate
+			WHERE candidate.illustration_id = i.id
+			ORDER BY candidate.sort_order ASC, candidate.id ASC
+			LIMIT 1
+		)
+		<include refid="galleryFilter"/>
+		ORDER BY i.created_at DESC, i.id DESC
+		LIMIT #{size} OFFSET #{offset}
+	</select>
+
+	<select id="findAssets" resultMap="assetRow">
+		SELECT illustration_id, id, mime_type, sort_order
+		FROM asset
+		WHERE illustration_id IN
+		<foreach collection="illustrationIds" item="illustrationId" open="(" separator=", " close=")">#{illustrationId}</foreach>
+		ORDER BY illustration_id, sort_order ASC, id ASC
+	</select>
+</mapper>

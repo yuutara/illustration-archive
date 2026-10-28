@@ -722,6 +722,34 @@ class DesktopServerIntegrationTest {
 	}
 
 	@Test
+	void galleryMapperJoinsTheJdbcTransactionOnTheSameDataSourceAndRereadsFreshRows() {
+		DesktopServer.Running running = start();
+		var context = running.context();
+		var mybatis = context.getBean(org.apache.ibatis.session.SqlSessionFactory.class).getConfiguration();
+		assertEquals(context.getBean(javax.sql.DataSource.class), mybatis.getEnvironment().getDataSource());
+		assertInstanceOf(org.mybatis.spring.transaction.SpringManagedTransactionFactory.class,
+				mybatis.getEnvironment().getTransactionFactory());
+		assertEquals(org.apache.ibatis.session.LocalCacheScope.STATEMENT, mybatis.getLocalCacheScope());
+
+		var repository = context.getBean(com.yuutara.illustrationarchive.repository.IllustrationRepository.class);
+		var everything = new com.yuutara.illustrationarchive.dto.IllustrationGalleryQuery(null, null, null);
+		var transactions = new TransactionTemplate(context.getBean(
+				org.springframework.transaction.PlatformTransactionManager.class));
+		transactions.executeWithoutResult(status -> {
+			assertEquals(0, repository.count(everything));
+			// Uncommitted JdbcTemplate writes are only visible to MyBatis through the same transaction's connection;
+			// repeating the identical MyBatis read must also bypass any cached first result.
+			jdbc(running).update("INSERT INTO illustration (title) VALUES ('written by jdbc')");
+			assertEquals(1, repository.count(everything));
+			assertEquals("written by jdbc", repository.findGalleryPage(everything, 10, 0).get(0).title());
+			jdbc(running).update("UPDATE illustration SET title = 'renamed by jdbc'");
+			assertEquals("renamed by jdbc", repository.findGalleryPage(everything, 10, 0).get(0).title());
+			status.setRollbackOnly();
+		});
+		assertEquals(0, repository.count(everything), "the JDBC insert rolled back with the shared transaction");
+	}
+
+	@Test
 	void databaseDuplicateFoundAfterLockWaitDeletesTheStoredFile() throws Exception {
 		DesktopServer.Running running = start();
 		var importService = running.context().getBean(IllustrationImportService.class);

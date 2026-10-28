@@ -61,6 +61,7 @@ Inbox 支持整卡选中反馈、当前页已选数量和 sticky 操作栏；图
 - Spring Boot 4.1.1
 - Spring Web MVC
 - Spring JDBC（`JdbcTemplate`）
+- MyBatis（`mybatis-spring-boot-starter` 4.1.0，仅图库列表读取）
 - Flyway（数据库迁移）
 - MySQL Connector/J
 - AWS SDK for Java 2.x S3 模块（仅可选 S3-compatible 存储使用）
@@ -69,7 +70,7 @@ Inbox 支持整卡选中反馈、当前页已选数量和 sticky 操作栏；图
 - JUnit Jupiter（由 Spring Boot 4.1.1 管理，当前为 6.x）、Mockito、standalone MockMvc（Java 测试）
 - Node.js 内置 test runner（JS 测试，不需要 npm 依赖）
 
-项目没有使用 JPA；SQL 由 Repository 层通过 `JdbcTemplate` 执行。
+项目没有使用 JPA；SQL 由 Repository 层执行。图库列表读取（总数、分页列表、页内资源）由 `IllustrationRepository` 委托 MyBatis Mapper（`IllustrationGalleryMapper` 与同包的 XML），其余读写仍用 `JdbcTemplate`。两者共用同一个 DataSource 并加入同一个 Spring 事务；`mybatis.configuration.local-cache-scope=statement` 关闭事务内的会话缓存，保证同一事务里 JDBC 写入后 MyBatis 再读能看到新值。
 
 ## 系统架构
 
@@ -77,7 +78,7 @@ Inbox 支持整卡选中反馈、当前页已选数量和 sticky 操作栏；图
 flowchart LR
     Browser["浏览器<br/>静态 HTML/CSS/JS"] --> Controller["Controller<br/>HTTP 路由与 DTO"]
     Controller --> Service["Service<br/>业务规则与事务边界"]
-    Service --> Repository["Repository<br/>JdbcTemplate + SQL"]
+    Service --> Repository["Repository<br/>JdbcTemplate / MyBatis + SQL"]
     Repository --> MySQL[(MySQL)]
     Service --> Storage["FileStorage / ThumbnailStorage"]
     Storage --> Local["Local 文件系统（默认）"]
@@ -298,7 +299,7 @@ Tag ID 会先校验存在性，并去除重复 ID，然后在同一数据库事�
 │  │  ├─ java/com/yuutara/illustrationarchive/
 │  │  │  ├─ controller/       # HTTP 路由
 │  │  │  ├─ dto/              # 请求/响应 DTO
-│  │  │  ├─ repository/       # JdbcTemplate 与 SQL
+│  │  │  ├─ repository/       # JdbcTemplate / MyBatis Mapper 与 SQL
 │  │  │  ├─ service/          # 业务流程、事务、X / Gemini 客户端
 │  │  │  └─ storage/          # Local / S3 存储、校验、缩略图与安全路径
 │  │  └─ resources/
@@ -515,12 +516,13 @@ node --test src/test/js/*.test.js
 
 Windows 上若 JUnit 临时目录清理遇到访问限制，可加 `'-DargLine=-Djava.io.tmpdir=target/test-temp'` 把测试临时目录放进 `target/`。
 
-**默认测试**覆盖 Controller 的 standalone MockMvc、Service 业务流程、Repository SQL / 映射，以及 Storage 的校验和路径行为。它们使用 Mockito、模拟的 `JdbcTemplate`、Mock HttpClient 和临时目录，不连接 MySQL、S3、X 或 Gemini；CI 和普通本地运行都属于这一类。
+**默认测试**覆盖 Controller 的 standalone MockMvc、Service 业务流程、Repository SQL / 映射，以及 Storage 的校验和路径行为。它们使用 Mockito、模拟的 `JdbcTemplate`、Mock HttpClient 和临时目录，不连接 MySQL、S3、X 或 Gemini；CI 和普通本地运行都属于这一类。图库列表读取另有真实数据库契约测试：`IllustrationGalleryReadContract` 的同一套种子与断言默认在内存 H2（桌面版兼容参数 + `db/migration-h2`）上运行（`IllustrationGalleryReadH2Test`），并可在 MySQL 上显式启用（见下表）。
 
-**显式启用的外部测试**在对应环境变量缺失时自动跳过，所以默认运行会报告 4 个 skipped：
+**显式启用的外部测试**在对应环境变量缺失时自动跳过，所以默认运行会报告 11 个 skipped（`IllustrationGalleryReadMySqlTest` 计 7 个）：
 
 | 测试 | 启用条件 | 说明 |
 | --- | --- | --- |
+| `IllustrationGalleryReadMySqlTest` | `GALLERY_MYSQL_TEST_URL` / `_USERNAME` / `_PASSWORD` | 只接受尚不存在的 `illustration_archive_gallery_test_<数字>` schema，运行图库列表读取契约；只删除本次成功创建的 schema（同名已存在时 CREATE 失败、原库不动；创建后迁移或初始化失败仍会清理） |
 | `IllustrationGalleryMySqlTest` | `F03_MYSQL_TEST_URL` / `_USERNAME` / `_PASSWORD` | 只接受尚不存在的 `illustration_archive_f03_test_<数字>` schema；可选 `F03_MYSQL_TEST_MEDIA_ROOT` 生成合成测试图片 |
 | `XAnimatedPersistenceMySqlTest` | `F06_MYSQL_TEST_URL` / `_USERNAME` / `_PASSWORD` | 只接受全新的 `illustration_archive_f06_test_<数字>` schema，完成后删除 |
 | `XLikeSyncMigrationMySqlTest` | `X_SYNC_MYSQL_TEST_URL` / `_USERNAME` / `_PASSWORD` | 只接受本机 `illustration_archive_x_sync_test_<数字>` schema，验证 V6→V7 迁移与事务回滚，完成后删除 |

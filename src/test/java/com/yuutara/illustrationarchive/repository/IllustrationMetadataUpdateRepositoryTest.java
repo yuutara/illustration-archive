@@ -19,7 +19,7 @@ class IllustrationMetadataUpdateRepositoryTest {
 	@Test
 	void updatesOnlyTitleWhenOnlyTitleIsPresent() {
 		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
-		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate);
+		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate, mock(IllustrationGalleryMapper.class));
 		IllustrationPatchRequest request = new IllustrationPatchRequest();
 		request.setTitle("New title");
 		when(jdbcTemplate.update(anyString(), any(Object[].class))).thenReturn(1);
@@ -32,7 +32,7 @@ class IllustrationMetadataUpdateRepositoryTest {
 	@Test
 	void updatesTitleAndNoteInFieldOrderWhenBothArePresent() {
 		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
-		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate);
+		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate, mock(IllustrationGalleryMapper.class));
 		IllustrationPatchRequest request = new IllustrationPatchRequest();
 		request.setTitle("New title");
 		request.setNote("New note");
@@ -52,7 +52,7 @@ class IllustrationMetadataUpdateRepositoryTest {
 	@Test
 	void updatesOnlyAuthorIdWhenOnlyAuthorIdIsPresent() {
 		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
-		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate);
+		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate, mock(IllustrationGalleryMapper.class));
 		IllustrationPatchRequest request = new IllustrationPatchRequest();
 		request.setAuthorId(7L);
 		when(jdbcTemplate.update(anyString(), any(Object[].class))).thenReturn(1);
@@ -65,7 +65,7 @@ class IllustrationMetadataUpdateRepositoryTest {
 	@Test
 	void bindsNullWhenAuthorIdIsExplicitlyCleared() {
 		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
-		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate);
+		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate, mock(IllustrationGalleryMapper.class));
 		IllustrationPatchRequest request = new IllustrationPatchRequest();
 		request.setAuthorId(null);
 		when(jdbcTemplate.update(anyString(), any(Object[].class))).thenReturn(1);
@@ -78,7 +78,7 @@ class IllustrationMetadataUpdateRepositoryTest {
 	@Test
 	void updatesTitleAndAuthorIdInStableColumnOrder() {
 		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
-		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate);
+		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate, mock(IllustrationGalleryMapper.class));
 		IllustrationPatchRequest request = new IllustrationPatchRequest();
 		request.setTitle("New title");
 		request.setAuthorId(7L);
@@ -98,7 +98,7 @@ class IllustrationMetadataUpdateRepositoryTest {
 	@Test
 	void bindsNullWhenSourceUrlIsExplicitlyCleared() {
 		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
-		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate);
+		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate, mock(IllustrationGalleryMapper.class));
 		IllustrationPatchRequest request = new IllustrationPatchRequest();
 		request.setSourceUrl(null);
 		when(jdbcTemplate.update(anyString(), any(Object[].class))).thenReturn(1);
@@ -111,7 +111,7 @@ class IllustrationMetadataUpdateRepositoryTest {
 	@Test
 	void doesNotExecuteUpdateWhenNoFieldsArePresent() {
 		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
-		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate);
+		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate, mock(IllustrationGalleryMapper.class));
 
 		repository.updateBasicMetadata(10L, new IllustrationPatchRequest());
 

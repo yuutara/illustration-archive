@@ -1,21 +1,16 @@
 package com.yuutara.illustrationarchive.repository;
 
 import com.yuutara.illustrationarchive.dto.AssetSummary;
-import com.yuutara.illustrationarchive.dto.GalleryAsset;
-import com.yuutara.illustrationarchive.dto.IllustrationGalleryQuery;
-import com.yuutara.illustrationarchive.dto.IllustrationGalleryItem;
 import com.yuutara.illustrationarchive.dto.TagSummary;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
-import org.springframework.jdbc.core.RowCallbackHandler;
 
 import java.sql.ResultSet;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -29,175 +24,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class IllustrationRepositoryTest {
-	private static final IllustrationGalleryQuery EMPTY = new IllustrationGalleryQuery(null, null, null);
-
-    @Test
-    void multiSelectCountAndPageShareOrGroupsAndBoundParameters() {
-        var jdbc = mock(JdbcTemplate.class);
-        var repository = new IllustrationRepository(jdbc);
-        var query = IllustrationGalleryQuery.withIds("Work", List.of(2L, 1L, 2L), List.of(5L, 3L));
-        when(jdbc.queryForObject(anyString(), eq(Long.class), any(Object[].class))).thenReturn(0L);
-        repository.count(query); repository.findGalleryPage(query, 24, 48L);
-        var countSql = ArgumentCaptor.forClass(String.class);
-        var countArgs = ArgumentCaptor.forClass(Object[].class);
-        var pageSql = ArgumentCaptor.forClass(String.class);
-        var pageArgs = ArgumentCaptor.forClass(Object[].class);
-        verify(jdbc).queryForObject(countSql.capture(), eq(Long.class), countArgs.capture());
-        verify(jdbc).query(pageSql.capture(), any(RowMapper.class), pageArgs.capture());
-        String predicate = countSql.getValue().substring(countSql.getValue().indexOf("WHERE i.author_id"));
-        assertTrue(predicate.contains("i.author_id IN (?, ?) AND EXISTS"));
-        assertTrue(predicate.contains("selected_tag.tag_id IN (?, ?)) AND"));
-        assertTrue(pageSql.getValue().contains(predicate));
-        assertEquals(List.of(1L, 2L, 3L, 5L), List.of(countArgs.getValue()).subList(0, 4));
-        assertEquals(List.of(countArgs.getValue()), List.of(pageArgs.getValue()).subList(0, 10));
-        assertFalse(pageSql.getValue().contains("LEFT JOIN illustration_tag"));
-    }
-
-	@Test
-	void countsIllustrations() {
-		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
-		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate);
-		when(jdbcTemplate.queryForObject(eq("SELECT COUNT(*) FROM illustration i LEFT JOIN author a ON i.author_id = a.id "), eq(Long.class), any(Object[].class))).thenReturn(7L);
-
-		long count = repository.count(EMPTY);
-
-		assertEquals(7L, count);
-		verify(jdbcTemplate).queryForObject(eq("SELECT COUNT(*) FROM illustration i LEFT JOIN author a ON i.author_id = a.id "), eq(Long.class), any(Object[].class));
-	}
-
-	@Test
-	void countAndPageSharePredicateWithLiteralWildcardsAndNoOuterTagJoin() {
-		var jdbc = mock(JdbcTemplate.class);
-		var repository = new IllustrationRepository(jdbc);
-		var query = new IllustrationGalleryQuery("100%_!\\'", 12L, 7L);
-		when(jdbc.queryForObject(anyString(), eq(Long.class), any(Object[].class))).thenReturn(0L);
-		repository.count(query);
-		repository.findGalleryPage(query, 24, 48L);
-		var countSql = ArgumentCaptor.forClass(String.class);
-		var countArgs = ArgumentCaptor.forClass(Object[].class);
-		var pageSql = ArgumentCaptor.forClass(String.class);
-		var pageArgs = ArgumentCaptor.forClass(Object[].class);
-		verify(jdbc).queryForObject(countSql.capture(), eq(Long.class), countArgs.capture());
-		verify(jdbc).query(pageSql.capture(), any(RowMapper.class), pageArgs.capture());
-		String predicate = countSql.getValue().substring(countSql.getValue().indexOf("WHERE i.author_id"));
-		assertTrue(pageSql.getValue().contains(predicate));
-		assertEquals(List.of(12L, 7L, "%100!%!_!!\\'%", "%100!%!_!!\\'%", "%100!%!_!!\\'%",
-				"%100!%!_!!\\'%", "%100!%!_!!\\'%", "%100!%!_!!\\'%"), List.of(countArgs.getValue()));
-		assertEquals(List.of(countArgs.getValue()), List.of(pageArgs.getValue()).subList(0, 8));
-		assertEquals(List.of(24, 48L), List.of(pageArgs.getValue()).subList(8, 10));
-		assertTrue(predicate.contains("EXISTS (SELECT 1 FROM illustration_tag selected_tag"));
-		assertTrue(predicate.contains("i.note LIKE ?"));
-		assertFalse(countSql.getValue().contains("LIMIT"));
-		assertFalse(pageSql.getValue().contains("LEFT JOIN illustration_tag"));
-		assertFalse(pageSql.getValue().contains("DISTINCT"));
-	}
-
-	@Test
-	void mapsGalleryRowWithoutAuthor() throws Exception {
-		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
-		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate);
-		ResultSet resultSet = mock(ResultSet.class);
-		LocalDateTime createdAt = LocalDateTime.of(2026, 9, 18, 10, 30);
-		when(resultSet.getObject("author_id", Long.class)).thenReturn(null);
-		when(resultSet.getLong("illustration_id")).thenReturn(10L);
-		when(resultSet.getString("illustration_title")).thenReturn("Untitled");
-		when(resultSet.getObject("cover_asset_id", Long.class)).thenReturn(20L);
-		when(resultSet.getString("cover_mime_type")).thenReturn("image/jpeg");
-		when(resultSet.getInt("asset_count")).thenReturn(2);
-		when(resultSet.getTimestamp("illustration_created_at")).thenReturn(Timestamp.valueOf(createdAt));
-
-		@SuppressWarnings({"unchecked", "rawtypes"})
-		ArgumentCaptor<RowMapper<IllustrationGalleryItem>> rowMapperCaptor =
-				(ArgumentCaptor) ArgumentCaptor.forClass(RowMapper.class);
-		when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(24), eq(48L))).thenReturn(List.of());
-
-		repository.findGalleryPage(EMPTY, 24, 48L);
-
-		verify(jdbcTemplate).query(anyString(), rowMapperCaptor.capture(), eq(24), eq(48L));
-		ArgumentCaptor<String> sqlCaptor = ArgumentCaptor.forClass(String.class);
-		verify(jdbcTemplate).query(sqlCaptor.capture(), any(RowMapper.class), eq(24), eq(48L));
-		String sql = sqlCaptor.getValue();
-		assertTrue(sql.contains("LEFT JOIN author a ON i.author_id = a.id"));
-		assertTrue(sql.contains("cover_asset.id AS cover_asset_id"));
-		assertTrue(sql.contains("cover_asset.mime_type AS cover_mime_type"));
-		assertTrue(sql.contains("LEFT JOIN asset cover_asset ON cover_asset.id = ("));
-		assertTrue(sql.contains("ORDER BY candidate.sort_order ASC, candidate.id ASC"));
-		assertTrue(sql.contains("ORDER BY i.created_at DESC, i.id DESC"));
-		assertTrue(sql.contains("LIMIT ? OFFSET ?"));
-		IllustrationGalleryItem item = rowMapperCaptor.getValue().mapRow(resultSet, 0);
-		assertEquals(10L, item.id());
-		assertEquals("Untitled", item.title());
-		assertNull(item.author());
-		assertEquals(20L, item.coverAssetId());
-		assertEquals("image/jpeg", item.coverMimeType());
-		assertEquals(2, item.assetCount());
-		assertEquals(createdAt, item.createdAt());
-	}
-
-	@Test
-	void mapsGalleryRowWithAuthor() throws Exception {
-		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
-		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate);
-		ResultSet resultSet = mock(ResultSet.class);
-		when(resultSet.getObject("author_id", Long.class)).thenReturn(3L);
-		when(resultSet.getString("author_display_name")).thenReturn("Artist");
-		when(resultSet.getString("author_x_username")).thenReturn("artist_x");
-		when(resultSet.getLong("illustration_id")).thenReturn(10L);
-		when(resultSet.getString("illustration_title")).thenReturn(null);
-		when(resultSet.getObject("cover_asset_id", Long.class)).thenReturn(null);
-		when(resultSet.getInt("asset_count")).thenReturn(0);
-		when(resultSet.getTimestamp("illustration_created_at"))
-				.thenReturn(Timestamp.valueOf(LocalDateTime.of(2026, 9, 18, 11, 0)));
-
-		@SuppressWarnings({"unchecked", "rawtypes"})
-		ArgumentCaptor<RowMapper<IllustrationGalleryItem>> rowMapperCaptor =
-				(ArgumentCaptor) ArgumentCaptor.forClass(RowMapper.class);
-		when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(10), eq(0L))).thenReturn(List.of());
-
-		repository.findGalleryPage(EMPTY, 10, 0L);
-
-		verify(jdbcTemplate).query(anyString(), rowMapperCaptor.capture(), eq(10), eq(0L));
-		IllustrationGalleryItem item = rowMapperCaptor.getValue().mapRow(resultSet, 0);
-		assertEquals(3L, item.author().id());
-		assertEquals("Artist", item.author().displayName());
-		assertEquals("artist_x", item.author().xUsername());
-		assertNull(item.title());
-		assertNull(item.coverAssetId());
-		assertNull(item.coverMimeType());
-		assertEquals(0, item.assetCount());
-	}
-
-	@Test
-	void loadsGalleryAssetsForPageInSortOrder() throws Exception {
-		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
-		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate);
-		Map<Long, List<GalleryAsset>> assets =
-				repository.findGalleryAssetsByIllustrationIds(List.of(10L, 11L));
-
-		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
-		ArgumentCaptor<RowCallbackHandler> handler = ArgumentCaptor.forClass(RowCallbackHandler.class);
-		verify(jdbcTemplate).query(sql.capture(), handler.capture(), eq(10L), eq(11L));
-		assertTrue(sql.getValue().contains("WHERE illustration_id IN (?, ?)"));
-		assertTrue(sql.getValue().contains("ORDER BY illustration_id, sort_order ASC, id ASC"));
-		assertFalse(sql.getValue().contains("storage_key"));
-
-		ResultSet row = mock(ResultSet.class);
-		when(row.getLong("illustration_id")).thenReturn(10L, 10L, 10L);
-		when(row.getLong("id")).thenReturn(31L, 32L, 33L);
-		when(row.getString("mime_type")).thenReturn("image/jpeg", "image/png", "image/gif");
-		when(row.getInt("sort_order")).thenReturn(0, 1, 2);
-		handler.getValue().processRow(row);
-		handler.getValue().processRow(row);
-		handler.getValue().processRow(row);
-		assertEquals(List.of(31L, 32L, 33L), assets.get(10L).stream().map(asset -> asset.id()).toList());
-		assertEquals(List.of(0, 1, 2), assets.get(10L).stream().map(asset -> asset.sortOrder()).toList());
-		assertFalse(assets.containsKey(11L));
-	}
-
 	@Test
 	void mapsDetailBaseWithoutAuthor() throws Exception {
 		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
-		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate);
+		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate, mock(IllustrationGalleryMapper.class));
 		ResultSet resultSet = mock(ResultSet.class);
 		LocalDateTime createdAt = LocalDateTime.of(2026, 9, 19, 10, 0);
 		LocalDateTime updatedAt = LocalDateTime.of(2026, 9, 19, 11, 0);
@@ -234,7 +64,7 @@ class IllustrationRepositoryTest {
 	@Test
 	void mapsDetailBaseWithAuthor() throws Exception {
 		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
-		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate);
+		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate, mock(IllustrationGalleryMapper.class));
 		ResultSet resultSet = mock(ResultSet.class);
 		when(resultSet.getObject("author_id", Long.class)).thenReturn(3L);
 		when(resultSet.getString("author_display_name")).thenReturn("Artist");
@@ -262,7 +92,7 @@ class IllustrationRepositoryTest {
 	@Test
 	void returnsEmptyWhenDetailBaseDoesNotExist() {
 		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
-		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate);
+		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate, mock(IllustrationGalleryMapper.class));
 		when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(99L))).thenReturn(List.of());
 
 		var result = repository.findDetailBaseById(99L);
@@ -274,7 +104,7 @@ class IllustrationRepositoryTest {
 	@Test
 	void mapsAssetSummariesWithRequiredFieldsAndSortOrder() throws Exception {
 		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
-		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate);
+		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate, mock(IllustrationGalleryMapper.class));
 		ResultSet resultSet = mock(ResultSet.class);
 		when(resultSet.getLong("id")).thenReturn(20L);
 		when(resultSet.getString("original_filename")).thenReturn("original.jpg");
@@ -308,7 +138,7 @@ class IllustrationRepositoryTest {
 	@Test
 	void mapsTagSummariesUsingJoinAndNameOrdering() throws Exception {
 		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
-		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate);
+		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate, mock(IllustrationGalleryMapper.class));
 		ResultSet resultSet = mock(ResultSet.class);
 		when(resultSet.getLong("tag_id")).thenReturn(5L);
 		when(resultSet.getString("tag_name")).thenReturn("landscape");
@@ -335,7 +165,7 @@ class IllustrationRepositoryTest {
 	@Test
 	void deletesIllustrationById() {
 		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
-		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate);
+		IllustrationRepository repository = new IllustrationRepository(jdbcTemplate, mock(IllustrationGalleryMapper.class));
 
 		repository.deleteById(10L);
 

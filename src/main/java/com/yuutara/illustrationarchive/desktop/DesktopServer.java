@@ -23,6 +23,12 @@ public final class DesktopServer {
 
 	public static final String PROFILE = "desktop";
 	public static final String ACCESS_TOKEN_PROPERTY = "illustration-archive.desktop.access-token";
+	/**
+	 * MODE=MySQL keeps repository SQL portable; IGNORECASE matches the utf8mb4_unicode_ci comparisons
+	 * used by search and unique tag names. Repository contract tests reuse the same flags.
+	 */
+	public static final String H2_COMPATIBILITY =
+			";MODE=MySQL;DATABASE_TO_LOWER=TRUE;CASE_INSENSITIVE_IDENTIFIERS=TRUE;IGNORECASE=TRUE";
 
 	private DesktopServer() {
 	}
@@ -69,11 +75,9 @@ public final class DesktopServer {
 		// Optional, PoC-only override file; the MySQL ./config/application-local.properties is never read.
 		properties.put("illustration-archive.local-config", root.resolve("config").resolve("desktop.properties").toString());
 
-		// MODE=MySQL keeps repository SQL portable; IGNORECASE matches the utf8mb4_unicode_ci comparisons
-		// used by search and unique tag names. Spring, not H2's own shutdown hook, closes the database.
+		// Spring, not H2's own shutdown hook, closes the database.
 		String h2Url = "jdbc:h2:file:" + root.resolve("data").resolve("archive")
-				+ ";MODE=MySQL;DATABASE_TO_LOWER=TRUE;CASE_INSENSITIVE_IDENTIFIERS=TRUE;IGNORECASE=TRUE"
-				+ ";DB_CLOSE_ON_EXIT=FALSE;LOCK_TIMEOUT=10000";
+				+ H2_COMPATIBILITY + ";DB_CLOSE_ON_EXIT=FALSE;LOCK_TIMEOUT=10000";
 		properties.put("spring.datasource.url", h2Url);
 		properties.put("spring.datasource.driver-class-name", "org.h2.Driver");
 		properties.put("spring.datasource.username", "sa");
