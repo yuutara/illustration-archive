@@ -600,6 +600,44 @@ class DesktopServerIntegrationTest {
 		return names;
 	}
 
+	/**
+	 * The control window opens {@code sessionUri()} on first start and on "打开图库". Like a browser (cookies kept,
+	 * redirects followed), that lands on the C gallery; the old gallery stays one link away behind the same session.
+	 */
+	@Test
+	void launchSessionOpensTheCGalleryAndKeepsTheOldGalleryBehindTheSameGuard() throws Exception {
+		DesktopServer.Running running = start();
+		assertEquals(LocalAccessFilter.SESSION_PATH, running.sessionUri().getPath(), "the launcher still opens the session entry");
+
+		HttpResponse<String> session = send(running, null, get(running, LocalAccessFilter.SESSION_PATH + "?token="
+				+ running.accessToken()));
+		assertEquals(302, session.statusCode());
+		assertEquals(running.baseUri().resolve("/c/"), running.baseUri().resolve(session.headers().firstValue("Location").orElseThrow()));
+		assertEquals("no-store", session.headers().firstValue("Cache-Control").orElseThrow());
+		assertTrue(session.headers().firstValue("Set-Cookie").orElseThrow().contains("SameSite=Strict"));
+		for (String bad : List.of("", "?token=", "?token=" + "0".repeat(64))) {
+			HttpResponse<String> refused = send(running, null, get(running, LocalAccessFilter.SESSION_PATH + bad));
+			assertEquals(403, refused.statusCode(), bad);
+			assertTrue(refused.headers().firstValue("Set-Cookie").isEmpty(), "no session for " + bad);
+		}
+
+		HttpClient browser = HttpClient.newBuilder().cookieHandler(new java.net.CookieManager())
+				.followRedirects(HttpClient.Redirect.NORMAL).connectTimeout(Duration.ofSeconds(5)).build();
+		HttpResponse<String> landed = browser.send(HttpRequest.newBuilder(running.sessionUri()).GET().build(),
+				HttpResponse.BodyHandlers.ofString());
+		assertEquals(200, landed.statusCode());
+		assertEquals("/c/", landed.uri().getPath());
+		assertTrue(landed.body().contains("新版图库") && landed.body().contains("href=\"/\""), "C gallery, with its old-gallery link");
+		HttpResponse<String> old = browser.send(HttpRequest.newBuilder(running.baseUri().resolve("/")).GET().build(),
+				HttpResponse.BodyHandlers.ofString());
+		assertEquals(200, old.statusCode());
+		assertTrue(old.body().contains("app.js") && old.body().contains("href=\"/c/\""), "old gallery stays reachable");
+
+		for (String path : List.of("/c/", "/", "/api/illustrations")) {
+			assertEquals(403, send(running, null, get(running, path)).statusCode(), path + " still needs the session");
+		}
+	}
+
 	@Test
 	void localAccessGuardRejectsRequestsWithoutTheLaunchSession() throws Exception {
 		DesktopServer.Running running = start();

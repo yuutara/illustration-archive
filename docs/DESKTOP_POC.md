@@ -22,7 +22,10 @@ IllustrationArchivePoC.exe (jpackage 启动器 + 自带 Java 17 运行时)
             │    ├─ Tomcat 只监听 127.0.0.1（默认 47391，被占用时随机端口）
             │    └─ LocalAccessFilter：启动令牌 → SameSite=Strict Cookie
             └─ 系统默认浏览器打开 http://127.0.0.1:<port>/desktop/session?token=…
+                 └─ 写入会话 Cookie 后跳转到新版 C 图库 /c/（2026-10-28 起；此前为旧图库 /）
 ```
+
+首次启动和控制窗“打开图库”都走这个会话入口，所以都默认进入 `/c/`；旧图库仍在 `/`，C 图库顶栏的“旧图库”可以进入，二者共用同一个会话与访问保护。普通 MySQL 运行方式不加载这个过滤器，不受影响。
 
 `<home>` 默认 `%LOCALAPPDATA%\IllustrationArchivePoC`，可用环境变量 `ILLUSTRATION_ARCHIVE_DESKTOP_HOME` 或系统属性 `illustration-archive.desktop.home` 覆盖。日志在 `<home>\logs\desktop.log`。
 
@@ -151,7 +154,7 @@ Codex 只读 Review 指出两点，均只改 `DesktopServer` 的桌面启动参�
 .\mvnw.cmd '-Dmaven.repo.local=C:\Users\YuanYuChou\.m2\repository' '-Dtest=CGalleryAcceptanceServer' '-Dsurefire.failIfNoSpecifiedTests=false' '-DargLine=-Djava.io.tmpdir=D:\IdeaProjects\illustration-archive\target\test-temp -Djdk.net.unixdomain.tmpdir=D:\IdeaProjects\illustration-archive\target\test-temp -Dc.acceptance.home=D:\ClaudeProjects\2026-10-28\c-gallery-acceptance' test
 ```
 
-用真实桌面启动器体验同一份验收图库：`mvnw package -DskipTests` 后，设置 `ILLUSTRATION_ARCHIVE_DESKTOP_HOME` 指向该目录，再 `java -Dillustration-archive.desktop=true -jar target\illustration-archive-0.0.1-SNAPSHOT.jar`，在控制窗“打开图库”后从“操作”菜单进入新版图库。
+用真实桌面启动器体验同一份验收图库：`mvnw package -DskipTests` 后，设置 `ILLUSTRATION_ARCHIVE_DESKTOP_HOME` 指向该目录，再 `java -Dillustration-archive.desktop=true -jar target\illustration-archive-0.0.1-SNAPSHOT.jar`，在控制窗“打开图库”后直接进入新版图库（2026-10-28 前需从旧图库“操作”菜单进入）。
 
 验证（2026-10-28）：全量 `mvnw test` 396 tests，0 failures / errors，4 skipped（同前），BUILD SUCCESS；`node --test` 145/145。ego 浏览器在隔离图库上实测：分页（30 → 55，无重复）、空图库、首屏与翻页请求失败后重试、缺失缩略图回退、GIF、2 / 3 / 4 页循环牌堆与从当前页进入看图器、原图替换与翻页、详情、禁用入口只提示不操作、只发 GET、重启后读取、浅 / 深色。ego 窗口不刷新画面，动画与手感仍需人工验收。
 
@@ -303,6 +306,14 @@ Codex 只读 Review 指出两点，均只改 `DesktopServer` 的桌面启动参�
 - **Codex 独立 Review**：数据、安全、核实结果与分页主流程通过；指出一个 P2 焦点问题——从作品墙按 Delete 删除成功后，焦点停在 `body`，没有落到下一件 / 上一件、“清除全部条件”或“导入作品”。根因：确认框先隐藏再通知图库移除作品，而浏览器不会在隐藏时立刻移走焦点，图库读到的焦点仍在已隐藏的确认框上，三项判断都没命中（看图器路径另有判断，所以正常）。修复（2026-10-28）：`c-delete.js` 成功关闭时先让确认框交出焦点（`blur`），图库照原逻辑安排；取消仍还原到原处，删除中的锁定不变。新增 `c-gallery-delete.test.js`（5 项）：在假 DOM 上同时运行真实的 `archive-client.js`、`c-gallery.js`、`c-delete.js`，覆盖作品墙删除后焦点落到下一件 / 上一件、唯一搜索结果删除后落到“清除全部条件”、删光后落到“导入作品”、取消回到原卡片、从看图器删除回到图库并聚焦补位的卡片；前 3 项已确认在修复前失败。`node --test src/test/js/*.test.js`：216/216 通过。
 - **Codex 浏览器复验通过（2026-10-28）**：使用保存后最新 `target/classes`（未重建 JAR / `dist`）、全新隔离 H2 测试库与 ego-browser 任务 Space 12。真实 Delete / Tab / Enter 按键与页面点击验证：普通作品墙删除后焦点落到下一件，删除末尾项后落到上一件；删除唯一搜索结果后落到 `no-match-clear`，输入框和地址里的搜索条件保留；删除最后一件后落到 `empty-import`。取消按钮 / Esc 都回到原卡片且不发 DELETE，从看图器删除后回到图库并聚焦补位卡片。本轮独立相关 JS 测试 `node --test src/test/js/c-delete.test.js src/test/js/c-gallery-delete.test.js`：14/14 通过。其余已通过证据沿用，P2 已关闭，本包独立 Review 与浏览器验收通过；测试服务已正常退出，Space 12 已释放。
 - **未验证**：真实 MySQL；`dist` 仍是旧包。
+
+## 默认进入 C 图库与桌面包更新（2026-10-28）
+
+- `LocalAccessFilter` 的会话入口写入 Cookie 后跳转 `/c/`（`LANDING_PATH`），首次启动与“打开图库”都直接进入 C 图库；旧图库 `/`、访问保护与 MySQL 运行方式不变。
+- 测试：`DesktopServerIntegrationTest` 新增入口用例（隔离 H2）：像浏览器一样保留 Cookie、跟随跳转打开启动器的会话地址后落在 `/c/`；同一会话下旧图库可进入；缺失或错误令牌为 403 且不发 Cookie；无会话访问 `/c/`、`/` 和 API 都是 403。整个类 12/12 通过。
+- 重新打包：确认旧包未运行后，旧目录与 ZIP 移到 `dist\previous-2026-10-27\` 作为回退副本。当时 IntelliJ 中有实例直接使用 `target\classes`，而脚本会删除它，所以把工作树复制到仓库外（不含 `config\`、`.env`、`target`、`dist`）运行同一脚本（JDK 17.0.19），再把产物放回 `dist`：目录约 170 MB，ZIP 约 84 MB；已核对包内 JAR 含本次跳转、单件删除与 404 改动。
+- 回退：退出新包后删除 `dist\IllustrationArchivePoC` 与 ZIP，把 `dist\previous-2026-10-27\` 里的两项移回 `dist\`。数据目录不随包变化。
+- 验收通过：Codex 独立 Review、包内核对与隔离浏览器入口验收通过；用户已确认双击 EXE 的实际体验通过。
 
 ## 已知问题与后续候选
 

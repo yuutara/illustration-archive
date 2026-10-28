@@ -34,6 +34,8 @@ import java.util.Set;
 public class LocalAccessFilter extends OncePerRequestFilter {
 
 	public static final String SESSION_PATH = "/desktop/session";
+	/** Where the control window's "打开图库" lands once the session cookie is set; the old gallery stays at "/". */
+	public static final String LANDING_PATH = "/c/";
 	static final String COOKIE_NAME = "ia_desktop_session";
 	private static final Set<String> SAFE_METHODS = Set.of("GET", "HEAD", "OPTIONS");
 
@@ -63,7 +65,7 @@ public class LocalAccessFilter extends OncePerRequestFilter {
 					.httpOnly(true).sameSite("Strict").path("/").build();
 			response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
 			response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
-			response.sendRedirect("/");
+			response.sendRedirect(LANDING_PATH);
 			return;
 		}
 		if (!matchesToken(sessionCookie(request))) {
