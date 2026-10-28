@@ -110,6 +110,50 @@ html[data-look="paper"] .btn-danger { border-color: var(--danger); color: #fff; 
 html[data-look="paper"] .btn-danger:hover { filter: brightness(.94); }
 html[data-look="paper"][data-mode="dark"] .btn-danger { color: #1a1918; }
 
+/*
+ * 单件删除的确认框：先让人认出是哪一件（封面、名称、图片数），再说清后果。
+ * 封面的阴影画在图片自身上，所在的容器都不裁切（没有 overflow），阴影不会被截掉；多图作品在封面后面叠两张纸。
+ */
+.sheet-delete { width: min(440px, 100%); }
+.sheet-delete:focus { outline: none; }
+.del-work { display: flex; align-items: center; gap: 16px; margin-top: 16px; padding: 14px 16px; border-radius: 12px; background: var(--paper-2); }
+.del-cover { position: relative; isolation: isolate; flex: none; width: 64px; height: 64px; }
+.del-cover img { display: block; width: 100%; height: 100%; border-radius: 8px; object-fit: cover; background: var(--paper); box-shadow: var(--art-shadow, 0 2px 8px rgba(0, 0, 0, .15)); }
+.del-cover.is-stack::before, .del-cover.is-stack::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: 8px;
+    background: var(--card);
+    box-shadow: 0 0 0 1px var(--line);
+}
+.del-cover.is-stack::before { transform: translate(5px, -5px) rotate(4deg); }
+.del-cover.is-stack::after { transform: translate(9px, -8px) rotate(8deg); opacity: .7; }
+.del-work-text { min-width: 0; }
+.sheet-small .del-work p { margin: 0; }
+.sheet-small .del-name { display: -webkit-box; overflow: hidden; color: var(--ink); font: 400 17px/1.35 var(--serif); -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.sheet-small .del-meta { margin-top: 4px; color: var(--muted); font-size: 13px; }
+.sheet-small .del-text { margin-top: 16px; color: var(--ink-2, var(--ink)); }
+.sheet-small .del-draft { margin-top: 8px; color: var(--accent-text, var(--accent)); font-size: 13px; }
+.sheet-small .del-status { margin-top: 14px; padding: 10px 12px; border-radius: 10px; font-size: 13px; }
+.del-status.is-error { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.del-status.is-unknown { color: var(--ink); background: var(--paper-2); box-shadow: inset 0 0 0 1px var(--line); }
+#delete-confirm[aria-busy="true"] .btn:disabled { cursor: progress; }
+#delete-confirm .btn:disabled { opacity: .6; }
+#delete-confirm[aria-busy="true"] #del-ok::before {
+    content: "";
+    width: 11px;
+    height: 11px;
+    border: 1.5px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: c-spin .8s linear infinite;
+}
+/* 看图器“更多”菜单：危险操作和其他项之间隔一条细线 */
+.sv-menu #sv-delete { position: relative; margin-top: 7px; }
+.sv-menu #sv-delete::before { content: ""; position: absolute; top: -4px; left: 10px; right: 10px; height: 1px; background: var(--line); }
+
 /* 看图器：信息里的作者和标签可以点，回到图库只看它 */
 .info-author { margin: 0; font: 500 16px var(--serif); text-align: left; }
 .sv-menu a[aria-disabled="true"] { pointer-events: none; }

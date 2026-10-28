@@ -9,6 +9,7 @@
  *   GET /api/illustrations/{id}        详情：标题、作者、标签、备注、来源、文件名与大小
  *   PATCH /api/illustrations/{id}      单件编辑：只发送改动过的字段，清空作者为 null、清空标签为 []；成功为 204，无响应体
  *   POST /api/illustrations/import     本地导入：每次只带一个文件，按逐项结果判断成功 / 已存在 / 失败
+ *   DELETE /api/illustrations/{id}     单件删除：204 为已删除；没有确切回执时重新读取详情核实（404 即已删除）
  *   GET /api/assets/{id}/thumbnail     缩略图；GIF、视频没有缩略图，缩略图缺失时退回原图
  *   GET /api/assets/{id}/content       原图
  *
@@ -767,6 +768,76 @@
         };
     }
 
+    /* ---------------- 单件删除 ---------------- */
+
+    const deletions = new Map();
+
+    /*
+     * 重新读取详情，核实一次没有确切回执的删除：404 说明已经删除，200 说明作品还在；
+     * 其余情况（连不上、会话失效、服务出错）仍然无法确认。reason 是前一步为什么没有确切结果。
+     */
+    async function checkDeleted(id, reason = '上一次删除没有收到确切结果') {
+        let response;
+        try {
+            response = await fetch(`/api/illustrations/${id}`, {
+                headers: { Accept: 'application/json' }, credentials: 'same-origin', cache: 'no-store'
+            });
+        } catch (e) {
+            return { status: 'unknown', reason, message: `${reason}；重新读取也没能连上服务，无法确认这件作品是否已经删除` };
+        }
+        if (response.status === 404) return { status: 'deleted', verified: true, reason };
+        if (response.ok) return { status: 'kept', verified: true, reason, message: `${reason}。重新读取确认作品仍在图库中，没有删除` };
+        const why = response.status === 403 ? '本机访问会话已失效' : `服务返回 ${response.status}`;
+        return { status: 'unknown', reason, message: `${reason}；重新读取时${why}，无法确认这件作品是否已经删除` };
+    }
+
+    /*
+     * 删除：DELETE /api/illustrations/{id}。服务端先在事务里删除记录，提交之后才清理原图与缩略图文件。
+     * 返回 { status, message }：
+     * - deleted：204（不解析响应体），或没有确切回执、重新读取后确认已经删除（verified）；
+     * - gone：404，作品在这之前就已不存在（例如已在旧图库中删除），同样从列表移除；
+     * - kept：确定没有删除。403 是本机访问保护在进入删除逻辑之前就拒绝了；其余是重新读取确认作品还在；
+     * - unknown：连接中断或服务出错，重新读取也没有结果。不说“没有删除”，也不当作成功。
+     * 同一件作品的删除在进行中时再次调用，返回同一个结果，不会重复提交。本函数不改动列表，由调用方再调用 removeWork。
+     */
+    function deleteWork(id) {
+        if (deletions.has(id)) return deletions.get(id);
+        const run = (async () => {
+            let response;
+            try {
+                response = await fetch(`/api/illustrations/${id}`, { method: 'DELETE', credentials: 'same-origin' });
+            } catch (e) {
+                return checkDeleted(id, '连接中断，没有收到删除结果');
+            }
+            if (response.ok) return { status: 'deleted', verified: false };
+            if (response.status === 404) return { status: 'gone' };
+            if (response.status === 403) return { status: 'kept', message: '本机访问会话已失效，作品没有删除。请从控制窗口重新打开图库' };
+            return checkDeleted(id, `服务返回 ${response.status}`);
+        })().finally(() => deletions.delete(id));
+        deletions.set(id, run);
+        return run;
+    }
+
+    /*
+     * 从当前结果中移除已删除的作品（不再请求服务端），发出 removed { id, index }；index 为 -1 表示它本就不在结果里。
+     * 分页按偏移计算：前面少了一件，后面的作品整体前移一位，下一页原本的第一件会落到已载入的最后一页里。
+     * 所以把“下一页”退回到已载入数量所在的那一页重读，重复的按 id 去掉：不漏项、不重复。
+     * 正在载入的列表请求先等它结束，免得它的结果在移除之后才写回来。
+     */
+    async function removeWork(id) {
+        if (loading) await loading.catch(() => {});
+        retained.delete(id);
+        const index = works.findIndex((w) => w.id === id);
+        if (index >= 0) {
+            works.splice(index, 1);
+            byId.delete(id);
+            if (total != null) total = Math.max(0, total - 1);
+            nextPage = Math.min(nextPage, Math.floor(works.length / PAGE_SIZE));
+        }
+        emit('removed', { id, index });
+        return { index };
+    }
+
     // 整个图库（不带条件）的作品数：筛选时导入后用来更新“全部”旁的数字
     async function libraryCount() {
         const page = await getJson('/api/illustrations?page=0&size=1');
@@ -845,6 +916,10 @@
         editSession,
         refreshLoaded,
         importQueue,
+        deleteWork,
+        checkDeleted,
+        removeWork,
+        isDeleting: (id) => deletions.has(id),
         libraryCount,
         IMPORT_MAX_BYTES,
         hasMore,

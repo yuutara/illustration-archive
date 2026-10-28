@@ -839,3 +839,157 @@ test("after an import the loaded list is re-read: new works appear unfiltered, a
     assert.equal(env.Archive.total(), 2);
     assert.equal(await env.Archive.libraryCount(), 4, "the whole library count is read separately");
 });
+
+/* ---------------- single-work delete ---------------- */
+
+/** A server-side list that shrinks when a DELETE succeeds, so later page reads see the shifted offsets. */
+function deletableLibrary(count) {
+    const rows = Array.from({ length: count }, (_, i) => item(count - i, [jpeg(5000 + i)]));
+    const responses = {};
+    for (let p = 0; p < 3; p++) responses[listUrl(p)] = () => pageOf(p, rows.length, rows.slice(p * 30, p * 30 + 30));
+    rows.forEach((row) => {
+        responses[`DELETE /api/illustrations/${row.id}`] = () => {
+            rows.splice(rows.indexOf(row), 1);
+            return NO_CONTENT;
+        };
+        responses[`/api/illustrations/${row.id}`] = () => (rows.includes(row) ? { id: row.id, title: row.title, assets: [] } : 404);
+    });
+    return { rows, responses };
+}
+
+test("204 deletes without reading a body; removing it keeps paging complete with no work skipped or repeated", async () => {
+    const lib = deletableLibrary(31);
+    const env = setup({ responses: lib.responses });
+    await env.Archive.setQuery({});
+    assert.equal(env.Archive.works.length, 30);
+    assert.equal(env.Archive.total(), 31);
+    const seen = [];
+    env.Archive.subscribe((e) => { if (e.type === "removed") seen.push(plain(e)); });
+
+    const result = await env.Archive.deleteWork(25);
+    assert.deepEqual(plain(result), { status: "deleted", verified: false });
+    assert.equal(env.requests.filter((r) => r === "/api/illustrations/25").length, 0, "a 204 needs no re-read");
+    assert.equal(env.Archive.listed(25), true, "deleteWork alone does not touch the list");
+    await env.Archive.removeWork(25);
+    assert.deepEqual(seen, [{ type: "removed", id: 25, index: 6 }]);
+    assert.equal(env.Archive.listed(25), false);
+    assert.equal(env.Archive.get(25), null);
+    assert.equal(env.Archive.total(), 30);
+    assert.equal(env.Archive.hasMore(), true, "work #1 moved up into page 0 on the server and is still to load");
+
+    await env.Archive.loadMore();
+    const ids = env.Archive.works.map((w) => w.id);
+    assert.equal(ids.length, 30);
+    assert.equal(new Set(ids).size, 30, "no work twice");
+    assert.deepEqual(plain(ids), lib.rows.map((r) => r.id), "the wall matches the server order exactly");
+    assert.equal(env.Archive.hasMore(), false);
+});
+
+test("clicking delete twice while the first request is in flight sends one DELETE", async () => {
+    const gate = held(NO_CONTENT);
+    const env = setup({ responses: { [listUrl(0)]: pageOf(0, 1, [item(7, [jpeg(70)])]), "DELETE /api/illustrations/7": gate } });
+    await env.Archive.setQuery({});
+    const a = env.Archive.deleteWork(7);
+    const b = env.Archive.deleteWork(7);
+    assert.equal(env.Archive.isDeleting(7), true);
+    gate.release();
+    assert.equal(await a, await b, "both callers get the same result");
+    assert.equal(env.requests.filter((r) => r === "DELETE /api/illustrations/7").length, 1);
+    assert.equal(env.Archive.isDeleting(7), false);
+});
+
+test("deleting the last work leaves an empty, fully loaded library", async () => {
+    const lib = deletableLibrary(1);
+    const env = setup({ responses: lib.responses });
+    await env.Archive.setQuery({});
+    assert.equal((await env.Archive.deleteWork(1)).status, "deleted");
+    await env.Archive.removeWork(1);
+    assert.equal(env.Archive.total(), 0);
+    assert.equal(env.Archive.works.length, 0);
+    assert.equal(env.Archive.hasMore(), false);
+});
+
+test("404 means the work was already gone; 403 means the access guard refused it and nothing was deleted", async () => {
+    const env = setup({ responses: {
+        "DELETE /api/illustrations/3": 404,
+        "DELETE /api/illustrations/4": 403
+    } });
+    assert.equal((await env.Archive.deleteWork(3)).status, "gone");
+    const refused = await env.Archive.deleteWork(4);
+    assert.equal(refused.status, "kept");
+    assert.match(refused.message, /会话已失效/);
+    assert.deepEqual(env.requests, ["DELETE /api/illustrations/3", "DELETE /api/illustrations/4"], "neither case re-reads");
+});
+
+test("a lost reply is never reported as kept or deleted until a re-read says which", async () => {
+    const env = setup({ responses: {
+        "DELETE /api/illustrations/1": new TypeError("Failed to fetch"),
+        "/api/illustrations/1": 404,
+        "DELETE /api/illustrations/2": new TypeError("Failed to fetch"),
+        "/api/illustrations/2": { id: 2, assets: [] },
+        "DELETE /api/illustrations/3": new TypeError("Failed to fetch"),
+        "/api/illustrations/3": new TypeError("Failed to fetch"),
+        "DELETE /api/illustrations/4": new TypeError("Failed to fetch"),
+        "/api/illustrations/4": 500
+    } });
+    assert.deepEqual(plain(await env.Archive.deleteWork(1)),
+        { status: "deleted", verified: true, reason: "连接中断，没有收到删除结果" }, "re-read 404: it was deleted");
+    const kept = await env.Archive.deleteWork(2);
+    assert.equal(kept.status, "kept");
+    assert.match(kept.message, /仍在图库中，没有删除/);
+    const unknown = await env.Archive.deleteWork(3);
+    assert.equal(unknown.status, "unknown");
+    assert.match(unknown.message, /无法确认/);
+    assert.doesNotMatch(unknown.message, /没有删除/);
+    assert.equal((await env.Archive.deleteWork(4)).status, "unknown", "a failing re-read is not taken as an answer");
+
+    // Re-checking later only reads; it never sends another DELETE
+    env.responses["/api/illustrations/3"] = 404;
+    const before = env.requests.filter((r) => r.startsWith("DELETE")).length;
+    assert.equal((await env.Archive.checkDeleted(3)).status, "deleted");
+    assert.equal(env.requests.filter((r) => r.startsWith("DELETE")).length, before);
+});
+
+test("a server error is checked by re-reading: still there is kept with the reason, gone is deleted", async () => {
+    const env = setup({ responses: {
+        "DELETE /api/illustrations/5": 500,
+        "/api/illustrations/5": { id: 5, assets: [] },
+        "DELETE /api/illustrations/6": 503,
+        "/api/illustrations/6": 404
+    } });
+    const kept = await env.Archive.deleteWork(5);
+    assert.equal(kept.status, "kept");
+    assert.match(kept.message, /服务返回 500/);
+    assert.deepEqual(plain(await env.Archive.deleteWork(6)), { status: "deleted", verified: true, reason: "服务返回 503" });
+});
+
+test("removal waits for a page that is still loading, so a late page cannot bring the deleted work back", async () => {
+    const firstPage = Array.from({ length: 30 }, (_, i) => item(60 - i, [jpeg(6000 + i)]));
+    const late = held(pageOf(1, 32, [item(30, [jpeg(6100)]), item(29, [jpeg(6101)])]));
+    const env = setup({ responses: { [listUrl(0)]: pageOf(0, 32, firstPage), [listUrl(1)]: late } });
+    await env.Archive.setQuery({});
+    const loading = env.Archive.loadMore();
+    const removing = env.Archive.removeWork(29);
+    await settle();
+    assert.equal(env.Archive.works.length, 30, "nothing is removed while the page is still on its way");
+    late.release();
+    await loading;
+    await removing;
+    assert.equal(env.Archive.listed(29), false, "the work in the late page is removed after it lands");
+    assert.equal(env.Archive.works.length, 31);
+    assert.equal(env.Archive.total(), 31);
+});
+
+test("a work that an edit had already moved out of the filtered results is removed without changing the count", async () => {
+    const env = setup({ responses: {
+        [listUrl(0, "&tagId=1")]: pageOf(0, 1, [item(8, [jpeg(80)])])
+    } });
+    await env.Archive.setQuery({ tagIds: [1] });
+    env.responses[listUrl(0, "&tagId=1")] = pageOf(0, 0, []);
+    await env.Archive.refreshLoaded();
+    assert.notEqual(env.Archive.get(8), null, "still readable for the open viewer");
+    const result = await env.Archive.removeWork(8);
+    assert.equal(result.index, -1);
+    assert.equal(env.Archive.get(8), null);
+    assert.equal(env.Archive.total(), 0);
+});

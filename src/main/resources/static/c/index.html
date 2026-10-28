@@ -17,6 +17,7 @@
     <script src="c-filters.js" defer></script>
     <script src="c-editor.js" defer></script>
     <script src="c-import.js" defer></script>
+    <script src="c-delete.js" defer></script>
     <script src="fx.js" defer></script>
 </head>
 <body>
@@ -30,7 +31,7 @@
         <button class="omni-clear" id="q-clear" type="button" aria-label="清除搜索" hidden><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button>
     </div>
     <div class="mast-actions">
-        <a class="mast-link" href="/" title="打开原有图库：删除、批量整理与 X 导入在那里">旧图库</a>
+        <a class="mast-link" href="/" title="打开原有图库：批量整理与 X 导入在那里">旧图库</a>
         <button class="btn btn-ink" id="import-open" type="button" title="导入本地图片（Ctrl + O），也可以直接把图片拖进图库">
             <svg class="icon" aria-hidden="true"><use href="#i-import"/></svg>导入作品
         </button>
@@ -119,7 +120,7 @@
                     <a id="sv-source" href="#" target="_blank" rel="noreferrer" aria-disabled="true">打开来源链接</a>
                     <button type="button" id="sv-fit">适应窗口 <kbd>0</kbd></button>
                     <button type="button" id="sv-actual">原始大小 <kbd>1</kbd></button>
-                    <button type="button" id="sv-delete" class="danger" data-not-yet="删除尚未接入新版图库，请在旧图库中删除">删除作品（尚未接入）</button>
+                    <button type="button" id="sv-delete" class="danger">删除作品… <kbd>Del</kbd></button>
                 </div>
             </div>
         </div>
@@ -218,6 +219,28 @@
     </section>
 </div>
 
+<!-- 单件删除：写明删的是哪一件、几张图片、无法恢复；默认焦点在“取消” -->
+<div class="sheet-backdrop" id="delete-confirm" hidden>
+    <section class="sheet sheet-small sheet-delete" id="del-dialog" role="alertdialog" aria-modal="true" tabindex="-1"
+             aria-labelledby="del-title" aria-describedby="del-name del-meta del-text del-draft del-status">
+        <h2 id="del-title">永久删除这件作品？</h2>
+        <div class="del-work">
+            <div class="del-cover" id="del-cover"><img id="del-thumb" alt="" draggable="false"></div>
+            <div class="del-work-text">
+                <p class="del-name" id="del-name"></p>
+                <p class="del-meta" id="del-meta"></p>
+            </div>
+        </div>
+        <p class="del-text" id="del-text"></p>
+        <p class="del-draft" id="del-draft" hidden></p>
+        <p class="del-status" id="del-status" role="alert" hidden></p>
+        <div class="sheet-foot">
+            <button class="btn" id="del-cancel" type="button">取消</button>
+            <button class="btn btn-danger" id="del-ok" type="button">永久删除</button>
+        </div>
+    </section>
+</div>
+
 <div class="sheet-backdrop" id="shortcuts" hidden>
     <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title">
         <header class="sheet-head">
@@ -232,6 +255,7 @@
                 <dt><kbd>Esc</kbd>（搜索框内）</dt><dd>清空搜索</dd>
                 <dt><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd></dt><dd>移动焦点</dd>
                 <dt><kbd>Enter</kbd></dt><dd>打开看图器</dd>
+                <dt><kbd>Delete</kbd></dt><dd>删除选中的作品（先确认）</dd>
                 <dt>按住左右拖动多图作品</dt><dd>循环换页</dd>
                 <dt>按住上下拖动</dt><dd>浏览图库</dd>
             </dl>
@@ -244,10 +268,11 @@
                 <dt><kbd>I</kbd></dt><dd>作品信息</dd>
                 <dt><kbd>E</kbd></dt><dd>编辑作品（图库中先选中一件）</dd>
                 <dt><kbd>Ctrl</kbd><kbd>Enter</kbd></dt><dd>保存编辑</dd>
+                <dt><kbd>Delete</kbd></dt><dd>删除这件作品（先确认）</dd>
                 <dt><kbd>Esc</kbd></dt><dd>逐层返回</dd>
             </dl>
         </div>
-        <p class="sheet-note">新版图库可以导入本地图片、搜索、按作者 / 标签筛选和编辑单件作品；删除与批量整理请在<a href="/">旧图库</a>中进行。</p>
+        <p class="sheet-note">新版图库可以导入本地图片、搜索、按作者 / 标签筛选，编辑或删除单件作品；批量整理请在<a href="/">旧图库</a>中进行。</p>
     </section>
 </div>
 

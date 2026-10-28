@@ -348,6 +348,7 @@
         isOpen: () => !!session,
         editingId: () => (session ? session.state.id : null),
         isDirty: () => !!session && session.dirty(),
+        isSaving: () => !!session && session.state.phase === 'saving',
         isConfirming: () => !!confirming
     };
 })();

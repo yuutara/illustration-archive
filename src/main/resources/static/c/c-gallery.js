@@ -3,7 +3,8 @@
  * 作品墙、看图器、多图翻页与循环牌堆沿用原型 B 已验收的交互；数据来自 archive-client.js。
  * 搜索与作者 / 标签筛选的界面在 c-filters.js，单件编辑在 c-editor.js；这里负责按当前查询结果铺墙、显示状态，
  * 看图器只在当前结果里前后翻。离开当前作品（关闭、切换、点作者 / 标签）都先经过编辑器的“离开”确认。
- * 本地导入在 c-import.js。删除、批量整理尚未接入：入口保留但明确禁用，快捷键只提示“尚未接入”。
+ * 本地导入在 c-import.js，单件删除的确认与结果在 c-delete.js：作品删除后这里关闭看图器、重排作品墙并安排焦点。
+ * 批量整理尚未接入：入口保留但明确禁用，快捷键只提示“尚未接入”。
  */
 (function () {
     'use strict';
@@ -17,7 +18,7 @@
         return node;
     };
     const icon = (name) => `<svg class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
-    const NOT_YET = '删除与批量整理尚未接入新版图库，请在旧图库中操作';
+    const NOT_YET = '批量整理尚未接入新版图库，请在旧图库中操作';
 
     const state = {
         density: 'roomy', results: A.works, viewer: null,
@@ -42,6 +43,10 @@
     const leaveEditor = async () => (await editor('requestLeave')) !== false;
     const importer = (name, ...args) => {
         const api = window.CImport;
+        return api && typeof api[name] === 'function' ? api[name](...args) : undefined;
+    };
+    const deleter = (name, ...args) => {
+        const api = window.CDelete;
         return api && typeof api[name] === 'function' ? api[name](...args) : undefined;
     };
     // 刚导入的作品：下次上墙时高亮一下
@@ -668,6 +673,8 @@
             }
             updatePosition();
             renderStatus();
+        } else if (event.type === 'removed') {
+            afterRemoved(event);
         } else if (event.type === 'error') {
             if (!state.results.length) renderWall();
             else renderStatus();
@@ -679,7 +686,46 @@
         }
     });
 
+    /*
+     * 作品已删除：先重排作品墙（卡片已不在，其余作品就位），再关闭看图器——大图找不到原卡片，原地淡出。
+     * 焦点交给原位置上的下一件（没有就上一件）；图库因此变空时交给空状态里的按钮。
+     * 有筛选时“全部”旁的数字另读一次整库数量，读不到就按删掉的这一件减一。
+     */
+    function afterRemoved({ id, index }) {
+        const v = state.viewer;
+        const onViewer = !!v && v.id === id;
+        const at = index >= 0 ? index : onViewer && v.anchor != null ? v.anchor : -1;
+        const fig = pieces.get(id);
+        const hadFocus = !!fig && fig.contains(document.activeElement);
+        pieces.delete(id);
+        if (state.focusId === id) state.focusId = null;
+        renderWall();
+        if (onViewer) closeViewer({ force: true });
+        if (onViewer || hadFocus || document.activeElement === document.body) focusNear(at);
+        if (A.isFiltered()) {
+            A.libraryCount().then((n) => { libraryTotal = n; renderStatus(); })
+                .catch(() => { if (libraryTotal) { libraryTotal--; renderStatus(); } });
+        }
+    }
+
+    function focusNear(index) {
+        const target = index >= 0 ? state.results[index] || state.results[index - 1] : null;
+        const fig = target && pieces.get(target.id);
+        if (fig && fig.isConnected) {
+            state.focusId = target.id;
+            fig.scrollIntoView({ block: 'nearest' });
+            fig.querySelector('.piece-open').focus({ preventScroll: true });
+        } else if (!$('empty').hidden) $('empty-import').focus();
+        else if (!$('no-match').hidden) $('no-match-clear').focus();
+    }
+
+    function requestDelete(id) {
+        setMenu(false);
+        deleter('request', id, { returnFocus: state.viewer ? $('sv-more') : document.activeElement });
+    }
+
     $('sv-back').addEventListener('click', () => closeViewer());
+    $('sv-delete').addEventListener('click', () => { if (state.viewer) requestDelete(state.viewer.id); });
     $('sv-edit-toggle').addEventListener('click', () => { if (state.viewer) editor('open', state.viewer.id); });
     $('sv-prev').addEventListener('click', () => step(-1));
     $('sv-next').addEventListener('click', () => step(1));
@@ -722,6 +768,8 @@
     /* ---------------- 键盘 ---------------- */
 
     document.addEventListener('keydown', (e) => {
+        // 删除确认框开着：按键都归它（焦点意外落到页面上时也不触发快捷键）
+        if (deleter('isOpen')) return;
         if (!$('shortcuts').hidden) {
             if (e.key === 'Escape' || e.key === '?') { e.preventDefault(); $('shortcuts').hidden = true; }
             return;
@@ -763,7 +811,7 @@
                 case '1': zoomTo(1); break;
                 case 'i': case 'I': setInfo(!v.info); break;
                 case 'e': case 'E': e.preventDefault(); editor('open', v.id); break;
-                case 'Delete': notYet(); break;
+                case 'Delete': e.preventDefault(); requestDelete(v.id); break;
                 case '?': openShortcuts(); break;
                 default: return;
             }
@@ -791,7 +839,11 @@
                 if (focus != null) { e.preventDefault(); openViewer(focus, { edit: true }); }
                 else toast('先用方向键或鼠标选中一件作品，再按 E 编辑');
                 break;
-            case 'Delete': notYet(); break;
+            // 只删键盘焦点所在的卡片：焦点不在卡片上（例如点过空白处）时不猜是哪一件
+            case 'Delete':
+                if (activePiece && focus != null) { e.preventDefault(); requestDelete(focus); }
+                else toast('先用方向键或鼠标选中一件作品，再按 Delete 删除');
+                break;
             default: return;
         }
     });

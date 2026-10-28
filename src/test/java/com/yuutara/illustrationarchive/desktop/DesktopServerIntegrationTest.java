@@ -161,7 +161,7 @@ class DesktopServerIntegrationTest {
 	@Test
 	void cGalleryIsServedBehindTheLaunchSessionAndReadsAPagedMultiPageLibraryAcrossRestart() throws Exception {
 		DesktopServer.Running first = start();
-		List<String> pageFiles = List.of("/c/", "/c/archive-client.js", "/c/c-gallery.js", "/c/c-filters.js", "/c/c-editor.js", "/c/c-import.js", "/c/fx.js", "/c/theme-mode.js",
+		List<String> pageFiles = List.of("/c/", "/c/archive-client.js", "/c/c-gallery.js", "/c/c-filters.js", "/c/c-editor.js", "/c/c-import.js", "/c/c-delete.js", "/c/fx.js", "/c/theme-mode.js",
 				"/c/gallery.css", "/c/fx.css", "/c/theme-paper.css", "/c/c.css");
 		for (String path : pageFiles) {
 			assertEquals(403, send(first, null, get(first, path)).statusCode(), path + " must need the launch session");
@@ -463,6 +463,96 @@ class DesktopServerIntegrationTest {
 		assertEquals(403, send(running, cookie, crossOrigin).statusCode());
 		assertEquals(6, jdbc(running).queryForObject("SELECT COUNT(*) FROM illustration", Integer.class));
 		assertEquals(6, originalFiles().size());
+	}
+
+	/**
+	 * The C gallery deletes through the existing DELETE endpoint: the rows go in one transaction and the original and
+	 * thumbnail files are removed after it commits. Every other work keeps its rows and files, and a refused request
+	 * deletes nothing.
+	 */
+	@Test
+	void cGalleryDeleteRemovesOneWorkWithAllItsPagesAndFilesAndLeavesTheRestIntact() throws Exception {
+		DesktopServer.Running running = start();
+		String cookie = openSession(running);
+		var library = CGalleryTestLibrary.build(running, 12);
+		assertEquals(12 - 1 - 2, library.works(), "pages {2,3} and {8,9,10} form two multi-page works");
+		JdbcTemplate jdbc = jdbc(running);
+		long multi = library.multiPageIds().get(1);
+		long single = jdbc.queryForObject("SELECT MIN(illustration_id) FROM asset GROUP BY illustration_id HAVING COUNT(*) = 1"
+				+ " ORDER BY MIN(illustration_id) LIMIT 1", Long.class);
+		List<String> multiKeys = jdbc.queryForList("SELECT storage_key FROM asset WHERE illustration_id = ?", String.class, multi);
+		List<String> singleKeys = jdbc.queryForList("SELECT storage_key FROM asset WHERE illustration_id = ?", String.class, single);
+		assertEquals(3, multiKeys.size());
+		assertEquals(1, singleKeys.size());
+		long tagId = jdbc.queryForObject("SELECT MIN(id) FROM tag", Long.class);
+		assertEquals(204, patch(running, cookie, multi, "{\"tagIds\":[" + tagId + "]}").statusCode(), "give it a tag link to clean up");
+		assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM illustration_tag WHERE illustration_id = ?", Integer.class, multi));
+		int tags = jdbc.queryForObject("SELECT COUNT(*) FROM tag", Integer.class);
+		int authors = jdbc.queryForObject("SELECT COUNT(*) FROM author", Integer.class);
+		java.util.Set<Path> filesBefore = allFiles();
+		for (String key : multiKeys) {
+			assertTrue(filesBefore.contains(media().resolve(key)), key);
+			assertTrue(filesBefore.contains(media().resolve("thumbnails").resolve(key)), "JPEG / PNG pages have thumbnails: " + key);
+		}
+
+		// Without the launch session, or from another origin, nothing is deleted
+		assertEquals(403, send(running, null, request(running, null, "/api/illustrations/" + multi).DELETE().build()).statusCode());
+		HttpRequest crossOrigin = request(running, cookie, "/api/illustrations/" + multi).header("Origin", "http://localhost:3000")
+				.DELETE().build();
+		assertEquals(403, send(running, cookie, crossOrigin).statusCode());
+		assertEquals(library.works(), jdbc.queryForObject("SELECT COUNT(*) FROM illustration", Integer.class));
+		assertEquals(filesBefore, allFiles());
+
+		// The multi-page work: its rows, tag links, originals and thumbnails all go; nothing else changes
+		assertEquals(204, send(running, cookie, request(running, cookie, "/api/illustrations/" + multi).DELETE().build()).statusCode());
+		assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM illustration WHERE id = ?", Integer.class, multi));
+		assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM asset WHERE illustration_id = ?", Integer.class, multi));
+		assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM illustration_tag WHERE illustration_id = ?", Integer.class, multi));
+		java.util.Set<Path> expected = new java.util.HashSet<>(filesBefore);
+		multiKeys.forEach(key -> {
+			expected.remove(media().resolve(key));
+			expected.remove(media().resolve("thumbnails").resolve(key));
+		});
+		assertEquals(expected, allFiles(), "exactly the deleted work's originals and thumbnails are gone");
+		assertEquals(tags, jdbc.queryForObject("SELECT COUNT(*) FROM tag", Integer.class), "tags themselves stay");
+		assertEquals(authors, jdbc.queryForObject("SELECT COUNT(*) FROM author", Integer.class), "authors themselves stay");
+
+		// What the C gallery sees afterwards: deleting again is 404, and re-reading the detail (its check after a lost
+		// reply) is 404 too
+		assertEquals(404, send(running, cookie, request(running, cookie, "/api/illustrations/" + multi).DELETE().build()).statusCode());
+		assertEquals(404, send(running, cookie, get(running, "/api/illustrations/" + multi)).statusCode());
+		assertEquals(404, patch(running, cookie, multi, "{\"title\":\"too late\"}").statusCode());
+		long neverExisted = 999_999;
+		assertEquals(404, send(running, cookie, get(running, "/api/illustrations/" + neverExisted)).statusCode());
+		assertEquals(404, patch(running, cookie, neverExisted, "{\"title\":\"x\"}").statusCode());
+		assertEquals(404, send(running, cookie, request(running, cookie, "/api/illustrations/" + neverExisted).DELETE().build())
+				.statusCode());
+		assertEquals(403, send(running, null, request(running, null, "/api/illustrations/" + neverExisted).DELETE().build())
+				.statusCode(), "the access guard still answers first");
+		assertEquals(expected, allFiles(), "the 404 requests changed nothing");
+
+		// A single-image work
+		assertEquals(204, send(running, cookie, request(running, cookie, "/api/illustrations/" + single).DELETE().build()).statusCode());
+		assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM asset WHERE illustration_id = ?", Integer.class, single));
+		expected.remove(media().resolve(singleKeys.get(0)));
+		expected.remove(media().resolve("thumbnails").resolve(singleKeys.get(0)));
+		assertEquals(expected, allFiles());
+
+		// The other works are untouched and still readable, and the list pages through them once each
+		var remaining = pagesOfFour(running, cookie, "", library.works() - 2, "after deleting two works");
+		assertFalse(remaining.contains(multi) || remaining.contains(single));
+		long otherMulti = library.multiPageIds().get(0);
+		assertTrue(remaining.contains(otherMulti));
+		assertEquals(2, detail(running, cookie, otherMulti).get("assets").size());
+		for (long assetId : jdbc.queryForList("SELECT id FROM asset", Long.class)) {
+			assertEquals(200, send(running, cookie, get(running, "/api/assets/" + assetId + "/content")).statusCode(), "asset " + assetId);
+		}
+	}
+
+	private java.util.Set<Path> allFiles() throws IOException {
+		try (Stream<Path> files = Files.walk(media())) {
+			return files.filter(Files::isRegularFile).collect(java.util.stream.Collectors.toSet());
+		}
 	}
 
 	private tools.jackson.databind.JsonNode importOne(DesktopServer.Running running, String cookie, String name, byte[] content)
