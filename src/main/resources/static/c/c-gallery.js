@@ -1,7 +1,8 @@
 /*
- * C 图库 · 浏览（第一个接入包：只读）
+ * C 图库 · 浏览（只读）
  * 作品墙、看图器、多图翻页与循环牌堆沿用原型 B 已验收的交互；数据来自 archive-client.js 的只读 API。
- * 编辑、删除、导入、批量整理、搜索与筛选尚未接入：入口保留但明确禁用，快捷键只提示“尚未接入”，不会显示保存成功。
+ * 搜索与作者 / 标签筛选的界面在 c-filters.js；这里负责按当前查询结果铺墙、显示状态，看图器只在当前结果里前后翻。
+ * 编辑、删除、导入、批量整理尚未接入：入口保留但明确禁用，快捷键只提示“尚未接入”，不会显示保存成功。
  */
 (function () {
     'use strict';
@@ -26,6 +27,11 @@
     const fx = (name, ...args) => {
         const hooks = window.GalleryFx;
         return hooks && typeof hooks[name] === 'function' ? hooks[name](...args) : undefined;
+    };
+    // c-filters.js 在本文件之后载入，用到时再取
+    const filters = (name, ...args) => {
+        const api = window.CFilters;
+        return api && typeof api[name] === 'function' ? api[name](...args) : undefined;
     };
 
     function toast(text) {
@@ -65,10 +71,15 @@
                     <div class="piece-marks"></div>
                     <button class="piece-edit" type="button" disabled title="${NOT_YET}">${icon('pen')}编辑</button>
                 </div>
-                <figcaption><span class="piece-title"></span><span class="piece-author"></span></figcaption>`;
+                <figcaption><span class="piece-title"></span><button class="piece-author" type="button"></button></figcaption>`;
             fig.querySelector('.piece-open').addEventListener('click', () => {
                 state.focusId = work.id;
                 openViewer(work.id);
+            });
+            // 点作者名：只看这位作者（关键词和标签条件保留）
+            fig.querySelector('.piece-author').addEventListener('click', () => {
+                const current = A.get(work.id);
+                if (current && current.author) filters('only', 'author', current.author);
             });
             pieces.set(work.id, fig);
         }
@@ -84,6 +95,8 @@
         const ab = fig.querySelector('.piece-author');
         ab.textContent = name || '未设置作者';
         ab.classList.toggle('is-none', !name);
+        ab.disabled = !work.author;
+        ab.title = work.author ? `只看 ${name} 的作品` : '';
         const marks = fig.querySelector('.piece-marks');
         marks.innerHTML = '';
         // 多页角标必须排在第一个：牌堆会把它改成“当前页 / 总页数”
@@ -102,6 +115,8 @@
         const cols = Math.max(1, Math.floor((width + gap) / (target + gap)));
         const colWidth = (width - gap * (cols - 1)) / cols;
         const before = fx('captureWall');
+        wall.classList.remove('is-refreshing');
+        wall.removeAttribute('aria-busy');
         wall.innerHTML = '';
         wall.style.gap = gap + 'px';
         wall.classList.toggle('compact', !roomy);
@@ -123,14 +138,21 @@
         fx('playWall', before);
     }
 
-    // 墙下的状态行：载入中 / 失败可重试 / 已载入 n / N / 全部载入；空图库与首屏失败单独显示
+    // “全部”旁的数字只表示整个图库；筛选时的结果数显示在已选条件旁
+    let libraryTotal = null;
+
+    // 墙下的状态行：载入中 / 失败可重试 / 已载入 n / N / 全部载入；空图库、无匹配结果与首屏失败单独显示
     function renderStatus() {
         const total = A.total();
         const count = state.results.length;
         const error = A.lastError();
         const loading = A.isLoading();
-        $('count-all').textContent = total == null ? '' : String(total);
-        $('empty').hidden = !(total === 0 && !loading && !error);
+        const filtered = A.isFiltered();
+        if (!filtered && total != null) libraryTotal = total;
+        $('count-all').textContent = libraryTotal == null ? '' : String(libraryTotal);
+        const settledEmpty = total === 0 && !loading && !error;
+        $('empty').hidden = !(settledEmpty && !filtered);
+        $('no-match').hidden = !(settledEmpty && filtered);
         const status = $('wall-status');
         const text = $('wall-status-text');
         const retry = $('wall-retry');
@@ -141,17 +163,19 @@
         status.classList.toggle('is-error', !!error);
         status.classList.toggle('is-loading', loading);
         if (error) {
-            text.textContent = (count ? `已载入 ${count} 件；继续载入失败：` : '图库载入失败：') + error.message;
+            const first = filtered ? '搜索失败：' : '图库载入失败：';
+            text.textContent = (count ? `已载入 ${count} 件；继续载入失败：` : first) + error.message;
         } else if (loading) {
-            text.textContent = count ? `正在载入更多… 已载入 ${count} / ${total}` : '正在载入图库…';
+            text.textContent = count ? `正在载入更多… 已载入 ${count} / ${total}` : filtered ? '正在查找…' : '正在载入图库…';
         } else if (total === 0) {
             status.hidden = true;
         } else if (A.hasMore()) {
             text.textContent = `已载入 ${count} / ${total} 件`;
             more.hidden = false;
         } else {
-            text.textContent = `· 共 ${total} 件，已全部载入 ·`;
+            text.textContent = filtered ? `· 符合条件的 ${total} 件已全部载入 ·` : `· 共 ${total} 件，已全部载入 ·`;
         }
+        filters('renderSummary');
     }
 
     // 接近底部时自动载入下一页；失败后不自动重试，等用户点“重试”
@@ -161,6 +185,7 @@
     loadObserver.observe($('wall-status'));
     $('wall-retry').addEventListener('click', () => A.loadMore());
     $('wall-more').addEventListener('click', () => A.loadMore());
+    $('no-match-clear').addEventListener('click', () => filters('clearAll'));
 
     document.querySelectorAll('.density button').forEach((b) => b.addEventListener('click', () => {
         state.density = b.dataset.density;
@@ -388,13 +413,14 @@
         if (announce) showChrome();
     }
 
-    // 翻到已载入列表的末尾时，先载入下一页再前进
+    // 翻到已载入列表的末尾时，先载入下一页再前进；只在当前查询的结果里翻，查询换了就停下
     async function step(delta) {
         const v = state.viewer;
+        const gen = A.generation();
         let i = indexOf(v.id) + delta;
         if (i >= state.results.length && A.hasMore()) {
             await A.loadMore();
-            if (state.viewer !== v) return;
+            if (state.viewer !== v || A.generation() !== gen) return;
         }
         if (state.results[i]) { fx('navigate', delta); showWork(state.results[i].id); }
     }
@@ -479,9 +505,17 @@
         const detail = work.detail;
         const pending = !detail && !work.detailError;
 
+        // 作者和标签可以点：回到图库，只看这位作者 / 这个标签
+        const filterButton = (cls, label, kind, value) => {
+            const b = el('button', cls, label);
+            b.type = 'button';
+            b.title = `回到图库，只看“${label}”`;
+            b.addEventListener('click', () => { closeViewer(); filters('only', kind, value); });
+            return b;
+        };
         const sa = section(c1, '作者');
         if (work.author) {
-            sa.appendChild(el('p', 'info-author', work.author.displayName || '@' + work.author.xUsername));
+            sa.appendChild(filterButton('info-author', A.authorName(work), 'author', work.author));
             if (work.author.xUsername) sa.appendChild(el('p', 'info-handle', '@' + work.author.xUsername));
         } else sa.appendChild(el('p', 'info-empty', '未设置'));
 
@@ -499,7 +533,7 @@
             st.appendChild(el('p', 'info-empty', '正在载入…'));
         } else if (detail.tags.length) {
             const row = el('div', 'info-tags');
-            detail.tags.forEach((t) => row.appendChild(el('span', 'info-tag', t.name)));
+            detail.tags.forEach((t) => row.appendChild(filterButton(null, t.name, 'tag', t)));
             st.appendChild(row);
         } else st.appendChild(el('p', 'info-empty', '还没有标签'));
         if (detail) {
@@ -532,10 +566,22 @@
     }
 
     A.subscribe((event) => {
-        if (event.type === 'append') {
+        if (event.type === 'reset') {
+            // 换了查询：看图器不再翻旧结果；旧作品墙先变淡、不可点，等新结果第一页到了再整体换掉（动效层据此过渡）
+            closeViewer();
+            state.focusId = null;
+            const wall = $('wall');
+            wall.classList.add('is-refreshing');
+            wall.setAttribute('aria-busy', 'true');
+            if (window.scrollY > 0) window.scrollTo({ top: 0 });
+            renderStatus();
+        } else if (event.type === 'append') {
             renderWall();
             if (state.viewer) showWorkCounters();
-        } else if (event.type === 'loading' || event.type === 'error') {
+        } else if (event.type === 'error') {
+            if (!state.results.length) renderWall();
+            else renderStatus();
+        } else if (event.type === 'loading') {
             renderStatus();
         } else if (event.type === 'detail' && state.viewer && state.viewer.id === event.id) {
             renderCaption();
@@ -597,6 +643,11 @@
         }
         const typing = e.target instanceof Element && e.target.matches('input, textarea, select');
         if (typing) return;
+        // 作者 / 标签弹层开着而焦点不在它的输入框（例如刚点了筛选按钮）：Esc 关弹层，其余按键不触发作品墙快捷键
+        if (filters('isPickerOpen')) {
+            if (e.key === 'Escape') { e.preventDefault(); filters('closePicker', true); }
+            return;
+        }
         const ctrl = e.ctrlKey || e.metaKey;
         const notYet = () => { e.preventDefault(); toast(NOT_YET); };
 
@@ -627,6 +678,7 @@
         }
 
         if (e.key === '?') { openShortcuts(); return; }
+        if (e.key === '/' && !ctrl) { e.preventDefault(); $('q').focus(); $('q').select(); return; }
         if (ctrl && ['a', 'o'].includes(e.key.toLowerCase())) { notYet(); return; }
         const active = document.activeElement;
         const onPiece = !active || active === document.body || active.classList.contains('piece-open');
@@ -654,8 +706,9 @@
     $('shortcuts').addEventListener('mousedown', (e) => { if (e.target === $('shortcuts')) $('shortcuts').hidden = true; });
 
     // 供 fx.js 读取看图器状态、复用平移约束
-    window.GalleryApi = { state, pieces, canvas, img, viewer, clampPan, applyTransform, fitImage, renderWall };
+    window.GalleryApi = { state, pieces, canvas, img, viewer, clampPan, applyTransform, fitImage, renderWall, renderStatus };
 
     renderWall();
-    A.loadMore();
+    // 页面地址里带着条件（刷新、或从别处带条件打开）时直接按条件载入
+    A.setQuery(A.queryFromSearch(location.search));
 })();

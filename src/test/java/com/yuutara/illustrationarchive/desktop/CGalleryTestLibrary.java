@@ -35,8 +35,16 @@ import java.util.Random;
  * Some works are then grouped into multi-page works by moving their assets under one illustration with a page
  * order, the same shape X imports produce (X import itself is disabled in desktop mode). One JPEG has its
  * thumbnail file removed so the page's thumbnail fallback can be checked; GIFs never have thumbnails.
+ * Works get titles, three authors and overlapping tags for search and filter checks, plus filler authors and tags
+ * so the candidate lists run past one page.
  */
 final class CGalleryTestLibrary {
+
+	/**
+	 * Authors and tags without works, added beside the 3 real authors and 5 real tags: 43 authors and 45 tags in all,
+	 * more than one page of the C gallery picker (30) and of the API default (20).
+	 */
+	static final int FILLER_FACETS = 40;
 
 	/** Indexes of the generated images that become one multi-page work, in page order. */
 	private static final int[][] GROUPS = { { 2, 3 }, { 8, 9, 10 }, { 15, 16, 17, 18 }, { 30, 31 }, { 44, 45, 46 } };
@@ -130,6 +138,12 @@ final class CGalleryTestLibrary {
 		long series = tags.create("系列").id();
 		long night = tags.create("夜空").id();
 		long sky = tags.create("Blue Sky 天空").id();
+		// More authors and tags than one candidate page; "Zz …" sorts before the CJK names, which the pickers then
+		// reach only by paging or searching. These have no works.
+		for (int n = 1; n <= FILLER_FACETS; n++) {
+			authors.create("Zz 画师 %02d".formatted(n), null);
+			tags.create("Zz 主题 %02d".formatted(n));
+		}
 
 		List<Long> ids = jdbc.queryForList("SELECT id FROM illustration ORDER BY id", Long.class);
 		String[] titles = { "海边的第七个夏天", "Moon over Kiln", "晨雾里的山脊", "Harbor Lights", "紫阳花之庭", "退潮", "Form & Void", "星图" };

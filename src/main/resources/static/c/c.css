@@ -12,6 +12,38 @@ button:disabled[data-not-yet], .piece-edit:disabled { cursor: not-allowed; opaci
 .mast-link:hover { color: var(--accent-text, var(--accent)); text-decoration: underline; text-underline-offset: 3px; }
 .preview-badge { margin-left: 2px; padding: 2px 7px; border-radius: 6px; color: var(--accent-text, var(--accent)); background: var(--accent-soft); font: 500 11px/1.4 var(--sans); letter-spacing: .04em; align-self: center; }
 
+/* 搜索框：右侧“/”提示，有内容时换成清除按钮 */
+.omni-key { min-width: 20px; height: 20px; padding: 0 5px; border: 1px solid var(--line); border-radius: 5px; color: var(--faint); font: 12px/18px var(--num); text-align: center; }
+.omnibox:focus-within .omni-key, .omnibox.has-value .omni-key { display: none; }
+.omni-clear { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%; color: var(--muted); background: none; }
+.omni-clear:hover { color: var(--ink); background: var(--paper-2); }
+.omni-clear .icon { width: 14px; height: 14px; }
+
+/* 已选条件：同组之间写“或”，最后是结果数 */
+.fchip-label { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fjoin { color: var(--faint); font-size: 12px; }
+.result-count { margin-left: 4px; color: var(--muted); font: 13px var(--num); white-space: nowrap; }
+
+/* 作者 / 标签弹层（服务端候选，分页） */
+.pk-hint { margin: 0 4px 6px; color: var(--faint); font-size: 12px; }
+.pk-section { padding: 8px 10px 2px; color: var(--faint); font-size: 12px; }
+.pk-status { padding: 8px 10px; color: var(--muted); font-size: 12px; }
+.pk-status.is-error { color: var(--danger); }
+.pk-status .link { font-size: 12px; }
+.pk-input::-webkit-search-cancel-button { display: none; }
+
+/* 窄窗口：筛选条单独占一行，不挤掉右侧工具 */
+@media (max-width: 860px) {
+    .filterbar { flex-wrap: wrap; row-gap: 4px; }
+    .active-filters { order: 3; flex-basis: 100%; }
+    .active-filters:empty { display: none; }
+}
+
+/* 换条件后、新结果到达前：旧作品墙变淡且不可点 */
+.wall.is-refreshing { opacity: .45; pointer-events: none; transition: opacity .2s .12s; }
+.piece-author:disabled { cursor: default; }
+.piece-author:disabled:hover { color: var(--faint); text-decoration: none; }
+
 /* 墙下状态行 */
 .wall-status { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 44px 0 8px; color: var(--muted); font-size: 13px; text-align: center; }
 .wall-status.is-error { color: var(--danger); }
@@ -33,9 +65,8 @@ button:disabled[data-not-yet], .piece-edit:disabled { cursor: not-allowed; opaci
 /* 作品图片坏掉时的占位卡片：保持版面，不误导为真实作品 */
 .piece.is-broken .piece-open img { opacity: .9; }
 
-/* 看图器：信息里的标签只展示（筛选尚未接入） */
-.info-tag { display: inline-flex; align-items: center; height: 28px; padding: 0 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); font-size: 13px; }
-.info-author { margin: 0; font: 500 16px var(--serif); }
+/* 看图器：信息里的作者和标签可以点，回到图库只看它 */
+.info-author { margin: 0; font: 500 16px var(--serif); text-align: left; }
 .sv-menu a[aria-disabled="true"] { pointer-events: none; }
 .sv-menu button:disabled { color: var(--faint); cursor: not-allowed; }
 .sv-notice {

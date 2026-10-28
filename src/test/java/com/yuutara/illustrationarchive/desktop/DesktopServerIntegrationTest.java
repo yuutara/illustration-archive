@@ -160,7 +160,7 @@ class DesktopServerIntegrationTest {
 	@Test
 	void cGalleryIsServedBehindTheLaunchSessionAndReadsAPagedMultiPageLibraryAcrossRestart() throws Exception {
 		DesktopServer.Running first = start();
-		List<String> pageFiles = List.of("/c/", "/c/archive-client.js", "/c/c-gallery.js", "/c/fx.js", "/c/theme-mode.js",
+		List<String> pageFiles = List.of("/c/", "/c/archive-client.js", "/c/c-gallery.js", "/c/c-filters.js", "/c/fx.js", "/c/theme-mode.js",
 				"/c/gallery.css", "/c/fx.css", "/c/theme-paper.css", "/c/c.css");
 		for (String path : pageFiles) {
 			assertEquals(403, send(first, null, get(first, path)).statusCode(), path + " must need the launch session");
@@ -217,6 +217,130 @@ class DesktopServerIntegrationTest {
 		long multi = library.multiPageIds().get(library.multiPageIds().size() - 1);
 		HttpResponse<String> detail = send(second, secondCookie, get(second, "/api/illustrations/" + multi));
 		assertTrue(detail.body().contains("c-test-") && detail.body().contains("系列"), detail.body());
+	}
+
+	/**
+	 * The C gallery's search and filters rely on the existing list API: authors OR'd, tags OR'd, and the two groups and
+	 * the keyword AND'd, over the whole library. Expectations are computed here from raw rows, independent of the SQL.
+	 */
+	@Test
+	void cGallerySearchAndCombinedFiltersSpanPagesAndCandidatesPagePastTheFirstPage() throws Exception {
+		DesktopServer.Running running = start();
+		String cookie = openSession(running);
+		CGalleryTestLibrary.build(running, 48);
+		JdbcTemplate jdbc = jdbc(running);
+		Map<Long, String> text = new java.util.HashMap<>();
+		Map<Long, Long> authorOf = new java.util.HashMap<>();
+		Map<Long, java.util.Set<Long>> tagsOf = new java.util.HashMap<>();
+		jdbc.query("SELECT i.id, i.title, i.note, i.author_id, a.display_name, a.x_username FROM illustration i "
+				+ "LEFT JOIN author a ON a.id = i.author_id", (java.sql.ResultSet row) -> {
+			long id = row.getLong("id");
+			text.put(id, String.join("\n", java.util.Objects.toString(row.getString("title"), ""),
+					java.util.Objects.toString(row.getString("note"), ""), java.util.Objects.toString(row.getString("display_name"), ""),
+					java.util.Objects.toString(row.getString("x_username"), "")));
+			authorOf.put(id, row.getObject("author_id") == null ? null : row.getLong("author_id"));
+			tagsOf.put(id, new java.util.HashSet<>());
+		});
+		jdbc.query("SELECT it.illustration_id, it.tag_id, t.name FROM illustration_tag it JOIN tag t ON t.id = it.tag_id",
+				(java.sql.ResultSet row) -> {
+					tagsOf.get(row.getLong(1)).add(row.getLong(2));
+					text.merge(row.getLong(1), "\n" + row.getString(3), String::concat);
+				});
+		long amamiya = jdbc.queryForObject("SELECT id FROM author WHERE display_name = '雨宫ゆき'", Long.class);
+		long lumen = jdbc.queryForObject("SELECT id FROM author WHERE display_name = 'Lumen Kiln'", Long.class);
+		long sea = jdbc.queryForObject("SELECT id FROM tag WHERE name = '海'", Long.class);
+		long warm = jdbc.queryForObject("SELECT id FROM tag WHERE name = '暖色'", Long.class);
+
+		record Case(String q, List<Long> authors, List<Long> tags) {
+		}
+		for (Case c : List.of(
+				new Case("海边", List.of(), List.of()),
+				new Case("kiln", List.of(), List.of()), // a title and an author name, case-insensitively
+				new Case(null, List.of(amamiya, lumen), List.of()),
+				new Case(null, List.of(), List.of(sea, warm)),
+				new Case(null, List.of(amamiya, lumen), List.of(sea, warm)),
+				new Case("kiln", List.of(amamiya, lumen), List.of(sea, warm)),
+				new Case(null, List.of(), List.of(999_999L)))) {
+			java.util.Set<Long> expected = new java.util.TreeSet<>();
+			text.forEach((id, haystack) -> {
+				boolean byText = c.q() == null || haystack.toLowerCase(java.util.Locale.ROOT).contains(c.q().toLowerCase(java.util.Locale.ROOT));
+				boolean byAuthor = c.authors().isEmpty() || authorOf.get(id) != null && c.authors().contains(authorOf.get(id));
+				boolean byTag = c.tags().isEmpty() || c.tags().stream().anyMatch(tagsOf.get(id)::contains);
+				if (byText && byAuthor && byTag) expected.add(id);
+			});
+			StringBuilder filter = new StringBuilder();
+			if (c.q() != null) filter.append("&q=").append(java.net.URLEncoder.encode(c.q(), StandardCharsets.UTF_8));
+			c.authors().forEach(id -> filter.append("&authorId=").append(id));
+			c.tags().forEach(id -> filter.append("&tagId=").append(id));
+
+			assertEquals(expected, pagesOfFour(running, cookie, filter.toString(), expected.size(), c.toString()), c.toString());
+		}
+		assertTrue(text.values().stream().filter(t -> t.contains("海边")).count() > 4, "the keyword case spans pages of 4");
+
+		// "@handle" matches the author's X username in any letter case, like the plain username does.
+		java.util.Set<Long> byAmamiya = new java.util.TreeSet<>();
+		authorOf.forEach((id, author) -> { if (Long.valueOf(amamiya).equals(author)) byAmamiya.add(id); });
+		assertTrue(byAmamiya.size() > 4, "the handle case spans pages of 4");
+		for (String handle : List.of("@amamiya_yuki", "@AMAMIYA_YUKI", "@Amamiya_Yuki", "AMAMIYA_YUKI", "@amamiya")) {
+			String filter = "&q=" + java.net.URLEncoder.encode(handle, StandardCharsets.UTF_8);
+			assertEquals(byAmamiya, pagesOfFour(running, cookie, filter, byAmamiya.size(), handle), handle);
+		}
+
+		var filters = mapper.readTree(send(running, cookie, get(running, "/api/illustrations?size=1&authorId=" + amamiya
+				+ "&authorId=" + lumen + "&tagId=999999")).body()).get("filters");
+		assertEquals(java.util.Set.of("雨宫ゆき", "Lumen Kiln"), names(filters.get("authors"), "displayName"),
+				"the response names the selected authors for the filter chips");
+		assertEquals(java.util.Set.of(), names(filters.get("tags"), "name"), "a deleted tag id comes back without a name");
+
+		// Candidates: 3 + 40 authors and 5 + 40 tags. Paged the way the picker does (30 at a time), the real CJK names
+		// sort past the first page, the pages do not overlap, and a short page ends the list.
+		for (String kind : List.of("authors", "tags")) {
+			String field = kind.equals("authors") ? "displayName" : "name";
+			assertEquals(20, mapper.readTree(send(running, cookie, get(running, "/api/" + kind)).body()).size(), "default limit");
+			List<java.util.Set<String>> pages = new ArrayList<>();
+			for (int offset = 0; ; offset += 30) {
+				var page = mapper.readTree(send(running, cookie, get(running, "/api/" + kind + "?limit=30&offset=" + offset)).body());
+				pages.add(names(page, field));
+				if (page.size() < 30) break;
+			}
+			int real = kind.equals("authors") ? 3 : 5;
+			int total = real + CGalleryTestLibrary.FILLER_FACETS;
+			assertEquals((total + 29) / 30, pages.size(), kind);
+			var all = new java.util.HashSet<String>();
+			pages.forEach(all::addAll);
+			assertEquals(total, all.size(), kind + " pages do not overlap");
+			String beyond = kind.equals("authors") ? "千秋" : "海";
+			assertFalse(pages.get(0).contains(beyond), beyond + " is not on the first page of " + kind);
+			assertTrue(pages.get(pages.size() - 1).contains(beyond), beyond + " is on the last page of " + kind);
+			var found = mapper.readTree(send(running, cookie, get(running, "/api/" + kind + "?limit=30&offset=0&keyword="
+					+ java.net.URLEncoder.encode(beyond, StandardCharsets.UTF_8))).body());
+			assertTrue(names(found, field).contains(beyond), "keyword search finds " + beyond);
+		}
+	}
+
+	private final tools.jackson.databind.ObjectMapper mapper = new tools.jackson.databind.ObjectMapper();
+
+	/** Reads every page of 4 for a list filter; each page reports the same total and no work appears twice. */
+	private java.util.Set<Long> pagesOfFour(DesktopServer.Running running, String cookie, String filter, int expectedTotal,
+			String label) throws Exception {
+		List<Long> seen = new ArrayList<>();
+		int pages = 0;
+		for (int page = 0; ; page++) {
+			var body = mapper.readTree(send(running, cookie, get(running, "/api/illustrations?page=" + page + "&size=4" + filter)).body());
+			assertEquals(expectedTotal, body.get("totalElements").asLong(), label + " page " + page);
+			if (body.get("items").isEmpty()) break;
+			body.get("items").forEach(item -> seen.add(item.get("id").asLong()));
+			pages++;
+		}
+		assertEquals(seen.size(), new java.util.HashSet<>(seen).size(), label + ": no work twice across pages");
+		assertEquals((expectedTotal + 3) / 4, pages, label);
+		return new java.util.TreeSet<>(seen);
+	}
+
+	private static java.util.Set<String> names(tools.jackson.databind.JsonNode list, String field) {
+		var names = new java.util.HashSet<String>();
+		list.forEach(node -> names.add(node.get(field).asString()));
+		return names;
 	}
 
 	@Test

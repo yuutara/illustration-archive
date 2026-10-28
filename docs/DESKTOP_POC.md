@@ -142,7 +142,7 @@ Codex 只读 Review 指出两点，均只改 `DesktopServer` 的桌面启动参�
 
 - 文件：`static/c/`（`archive-client.js` 数据读取、`c-gallery.js` 浏览、`fx.js` 牌堆与动效、样式与 `theme-mode.js`），`CGalleryPageController` 只负责 `/c` → `/c/` → `index.html`。
 - 读取：`GET /api/illustrations?page&size=30` 分页（接近底部自动载入，失败可重试）；封面先载入缩略图量出比例与主色，缩略图缺失时退回原图，再失败用占位图；看图器先显示缩略图再换原图；详情（标签、备注、来源、文件名与大小）按需读取。
-- 禁用：编辑、删除、导入、批量整理、搜索、作者 / 标签筛选、“最近导入 / 待整理”、其他排序——入口保留但不可用，快捷键只提示“尚未接入”，页面只发 GET。视频页显示“暂不支持预览”并链接旧图库详情。
+- 禁用：编辑、删除、导入、批量整理、“最近导入 / 待整理”、其他排序——入口保留但不可用，快捷键只提示“尚未接入”，页面只发 GET。视频页显示“暂不支持预览”并链接旧图库详情。（搜索与作者 / 标签筛选已在下一节接入。）
 - 页面声明 `<meta name="darkreader-lock">`：页面自带浅 / 深色，避免 Dark Reader 之类扩展二次改色（验收时 ego 中的 Dark Reader 曾把浅色页面改暗）。
 - 测试：`DesktopServerIntegrationTest` 新增 C 图库用例（访问保护、分页、多图顺序、GIF / 缺失缩略图的回退来源、重启后读取）；`src/test/js/c-archive-client.test.js` 覆盖分页、空图库、请求失败重试、会话失效、缩略图回退、多图 / GIF / 视频、详情重试。
 - 隔离验收图库：`CGalleryAcceptanceServer` 是显式开启的测试工具（不加参数不运行），在指定目录（仓库外）建立独立 H2 图库：64 张生成图、55 件作品，含 2 / 3 / 4 页作品、GIF 与一张删掉缩略图的 JPEG；把一次性会话地址写入 `<目录>\acceptance-session.txt`，直到出现 `<目录>\acceptance-stop` 才退出；同一目录再次运行即读取已有图库。
@@ -154,6 +154,31 @@ Codex 只读 Review 指出两点，均只改 `DesktopServer` 的桌面启动参�
 用真实桌面启动器体验同一份验收图库：`mvnw package -DskipTests` 后，设置 `ILLUSTRATION_ARCHIVE_DESKTOP_HOME` 指向该目录，再 `java -Dillustration-archive.desktop=true -jar target\illustration-archive-0.0.1-SNAPSHOT.jar`，在控制窗“打开图库”后从“操作”菜单进入新版图库。
 
 验证（2026-10-28）：全量 `mvnw test` 396 tests，0 failures / errors，4 skipped（同前），BUILD SUCCESS；`node --test` 145/145。ego 浏览器在隔离图库上实测：分页（30 → 55，无重复）、空图库、首屏与翻页请求失败后重试、缺失缩略图回退、GIF、2 / 3 / 4 页循环牌堆与从当前页进入看图器、原图替换与翻页、详情、禁用入口只提示不操作、只发 GET、重启后读取、浅 / 深色。ego 窗口不刷新画面，动画与手感仍需人工验收。
+
+### 搜索与作者 / 标签筛选（2026-10-28）
+
+前端直接复用现有 API；后端只修了一处 H2 搜索大小写问题（见下），没有数据库结构或 migration 改动。
+
+- 语义沿用后端契约：`GET /api/illustrations?q&authorId…&tagId…` 在全库上筛选，作者之间、标签之间为“或”，作者、标签、关键词三组之间为“且”；不在已载入的作品里过滤。候选来自 `GET /api/authors|tags?keyword&limit=30&offset`，弹层滚到底继续翻页，能找到前 20 条之外的项。
+- 文件：`c-filters.js`（搜索框、作者 / 标签弹层、已选条件、地址同步）；`archive-client.js` 增加查询状态与候选分页；`c-gallery.js` 按查询结果铺墙、显示“无匹配”、作品上的作者名与看图器信息里的作者 / 标签可点（只看它，其他条件保留）。
+- 换条件：结果、页码、总数清零，取消旧列表请求；迟到的响应、错误和封面测量按查询代次丢弃，不会混入新结果；看图器关闭，不再翻旧结果。旧作品墙变淡、不可点，等新结果第一页到达后整体替换。量过的封面按 asset id 复用。
+- 搜索框：停顿 300ms 自动搜索、Enter 立即搜索、Esc 清空，`/` 聚焦；中文输入法拼写和选词期间不搜索，选词用的 Enter / Esc 不当作命令。条件写入页面地址（`/c/?q=…&authorId=…&tagId=…`，`replaceState`），刷新后保留。
+- 已选条件显示为筛选条（同组之间写“或”），可逐个去掉或“清除全部”，旁边显示结果数；服务端已无此 id 时显示“已不存在的作者 / 标签 #id”。看图返回时条件与已载入进度不变。
+- 弹层开着时按键只归弹层：输入框里的方向键、空格、Enter、Esc 不冒泡到作品墙；点弹层空白处焦点留在输入框；焦点在别处时 Esc 关弹层，其余按键不触发作品墙快捷键。
+- 测试：`c-archive-client.test.js` 增加订阅者在 `loading` 时读到 `isLoading()` 为真、查询地址构造、重置分页、相同条件不重载、过期响应被取消 / 不取消也被丢弃（含测量中途）、首屏与翻页失败重试、封面复用、候选分页 / 过期关键词 / 失败重试；`c-filters.test.js` 用真实数据层验证输入法、防抖、Enter / Esc、地址恢复与筛选条移除，以及弹层用 45 个假作者翻过第一页（30）、按键不外泄、Esc 关闭并还原焦点；`DesktopServerIntegrationTest` 在隔离 H2 上以原始行独立计算期望，校验关键词、多作者、多标签及组合条件跨页（每页 4 件）完整无重复，并按弹层的每页 30 条翻完候选。`CGalleryTestLibrary` 另加 40 个作者和 40 个标签（无作品，共 43 作者 / 45 标签），验收图库的 `acceptance-library.txt` 列出排在第 30 条之后的候选。
+- 修复 `@账号` 大小写（验收中发现）：H2 以 `IGNORECASE=TRUE` 建表时 `author.x_username` 是 `VARCHAR_IGNORECASE`，但 `CONCAT('@', a.x_username)` 的结果是普通 `VARCHAR`，这一条 `LIKE` 变成区分大小写，搜 `@AMAMIYA_YUKI` 得 0 件，而 `@amamiya_yuki` 和 `AMAMIYA_YUKI` 各得 14 件。在 `IllustrationRepository` 中改为只对这一比较的两侧调用 `LOWER`：`LOWER(CONCAT('@', a.x_username)) LIKE LOWER(?) ESCAPE '!'`。参数绑定和 `%` / `_` / `!` 的转义都不变；MySQL 的 `utf8mb4_unicode_ci` 本来就不区分大小写，结果应当不变。根因已在隔离 H2 库上用只读查询确认：列上的 `LIKE` 为 TRUE，`CONCAT` 后为 FALSE，两侧 `LOWER` 后为 TRUE。
+
+#### 验收记录（2026-10-28）
+
+- 自动化测试：`node --test` 160/160。Maven `IllustrationRepositoryTest`、`IllustrationGalleryServiceTest`、`IllustrationGalleryControllerTest`、`DesktopServerIntegrationTest` 共 33 个测试全部通过。其中 H2 HTTP 回归用例覆盖 `@amamiya_yuki`、`@AMAMIYA_YUKI`、`@Amamiya_Yuki`、`AMAMIYA_YUKI`、`@amamiya`，每页 4 件跨页取完，结果与按原始行算出的同一非空集合一致。修复前该用例失败（`@AMAMIYA_YUKI` page 0 期望 10，实际 0），修复后通过。没有重跑 Java 全量测试。
+- 浏览器验收：Codex 先用 ego-browser 完成主要验收并发现上述问题。修复后，Claude 用最新构建的 JAR，通过真实桌面启动器在隔离验收图库上用 ego-browser 复验：
+  - 顶部输入 `@AMAMIYA_YUKI` 得 14 件，作者都是雨宫ゆき，显示筛选条和“找到 14 件”，地址同步；
+  - 点 ✕ 清除后回到 30 / 55；
+  - 输入 `@Amamiya_Yuki` 按 Enter 同样得 14 件，Esc 清空；
+  - 作者弹层首屏 30 条，搜“千秋”后用 Enter 选中；标签弹层用鼠标选“海”，组合后得 9 件；
+  - 看图器显示“01 / 9”，按 Esc 返回后条件和结果不变；
+  - 深 / 浅色切换正常，“清除全部”后复原。
+- 未验证：真实 MySQL 上的这条修复（MySQL 测试为显式开启，本次没有连接）；旧 `dist` 安装包尚未用新代码重新打包；真实中文输入法的手动输入。
 
 ## 已知问题与后续候选
 

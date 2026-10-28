@@ -14,15 +14,18 @@
     <script src="theme-mode.js"></script>
     <script src="archive-client.js" defer></script>
     <script src="c-gallery.js" defer></script>
+    <script src="c-filters.js" defer></script>
     <script src="fx.js" defer></script>
 </head>
 <body>
 <header class="masthead" id="masthead">
     <a class="wordmark" href="/c/" title="新版图库">插画档案<span>Illustration Archive</span><em class="preview-badge">预览</em></a>
-    <div class="omnibox is-disabled" id="omnibox" title="搜索与作者 / 标签筛选将在下一个接入包中接入">
+    <div class="omnibox" id="omnibox" role="search">
         <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
-        <label class="visually-hidden" for="q">搜索（尚未接入）</label>
-        <input id="q" type="search" placeholder="搜索尚未接入，可在旧图库中搜索" autocomplete="off" disabled>
+        <label class="visually-hidden" for="q">搜索作品</label>
+        <input id="q" type="search" placeholder="搜索标题、备注、作者或标签" autocomplete="off" spellcheck="false" maxlength="200" enterkeyhint="search">
+        <kbd class="omni-key" aria-hidden="true">/</kbd>
+        <button class="omni-clear" id="q-clear" type="button" aria-label="清除搜索" hidden><svg class="icon" aria-hidden="true"><use href="#i-close"/></svg></button>
     </div>
     <div class="mast-actions">
         <a class="mast-link" href="/" title="打开原有图库：导入、编辑、删除与搜索都在那里">旧图库</a>
@@ -44,8 +47,8 @@
     </nav>
     <div class="active-filters" id="active-filters" aria-live="polite"></div>
     <div class="filter-tools">
-        <button class="text-btn" id="author-filter" type="button" data-not-yet="作者筛选将在下一个接入包中接入">作者 <span class="caret">▾</span></button>
-        <button class="text-btn" id="tag-filter" type="button" data-not-yet="标签筛选将在下一个接入包中接入">标签 <span class="caret">▾</span></button>
+        <button class="text-btn" id="author-filter" type="button" aria-haspopup="dialog" aria-expanded="false" title="按作者筛选，可多选">作者 <span class="caret">▾</span></button>
+        <button class="text-btn" id="tag-filter" type="button" aria-haspopup="dialog" aria-expanded="false" title="按标签筛选，可多选">标签 <span class="caret">▾</span></button>
         <span class="sep" aria-hidden="true"></span>
         <button class="text-btn" id="select-toggle" type="button" aria-pressed="false" data-not-yet="批量整理尚未接入新版图库">选择</button>
         <label class="text-select" title="其他排序方式需要新的查询参数，列为后续事项">
@@ -71,6 +74,11 @@
     <div class="empty" id="empty" hidden>
         <p class="empty-title">图库里还没有作品</p>
         <p>新版图库暂时只能浏览。可以先到<a href="/">旧图库</a>导入作品，回来刷新即可看到。</p>
+    </div>
+    <div class="empty" id="no-match" hidden>
+        <p class="empty-title">没有符合条件的作品</p>
+        <p id="no-match-text">换个关键词，或去掉一些条件试试。</p>
+        <button class="btn" id="no-match-clear" type="button">清除全部条件</button>
     </div>
     <div class="wall-status" id="wall-status" aria-live="polite">
         <span id="wall-status-text">正在载入图库…</span>
@@ -136,6 +144,8 @@
         <div class="shortcut-columns">
             <dl>
                 <dt class="sc-group">图库</dt>
+                <dt><kbd>/</kbd></dt><dd>搜索</dd>
+                <dt><kbd>Esc</kbd>（搜索框内）</dt><dd>清空搜索</dd>
                 <dt><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd></dt><dd>移动焦点</dd>
                 <dt><kbd>Enter</kbd></dt><dd>打开看图器</dd>
                 <dt>按住左右拖动多图作品</dt><dd>循环换页</dd>
@@ -151,7 +161,7 @@
                 <dt><kbd>Esc</kbd></dt><dd>逐层返回</dd>
             </dl>
         </div>
-        <p class="sheet-note">新版图库目前只读：编辑、删除、导入、批量整理、搜索与筛选请在<a href="/">旧图库</a>中进行。</p>
+        <p class="sheet-note">新版图库目前只读：可以搜索和按作者 / 标签筛选；编辑、删除、导入与批量整理请在<a href="/">旧图库</a>中进行。</p>
     </section>
 </div>
 

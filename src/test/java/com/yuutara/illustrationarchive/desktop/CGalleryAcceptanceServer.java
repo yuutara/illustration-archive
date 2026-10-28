@@ -37,9 +37,15 @@ class CGalleryAcceptanceServer {
 			int existing = jdbc.queryForObject("SELECT COUNT(*) FROM illustration", Integer.class);
 			if (existing == 0 && !"false".equals(System.getProperty("c.acceptance.seed"))) {
 				var built = CGalleryTestLibrary.build(running, Integer.getInteger("c.acceptance.images", 64));
+				// Candidates that the picker (30 per page) shows only after scrolling to its second page, or by searching
+				var authorsPast30 = running.context().getBean(com.yuutara.illustrationarchive.service.AuthorService.class)
+						.search(null, 100, 30).stream().map(a -> a.displayName()).toList();
+				var tagsPast30 = running.context().getBean(com.yuutara.illustrationarchive.service.TagService.class)
+						.search(null, 100, 30).stream().map(t -> t.name()).toList();
 				Files.writeString(home.resolve("acceptance-library.txt"), "works=" + built.works() + "\nimages=" + built.images()
 						+ "\nmultiPageIds=" + built.multiPageIds() + "\nmissingThumbnailAssetId=" + built.missingThumbnailAssetId()
-						+ "\ngifAssetId=" + built.gifAssetId() + "\n", StandardCharsets.UTF_8);
+						+ "\ngifAssetId=" + built.gifAssetId() + "\nauthorsPast30=" + authorsPast30 + "\ntagsPast30=" + tagsPast30
+						+ "\n", StandardCharsets.UTF_8);
 			}
 			Files.writeString(home.resolve("acceptance-session.txt"), running.sessionUri() + "\n", StandardCharsets.UTF_8);
 			Instant deadline = Instant.now().plus(Duration.ofHours(2));

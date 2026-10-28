@@ -149,7 +149,7 @@ public class IllustrationRepository {
 			conditions.add("""
 					(i.title LIKE ? ESCAPE '!' OR i.note LIKE ? ESCAPE '!'
 					OR a.display_name LIKE ? ESCAPE '!' OR a.x_username LIKE ? ESCAPE '!'
-					OR CONCAT('@', a.x_username) LIKE ? ESCAPE '!'
+					OR LOWER(CONCAT('@', a.x_username)) LIKE LOWER(?) ESCAPE '!'
 					OR EXISTS (SELECT 1 FROM illustration_tag it JOIN tag t ON t.id = it.tag_id
 					WHERE it.illustration_id = i.id AND t.name LIKE ? ESCAPE '!'))
 					""");
