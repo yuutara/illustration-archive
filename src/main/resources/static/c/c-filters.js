@@ -335,6 +335,7 @@
      *   onToggle   勾选 / 取消某个 id      single      单选：选中即关闭
      *   clearLabel / onClear              关键词为空且已有选择时，顶部显示一行“清空”
      *   title / hint                      无障碍名称与提示文字
+     *   create     搜不到时在末尾提供“新建”一行，建好后按 onToggle 选中
      */
     function openPicker(kind, options = {}) {
         const cfg = KINDS[kind];
@@ -360,6 +361,8 @@
             single: !!options.single,
             clearLabel: options.clearLabel || null,
             onClear: options.onClear || null,
+            canCreate: !!options.create,
+            creating: false,
             // 打开（或换关键词）时已选的项排在最前；勾选 / 取消只改勾，不让行在鼠标下跳动
             pinned: [],
             rows: [], active: 0, composing: false, timer: 0
@@ -402,7 +405,11 @@
         const rowOf = (id) => ({ id, label: nameOf(p.kind, id), meta: (names[p.kind].get(id) || {}).meta || '' });
         s.items.forEach((item) => learn(p.kind, item));
         const clearRow = p.clearLabel && !s.keyword && selected.size ? [{ id: null, clear: true, label: p.clearLabel, meta: '' }] : [];
-        p.rows = [...clearRow, ...p.pinned.map(rowOf), ...s.items.filter((item) => !pinned.has(item.id)).map((item) => rowOf(item.id))];
+        const typed = s.keyword.trim();
+        const sameName = (item) => (p.kind === 'author' ? item.displayName : item.name || '').toLowerCase() === typed.toLowerCase();
+        const createRow = p.canCreate && typed && !s.loading && !s.error && !s.items.some(sameName)
+            ? [{ id: null, create: true, name: typed, label: p.creating ? '正在创建…' : `新建${p.cfg.label}“${typed}”`, meta: '' }] : [];
+        p.rows = [...clearRow, ...p.pinned.map(rowOf), ...s.items.filter((item) => !pinned.has(item.id)).map((item) => rowOf(item.id)), ...createRow];
         p.active = Math.min(p.active, Math.max(0, p.rows.length - 1));
         const firstPinned = clearRow.length;
 
@@ -413,9 +420,9 @@
         p.rows.forEach((row, i) => {
             if (p.pinned.length && i === firstPinned) section('已选');
             if (p.pinned.length && i === firstPinned + p.pinned.length) section(`全部${p.cfg.label}`);
-            const li = el('li', row.clear ? 'pk-item pk-clear' : 'pk-item');
+            const li = el('li', row.clear || row.create ? 'pk-item pk-clear' : 'pk-item');
             li.setAttribute('role', 'option');
-            const on = !row.clear && selected.has(row.id);
+            const on = !row.clear && !row.create && selected.has(row.id);
             li.setAttribute('aria-selected', String(on));
             li.classList.toggle('is-selected', on);
             li.classList.toggle('is-active', i === p.active);
@@ -468,7 +475,32 @@
         if (li) li.scrollIntoView({ block: 'nearest' });
     }
 
+    async function createAndSelect(p, row) {
+        if (p.creating) return;
+        p.creating = true;
+        renderPicker(p);
+        try {
+            const item = await A.createFacet(p.kind, row.name);
+            learn(p.kind, item);
+            if (picker !== p) return;
+            p.creating = false;
+            p.onToggle(item.id);
+            if (p.single) { closePicker(true); return; }
+            p.input.value = '';
+            runFacetSearch(p, '');
+            p.input.focus();
+        } catch (error) {
+            p.creating = false;
+            gallery('toast', `没有新建：${error.message}`);
+            if (picker === p) renderPicker(p);
+        }
+    }
+
     function toggle(p, row) {
+        if (row.create) {
+            createAndSelect(p, row);
+            return;
+        }
         if (row.clear) {
             p.onClear();
             closePicker(true);

@@ -14,7 +14,6 @@ import org.springframework.jdbc.support.KeyHolder;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import java.sql.Statement;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -38,7 +37,7 @@ class XLikeRepositoryTest {
 		JdbcTemplate jdbc = mock(JdbcTemplate.class);
 		Connection connection = mock(Connection.class);
 		PreparedStatement statement = mock(PreparedStatement.class);
-		when(connection.prepareStatement(anyString(), eq(Statement.RETURN_GENERATED_KEYS))).thenReturn(statement);
+		when(connection.prepareStatement(anyString(), any(String[].class))).thenReturn(statement);
 		when(jdbc.update(any(PreparedStatementCreator.class), any(KeyHolder.class))).thenAnswer(call -> {
 			PreparedStatementCreator creator = call.getArgument(0);
 			KeyHolder keys = call.getArgument(1);
@@ -71,11 +70,11 @@ class XLikeRepositoryTest {
 		verify(jdbc).update(insert.capture(), any(KeyHolder.class));
 		verifyNoMoreInteractions(jdbc);
 		Connection connection = mock(Connection.class);
-		when(connection.prepareStatement(anyString(), eq(Statement.RETURN_GENERATED_KEYS)))
+		when(connection.prepareStatement(anyString(), any(String[].class)))
 				.thenReturn(mock(PreparedStatement.class));
 		insert.getValue().createPreparedStatement(connection);
 		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
-		verify(connection).prepareStatement(sql.capture(), eq(Statement.RETURN_GENERATED_KEYS));
+		verify(connection).prepareStatement(sql.capture(), any(String[].class));
 		assertTrue(sql.getValue().startsWith("INSERT INTO x_like_item"));
 		assertFalse(sql.getValue().contains("imported_illustration_id"));
 		assertFalse(sql.getValue().contains("ON DUPLICATE KEY UPDATE"));
@@ -117,13 +116,13 @@ class XLikeRepositoryTest {
 	@Test
 	void reopeningOnlyUpdatesUnsupportedAndReadsIdOnlyOnSuccess() {
 		var jdbc = mock(JdbcTemplate.class);
-		when(jdbc.update(anyString(), eq("post"))).thenReturn(0, 1);
+		when(jdbc.update(anyString(), any(LocalDateTime.class), eq("post"))).thenReturn(0, 1);
 		when(jdbc.queryForObject(anyString(), eq(Long.class), eq("post"))).thenReturn(7L);
 		var repository = new XLikeRepository(jdbc);
 		assertNull(repository.reopenUnsupported("post"));
 		assertEquals(7L, repository.reopenUnsupported("post"));
 		var sql = ArgumentCaptor.forClass(String.class);
-		verify(jdbc, org.mockito.Mockito.times(2)).update(sql.capture(), eq("post"));
+		verify(jdbc, org.mockito.Mockito.times(2)).update(sql.capture(), any(LocalDateTime.class), eq("post"));
 		assertTrue(sql.getValue().contains("WHERE x_post_id = ? AND status = 'UNSUPPORTED'"));
 		verify(jdbc).queryForObject(anyString(), eq(Long.class), eq("post"));
 	}
@@ -131,13 +130,13 @@ class XLikeRepositoryTest {
 	@Test
 	void skipSqlOnlyUpdatesPendingRows() {
 		JdbcTemplate jdbc = mock(JdbcTemplate.class);
-		when(jdbc.update(anyString(), eq(7L))).thenReturn(1, 0);
+		when(jdbc.update(anyString(), any(LocalDateTime.class), eq(7L))).thenReturn(1, 0);
 		XLikeRepository repository = new XLikeRepository(jdbc);
 
 		assertEquals(1, repository.skipIfPending(7L));
 		assertEquals(0, repository.skipIfPending(7L));
 		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
-		verify(jdbc, org.mockito.Mockito.times(2)).update(sql.capture(), eq(7L));
+		verify(jdbc, org.mockito.Mockito.times(2)).update(sql.capture(), any(LocalDateTime.class), eq(7L));
 		assertTrue(sql.getValue().contains("SET status = 'SKIPPED'"));
 		assertTrue(sql.getValue().contains("WHERE id = ? AND status = 'PENDING'"));
 	}

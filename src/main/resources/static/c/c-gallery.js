@@ -142,7 +142,17 @@
         // 多页角标必须排在第一个：牌堆会把它改成“当前页 / 总页数”
         if (work.pages.length > 1) marks.appendChild(el('span', 'mark', `${work.pages.length} 页`));
         if (p.format === 'gif') marks.appendChild(el('span', 'mark', 'GIF'));
-        if (p.video) marks.appendChild(el('span', 'mark', '视频'));
+        if (p.video) {
+            marks.appendChild(el('span', 'mark', '视频'));
+            // 视频没有缩略图：叠一层静音 <video>，由浏览器显示首帧
+            const first = document.createElement('video');
+            first.className = 'piece-video';
+            first.src = p.full;
+            first.muted = true;
+            first.preload = 'metadata';
+            first.setAttribute('aria-hidden', 'true');
+            fig.querySelector('.piece-open').appendChild(first);
+        }
         return fig;
     }
 
@@ -405,6 +415,7 @@
         fx('viewerClosing', id);
         state.viewer = null;
         viewer.hidden = true;
+        showVideo({});
         viewer.style.setProperty('--info', '0px');
         setNotice(null);
         document.body.classList.remove('is-locked');
@@ -498,6 +509,21 @@
         }
     }
 
+    // 视频（X 动图保存为 MP4）用原生播放器：自带进度与全屏，缩放、平移只作用于图片
+    function showVideo(p) {
+        const video = $('sv-video');
+        img.hidden = !!p.video;
+        video.hidden = !p.video;
+        if (p.video) {
+            if (video.getAttribute('src') !== p.full) video.src = p.full;
+            video.play().catch(() => { /* 自动播放被拒绝时用户可以点播放 */ });
+        } else if (video.getAttribute('src')) {
+            video.pause();
+            video.removeAttribute('src');
+            video.load();
+        }
+    }
+
     // 先用已缓存的缩略图按原比例铺满，再换成原图并按真实尺寸适应窗口
     function showPage(n) {
         const v = state.viewer;
@@ -505,16 +531,16 @@
         const p = work.pages[n];
         v.page = n;
         setNotice(null);
-        if (p.video) {
-            setNotice('视频暂不支持在新版图库预览。', { label: '在旧图库打开 →', href: `/detail.html?id=${encodeURIComponent(work.id)}` });
-        }
+        showVideo(p);
         const placeDims = (w, h) => {
             v.w = w;
             v.h = h;
             img.style.width = w + 'px';
             img.style.height = h + 'px';
         };
-        if (p.fullWidth) {
+        if (p.video) {
+            img.removeAttribute('src');
+        } else if (p.fullWidth) {
             img.src = p.full;
             placeDims(p.fullWidth, p.fullHeight);
         } else {
@@ -739,6 +765,11 @@
             ['导入', A.formatDate(work.createdAt)]]
             .forEach(([k, val]) => { dl.appendChild(el('dt', null, k)); dl.appendChild(el('dd', null, val)); });
         sf.appendChild(dl);
+        if (window.CAi) {
+            window.CAi.attach(box, work, () => {
+                if (state.viewer && state.viewer.id === work.id && state.viewer.info) renderInfo();
+            });
+        }
     }
 
     A.subscribe((event) => {
@@ -885,7 +916,7 @@
             return;
         }
         if (batch('isOpen')) {
-            if (e.key === 'Escape') { e.preventDefault(); batch('close'); }
+            if (e.key === 'Escape') { e.preventDefault(); batch('requestClose'); }
             return;
         }
         const ctrl = e.ctrlKey || e.metaKey;

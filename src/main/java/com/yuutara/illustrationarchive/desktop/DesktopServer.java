@@ -6,6 +6,7 @@ import org.springframework.boot.web.server.context.WebServerApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 
 import java.net.URI;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.SecureRandom;
 import java.util.HexFormat;
@@ -13,9 +14,9 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Starts the existing Spring Boot application as a Windows desktop PoC.
+ * Starts the existing Spring Boot application as the Windows desktop app.
  *
- * <p>Everything that isolates the PoC from the MySQL setup is passed as command-line arguments, the
+ * <p>Everything that isolates the app from the MySQL setup is passed as command-line arguments, the
  * highest-precedence property source. Environment variables such as {@code X_API_ENABLED} or
  * {@code SPRING_DATASOURCE_URL} would otherwise override a profile file through relaxed binding.
  */
@@ -23,6 +24,9 @@ public final class DesktopServer {
 
 	public static final String PROFILE = "desktop";
 	public static final String ACCESS_TOKEN_PROPERTY = "illustration-archive.desktop.access-token";
+	public static final String HOME_PROPERTY = "illustration-archive.desktop.home-dir";
+	/** The fixed loopback port of the OAuth callback, which users register in their X app. */
+	public static final int X_CALLBACK_PORT = 47392;
 	/**
 	 * MODE=MySQL keeps repository SQL portable; IGNORECASE matches the utf8mb4_unicode_ci comparisons
 	 * used by search and unique tag names. Repository contract tests reuse the same flags.
@@ -45,26 +49,49 @@ public final class DesktopServer {
 		}
 	}
 
-	/** {@code %LOCALAPPDATA%\IllustrationArchivePoC}, overridable for tests and manual acceptance. */
+	/** {@code %LOCALAPPDATA%\IllustrationArchive}, overridable for tests and manual acceptance. */
 	public static Path defaultHome() {
 		String override = System.getProperty("illustration-archive.desktop.home",
 				System.getenv("ILLUSTRATION_ARCHIVE_DESKTOP_HOME"));
 		if (override != null && !override.isBlank()) {
 			return Path.of(override).toAbsolutePath().normalize();
 		}
+		return homeUnder(localAppData()).toAbsolutePath().normalize();
+	}
+
+	/** Where a brand-new library belongs, whatever {@link #defaultHome()} currently resolves to. */
+	static Path defaultNewHome() {
+		return localAppData().resolve("IllustrationArchive").toAbsolutePath().normalize();
+	}
+
+	private static Path localAppData() {
 		String localAppData = System.getenv("LOCALAPPDATA");
-		Path base = localAppData == null || localAppData.isBlank()
+		return localAppData == null || localAppData.isBlank()
 				? Path.of(System.getProperty("user.home"), "AppData", "Local")
 				: Path.of(localAppData);
-		return base.resolve("IllustrationArchivePoC").toAbsolutePath().normalize();
+	}
+
+	/** A library created before the rename stays where it is: nothing is moved on the user's behalf. */
+	static Path homeUnder(Path base) {
+		Path current = base.resolve("IllustrationArchive");
+		Path earlier = base.resolve("IllustrationArchivePoC");
+		return !Files.exists(current) && Files.exists(earlier) ? earlier : current;
 	}
 
 	public static Running start(Path home, int port, boolean headless) {
+		return start(home, port, headless, Map.of());
+	}
+
+	/** {@code overrides} is the one way past the pinned values below; tests use it to reach a fake X server. */
+	static Running start(Path home, int port, boolean headless, Map<String, String> overrides) {
 		String accessToken = HexFormat.of().formatHex(randomBytes());
 		SpringApplication application = new SpringApplication(IllustrationArchiveApplication.class);
 		application.setAdditionalProfiles(PROFILE);
 		application.setHeadless(headless);
-		ConfigurableApplicationContext context = application.run(arguments(home, port, accessToken));
+		Map<String, String> properties = properties(home, port, accessToken);
+		properties.put("illustration-archive.desktop.open-external", Boolean.toString(!headless));
+		properties.putAll(overrides);
+		ConfigurableApplicationContext context = application.run(arguments(properties));
 		int actualPort = ((WebServerApplicationContext) context).getWebServer().getPort();
 		return new Running(context, actualPort, accessToken);
 	}
@@ -72,7 +99,8 @@ public final class DesktopServer {
 	static Map<String, String> properties(Path home, int port, String accessToken) {
 		Path root = home.toAbsolutePath().normalize();
 		Map<String, String> properties = new LinkedHashMap<>();
-		// Optional, PoC-only override file; the MySQL ./config/application-local.properties is never read.
+		properties.put(HOME_PROPERTY, root.toString());
+		// Optional override file; the MySQL ./config/application-local.properties is never read.
 		properties.put("illustration-archive.local-config", root.resolve("config").resolve("desktop.properties").toString());
 
 		// Spring, not H2's own shutdown hook, closes the database.
@@ -84,7 +112,7 @@ public final class DesktopServer {
 		properties.put("spring.datasource.password", "");
 		properties.put("spring.datasource.hikari.maximum-pool-size", "5");
 		// Hikari and Flyway each accept their own connection settings, which would otherwise win over the
-		// datasource above (e.g. SPRING_FLYWAY_URL). Pin both to the PoC database.
+		// datasource above (e.g. SPRING_FLYWAY_URL). Pin both to the desktop database.
 		properties.put("spring.datasource.hikari.jdbc-url", h2Url);
 		properties.put("spring.datasource.hikari.username", "sa");
 		properties.put("spring.datasource.hikari.password", "");
@@ -102,17 +130,25 @@ public final class DesktopServer {
 		properties.put("server.port", Integer.toString(port));
 		properties.put("server.shutdown", "graceful");
 		properties.put("spring.lifecycle.timeout-per-shutdown-phase", "15s");
+		// The window's profile outlives each update: without this, a new EXE can run the previous version's pages.
+		properties.put("spring.web.resources.cache.cachecontrol.no-cache", "true");
 		properties.put(ACCESS_TOKEN_PROPERTY, accessToken);
 
-		// External integrations and one-off maintenance are out of scope for the PoC.
-		properties.put("x.api.enabled", "false");
+		// X and Gemini are on, but neither can reach out until the user connects an account or saves a key in
+		// Settings: without local credentials the code stops before any request. Both use the user's own
+		// developer accounts, so no Client Secret or API key ships in the app or is read from the environment.
+		properties.put("x.api.enabled", "true");
+		properties.put("x.api.base-url", "https://api.x.com");
 		properties.put("x.oauth.client-id", "");
 		properties.put("x.oauth.client-secret", "");
-		properties.put("x.oauth.credential-file", root.resolve("config").resolve("x-oauth-disabled.properties").toString());
-		properties.put("ai.analysis.enabled", "false");
+		properties.put("x.oauth.credential-file", root.resolve("config").resolve("x-oauth-tokens.properties").toString());
+		properties.put("illustration-archive.desktop.x-callback-port", Integer.toString(X_CALLBACK_PORT));
+		properties.put("ai.analysis.enabled", "true");
 		properties.put("gemini.api-key", "");
-		// The disabled integrations still bind these numbers at startup; a blank X_SYNC_MAX_PAGES= or
-		// AI_ANALYSIS_TIMEOUT_SECONDS= must not stop the gallery from opening. Values are the usual defaults.
+		properties.put("gemini.credential-file", root.resolve("config").resolve("gemini-key.txt").toString());
+		properties.put("gemini.model", "gemini-3.1-flash-lite");
+		// A blank X_SYNC_MAX_PAGES= or AI_ANALYSIS_TIMEOUT_SECONDS= in the environment must not stop the
+		// gallery from opening. Values are the usual defaults; the sync budget also caps each click's cost.
 		properties.put("ai.analysis.timeout-seconds", "90");
 		properties.put("x.api.default-page-size", "5");
 		properties.put("x.api.default-max-pages", "3");
@@ -123,15 +159,14 @@ public final class DesktopServer {
 		properties.put("x.sync.max-new", "50");
 		properties.put("illustration.maintenance.sha256-backfill", "false");
 		properties.put("illustration.maintenance.thumbnail-backfill", "false");
-		properties.put("illustration-archive.ui.x-import", "false");
-		properties.put("illustration-archive.ui.ai-analysis", "false");
+		properties.put("illustration-archive.ui.desktop", "true");
 
 		properties.put("logging.file.name", root.resolve("logs").resolve("desktop.log").toString());
 		return properties;
 	}
 
-	private static String[] arguments(Path home, int port, String accessToken) {
-		return properties(home, port, accessToken).entrySet().stream()
+	private static String[] arguments(Map<String, String> properties) {
+		return properties.entrySet().stream()
 				.map(entry -> "--" + entry.getKey() + "=" + entry.getValue())
 				.toArray(String[]::new);
 	}

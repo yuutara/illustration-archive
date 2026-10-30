@@ -10,7 +10,7 @@ Illustration Archive 解决的是“把散落在本地的插画文件整理成�
 
 本项目当前无用户鉴权，定位为 local-first 个人工具，不应直接暴露到公网或不可信局域网。直接用 IDEA 或 `spring-boot:run` 启动时，Spring Boot 默认监听所有网卡；只在本机使用时，可在被 Git 忽略的 `config/application-local.properties` 中设置 `server.address=127.0.0.1`。Docker Compose 已只映射到本机 `127.0.0.1:8080`。
 
-最新发布为 `v0.5.0`，V0.5 已正式封版，项目处于 maintenance / interest-driven 阶段。当前状态与近期健康基线见 [PROJECT_STATE](docs/PROJECT_STATE.md)，X Likes 同步设计见 [同步一致性说明](docs/X_LIKES_SYNC_CONSISTENCY.md)，历史阶段与验收记录见 [PROJECT_HISTORY](docs/PROJECT_HISTORY.md)。
+最新发布为 `v0.5.0`。项目正在产品化为普通用户双击即用的 Windows 桌面应用（内置 H2，不需要 MySQL、Java 或命令行），路线见 [DESKTOP_ROADMAP](docs/DESKTOP_ROADMAP.md)；下文主要介绍原服务器运行方式。当前状态与近期健康基线见 [PROJECT_STATE](docs/PROJECT_STATE.md)，X Likes 同步设计见 [同步一致性说明](docs/X_LIKES_SYNC_CONSISTENCY.md)，历史阶段与验收记录见 [PROJECT_HISTORY](docs/PROJECT_HISTORY.md)。
 
 ## 项目截图
 
@@ -57,7 +57,7 @@ Inbox 支持整卡选中反馈、当前页已选数量和 sticky 操作栏；图
 
 ## 技术栈
 
-- Java 17
+- Java 21
 - Spring Boot 4.1.1
 - Spring Web MVC
 - Spring JDBC（`JdbcTemplate`）
@@ -340,7 +340,7 @@ Tag ID 会先校验存在性，并去除重复 ID，然后在同一数据库事�
 
 ### 前置条件
 
-- Java 17 或更高版本（项目编译目标为 Java 17）。
+- Java 21 或更高版本（项目编译目标为 Java 21）。
 - 可连接的 MySQL 实例。
 - Windows 可直接使用 `mvnw.cmd`；macOS/Linux 可使用 `mvnw`。
 
@@ -534,7 +534,7 @@ MySQL 外部测试会经过真实 Spring 事务代理和 Flyway，但只能指�
 
 ### GitHub Actions CI
 
-每次 push 和 Pull Request 都会在 GitHub Actions 的 Linux runner 上运行 CI：使用 Java 17 构建并执行完整 Java 测试，使用 Node 24 执行现有 JS 测试，最后构建 Docker image。可在 GitHub 仓库的 **Actions** 页面打开 **CI** workflow 查看每次运行的结果和各步骤日志。CI 不启动应用或 MySQL，也不调用真实 X API；无需本地配置文件或 GitHub Secrets。
+每次 push 和 Pull Request 都会在 GitHub Actions 的 Linux runner 上运行 CI：使用 Java 21 构建并执行完整 Java 测试，使用 Node 24 执行现有 JS 测试，最后构建 Docker image。可在 GitHub 仓库的 **Actions** 页面打开 **CI** workflow 查看每次运行的结果和各步骤日志。CI 不启动应用或 MySQL，也不调用真实 X API；无需本地配置文件或 GitHub Secrets。
 
 ## 版本状态
 

@@ -63,8 +63,11 @@
 
     function isOpen() { return !sheet.hidden; }
 
+    // 同一时刻只有一个主操作面板：整理中不开始导入，否则关掉其中一个就会解除背景锁定
+    const batchOpen = () => !!(window.CBatch && window.CBatch.isOpen());
+
     function open({ pick = false } = {}) {
-        if (host('isViewerOpen')) return false;
+        if (host('isViewerOpen') || batchOpen()) return false;
         if (!isOpen()) {
             returnFocus = document.activeElement;
             sheet.hidden = false;
@@ -280,8 +283,8 @@
         const types = [...((e.dataTransfer && e.dataTransfer.types) || [])];
         return types.includes('Files') && !types.includes(INTERNAL_DRAG);
     };
-    // 看图器、编辑确认、快捷键说明开着时不接受导入
-    const canImportNow = () => !host('isViewerOpen') && !editor('isConfirming') && $('shortcuts').hidden;
+    // 看图器、整理面板、编辑确认、快捷键说明开着时不接受导入
+    const canImportNow = () => !host('isViewerOpen') && !batchOpen() && !editor('isConfirming') && $('shortcuts').hidden;
 
     function entriesOf(dataTransfer) {
         const items = [...(dataTransfer.items || [])].filter((item) => item.kind === 'file');
@@ -324,7 +327,7 @@
         dragDepth = 0;
         dropzone.classList.remove('is-over');
         if (!canImportNow()) {
-            host('toast', '看图或编辑时不能导入，请先返回图库');
+            host('toast', batchOpen() ? '整理作品时不能导入，请先完成或取消' : '看图或编辑时不能导入，请先返回图库');
             return;
         }
         openedByDrag = false;

@@ -14,12 +14,12 @@ class UiCapabilitiesControllerTest {
 
 	@Test
 	void servesTheConfiguredFlagsAsAnUncachedScript() throws Exception {
-		MockMvc mockMvc = MockMvcBuilders.standaloneSetup(new UiCapabilitiesController(true, false)).build();
+		MockMvc mockMvc = MockMvcBuilders.standaloneSetup(new UiCapabilitiesController(true, false, false)).build();
 
 		mockMvc.perform(get("/ui-capabilities.js"))
 				.andExpect(status().isOk())
 				.andExpect(header().string("Content-Type", containsString("text/javascript")))
 				.andExpect(header().string("Cache-Control", containsString("no-store")))
-				.andExpect(content().string("window.UiCapabilities = Object.freeze({ xImport: true, aiAnalysis: false });\n"));
+				.andExpect(content().string("window.UiCapabilities = Object.freeze({ xImport: true, aiAnalysis: false, desktop: false });\n"));
 	}
 }

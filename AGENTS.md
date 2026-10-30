@@ -23,7 +23,7 @@
 - Database transactions cannot roll back filesystem operations; preserve explicit transaction boundaries and file-compensation behavior where needed.
 
 - Never commit passwords, API keys, tokens, or other secrets.
-- Unless explicitly requested, do not run `git commit` or `git push`.
+- Git staging, commits, pushes, merges, and branch cleanup are manual user operations unless explicitly delegated.
 - Preserve existing user changes. Do not stage unrelated files or temporary review artifacts such as patch files.
 
 - After changes, summarize what changed and explain key design choices.
@@ -33,6 +33,25 @@
 ## Maintenance workflow (2026-10-26)
 
 - Claude and Codex start every task by reading this file and the short `docs/PROJECT_STATE.md`. Read `README.md`, `docs/X_LIKES_SYNC_CONSISTENCY.md`, or source code only as the task needs; do not load `docs/PROJECT_HISTORY.md` by default.
-- Claude Code implements, validates, and delivers ordinary changes. Bring in Codex as needed for complex designs or high-impact changes (schema, transactions, sync semantics, real-data operations); small changes do not need double review.
+- Claude Code leads development and product/UI/UX design. It may independently explore visual styles, interactions, and implementation approaches, and challenge or adapt Codex suggestions with reasons; Codex's design preferences are not constraints.
+- Codex mainly assesses complex technical architecture, database changes, and high-risk issues, with review as needed.
+- Fast Lane: ordinary small changes proceed autonomously with focused validation, without mandatory Codex planning/review, double approval, or full-suite testing. Real-data deletion, production migrations, and paid external calls still require explicit authorization.
 - Product-direction discussions with ChatGPT use the short project state plus the current question, not the full history.
 - Update the matching document only when behavior, configuration, constraints, the project phase, or an important acceptance conclusion changes. Ordinary tasks do not produce standalone long reports; record durable facts in `PROJECT_STATE` or the relevant topic document, and move superseded detail to `PROJECT_HISTORY`.
+
+## Practical design
+
+- Add concurrency controls, defensive checks, retries, or abstractions for concrete risks or requirements, not unsupported hypotheticals. Before material complexity, weigh risk, benefit, and maintenance cost; discuss significant scope or behavior tradeoffs with the user.
+- Validate at explicit trust boundaries; rely on established contracts within the call chain instead of repeating checks. Preserve database constraints, required authorization, and necessary security protections.
+- Keep simple one-off logic direct; extract helpers when they improve reuse, readability, or testing, not merely to create layers.
+- Use try/catch for recovery, compensation, error translation, or meaningful context. Preserve error causes or explicit failure results; do not silently swallow failures or add redundant wrappers.
+- These principles do not weaken X Sync concurrency safety, idempotency, request budgets, resumable checkpoints, page transactions, SHA-256 uniqueness, or file compensation and post-commit cleanup. Keep cleanup failures observable without masking the original failure.
+
+## Risk-based validation and tool cost
+
+- Claude and Codex choose coverage by risk and affected behavior, run full regression when warranted, and avoid repeating passed checks unless new changes, failures, or uncertainty justify it. Do not impose fixed tool-call or test-count caps.
+- Prefer existing unit/integration tests, CLI checks, HTTP requests, and lightweight browser tools; reuse reliable evidence instead of verifying the same claim through multiple tools.
+- Windows MCP, Computer Use, and similar high-interaction tools are not the default for testing. Use them when real GUI behavior cannot be verified more cheaply and automation adds clear value.
+- Visual taste, interaction feel, and desktop installation/exit may be left to user acceptance. Provide brief, concrete steps and keep acceptance pending until confirmed.
+- Migrations, transactions, concurrency, file deletion, authorization, and similar high-risk changes still require sufficient targeted automated tests; do not reduce necessary coverage to save tool cost.
+- Keep work-package reports brief and separate "automated tests passed", "AI-verified behavior", and "awaiting user acceptance"; carry unperformed checks as pending.

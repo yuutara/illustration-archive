@@ -391,7 +391,7 @@ class GeminiClientTest {
 		try (var factory = mockStatic(HttpClient.class); var context = new AnnotationConfigApplicationContext()) {
 			factory.when(HttpClient::newHttpClient).thenReturn(http);
 			context.registerBean(ObjectMapper.class, () -> new ObjectMapper());
-			context.register(GeminiClient.class); context.refresh();
+			context.register(GeminiKeyStore.class, GeminiClient.class); context.refresh();
 			status(503, context.getBean(GeminiClient.class)::checkAvailable);
 		}
 	}

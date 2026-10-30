@@ -28,6 +28,16 @@ import static org.mockito.ArgumentMatchers.eq;
 import java.util.Optional;
 
 class IllustrationBatchImportServiceTest {
+	private static MultipartFile readableJpeg(String filename) {
+		try {
+			java.io.ByteArrayOutputStream jpeg = new java.io.ByteArrayOutputStream();
+			javax.imageio.ImageIO.write(new java.awt.image.BufferedImage(2, 2, java.awt.image.BufferedImage.TYPE_INT_RGB), "jpeg", jpeg);
+			return new MockMultipartFile("file", filename, "application/octet-stream", jpeg.toByteArray());
+		} catch (java.io.IOException failure) {
+			throw new java.io.UncheckedIOException(failure);
+		}
+	}
+
 
 	@Test
 	void thumbnailFailureAfterPersistenceKeepsBatchItemSuccessful() {
@@ -263,6 +273,9 @@ class IllustrationBatchImportServiceTest {
 	}
 
 	private MultipartFile file(String filename) {
+		if (filename.equals("original.jpg")) {
+			return readableJpeg(filename);
+		}
 		return new MockMultipartFile("file", filename, "application/octet-stream",
 				new byte[]{(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 0x00});
 	}

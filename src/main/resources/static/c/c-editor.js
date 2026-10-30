@@ -147,7 +147,9 @@
         saveButton.textContent = saving ? '正在保存…' : '保存';
         cancelButton.disabled = saving;
         errorBox.hidden = !(ready && s.error);
-        errorBox.textContent = ready && s.error ? `保存失败：${s.error}。修改仍保留在这里，可以重试或取消。` : '';
+        errorBox.textContent = !(ready && s.error) ? ''
+            : s.unconfirmed ? `${s.error}。可以直接再保存一次，不会重复；取消不能撤销已经保存的修改。`
+                : `保存失败：${s.error}。修改仍保留在这里，可以重试或取消。`;
 
         if (s.draft) {
             renderAuthor();
@@ -199,7 +201,8 @@
             anchor: authorButton,
             single: true,
             title: '选择作者',
-            hint: '从已有作者中选择；新建或修改作者请到旧图库',
+            hint: '搜索已有作者，或输入名字新建',
+            create: true,
             selected: () => (draft().authorId == null ? [] : [draft().authorId]),
             onToggle: (id) => session.set('authorId', id),
             clearLabel: '不设置作者',
@@ -217,7 +220,8 @@
         F.openPicker('tag', {
             anchor: addTag,
             title: '选择标签',
-            hint: '可多选；新建标签请到旧图库',
+            hint: '可多选；输入名字可以新建',
+            create: true,
             selected: () => draft().tagIds,
             onToggle: (id) => {
                 const ids = draft().tagIds;

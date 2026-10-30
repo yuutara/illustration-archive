@@ -73,24 +73,24 @@ public class GeminiClient {
 	private final Supplier<HttpClient> http;
 	private final ObjectMapper mapper;
 	private final boolean enabled;
-	private final String apiKey;
+	private final Supplier<String> apiKey;
 	private final String model;
 	private final int timeoutSeconds;
 
 	@Autowired
 	public GeminiClient(ObjectMapper mapper,
 			@Value("${ai.analysis.enabled:false}") boolean enabled,
-			@Value("${gemini.api-key:}") String apiKey,
+			GeminiKeyStore keys,
 			@Value("${gemini.model:gemini-3.1-flash-lite}") String model,
 			@Value("${ai.analysis.timeout-seconds:90}") int timeoutSeconds) {
-		this(new LazyHttpClient(), mapper, enabled, apiKey, model, timeoutSeconds);
+		this(new LazyHttpClient(), mapper, enabled, keys::apiKey, model, timeoutSeconds);
 	}
 
 	GeminiClient(HttpClient http, ObjectMapper mapper, boolean enabled, String apiKey, String model, int timeoutSeconds) {
-		this(() -> http, mapper, enabled, apiKey, model, timeoutSeconds);
+		this(() -> http, mapper, enabled, () -> apiKey, model, timeoutSeconds);
 	}
 
-	private GeminiClient(Supplier<HttpClient> http, ObjectMapper mapper, boolean enabled, String apiKey, String model,
+	private GeminiClient(Supplier<HttpClient> http, ObjectMapper mapper, boolean enabled, Supplier<String> apiKey, String model,
 			int timeoutSeconds) {
 		this.http = http;
 		this.mapper = mapper;
@@ -101,7 +101,7 @@ public class GeminiClient {
 	}
 
 	public void checkAvailable() {
-		if (!enabled || apiKey.isBlank() || !MODEL.equals(model) || timeoutSeconds < 1) {
+		if (!enabled || apiKey.get().isBlank() || !MODEL.equals(model) || timeoutSeconds < 1) {
 			throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
 					"免费 AI 分析未启用或后端配置未完成。");
 		}
@@ -128,7 +128,7 @@ public class GeminiClient {
 					"这组图片合起来太大，暂时无法一次分析。可改用较小版本重新导入。");
 		}
 		var request = HttpRequest.newBuilder(URI.create("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent"))
-				.timeout(Duration.ofSeconds(timeoutSeconds)).header("x-goog-api-key", apiKey)
+				.timeout(Duration.ofSeconds(timeoutSeconds)).header("x-goog-api-key", apiKey.get())
 				.header("Content-Type", "application/json").header("Accept", "application/json")
 				.POST(HttpRequest.BodyPublishers.ofByteArray(requestBody)).build();
 		// Keep the complete-body deadline, including all non-streaming response text.
@@ -211,7 +211,7 @@ public class GeminiClient {
 
 	private String safeDiagnostic(String value, List<String> images) {
 		if (value == null) return "(empty)";
-		String safe = value.replace(apiKey, "[REDACTED]");
+		String safe = value.replace(apiKey.get(), "[REDACTED]");
 		if (REQUEST_DATA.matcher(safe).find() || safe.contains(PROMPT.substring(0, PROMPT.indexOf('\n')))) {
 			return "[request data omitted]";
 		}

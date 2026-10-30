@@ -82,16 +82,18 @@ class DesktopServerIntegrationTest {
 		var environment = first.context().getEnvironment();
 		assertTrue(environment.getProperty("spring.datasource.url").startsWith("jdbc:h2:file:" + home));
 		assertNull(environment.getProperty("ILLUSTRATION_ARCHIVE_DB_URL"), "MySQL local config must not be imported");
-		assertEquals("false", environment.getProperty("x.api.enabled"));
-		assertEquals("false", environment.getProperty("ai.analysis.enabled"));
+		assertEquals("true", environment.getProperty("x.api.enabled"));
+		assertEquals("true", environment.getProperty("ai.analysis.enabled"));
+		assertEquals("", environment.getProperty("gemini.api-key"), "no key is read from the environment");
+		assertEquals("", environment.getProperty("x.oauth.client-secret"), "no secret is read from the environment");
 		assertEquals(7, jdbc(first).queryForObject(
 				"SELECT COUNT(*) FROM \"flyway_schema_history\" WHERE \"success\" = TRUE AND \"version\" IS NOT NULL", Integer.class));
 
 		String cookie = openSession(first);
 		HttpResponse<String> capabilities = send(first, cookie, get(first, "/ui-capabilities.js"));
 		assertEquals(200, capabilities.statusCode());
-		assertTrue(capabilities.body().contains("xImport: false") && capabilities.body().contains("aiAnalysis: false"),
-				capabilities.body());
+		assertTrue(capabilities.body().contains("xImport: true") && capabilities.body().contains("aiAnalysis: true")
+				&& capabilities.body().contains("desktop: true"), capabilities.body());
 		byte[] red = png(Color.RED);
 		HttpResponse<String> imported = send(first, cookie, multipart(first, "/api/illustrations/import",
 				List.of(new Part("red.png", red), new Part("blue.png", png(Color.BLUE)), new Part("red-copy.png", red))));
@@ -161,8 +163,9 @@ class DesktopServerIntegrationTest {
 	@Test
 	void cGalleryIsServedBehindTheLaunchSessionAndReadsAPagedMultiPageLibraryAcrossRestart() throws Exception {
 		DesktopServer.Running first = start();
-		List<String> pageFiles = List.of("/c/", "/c/archive-client.js", "/c/c-gallery.js", "/c/c-filters.js", "/c/c-editor.js", "/c/c-import.js", "/c/c-delete.js", "/c/c-batch.js", "/c/fx.js", "/c/theme-mode.js",
-				"/c/gallery.css", "/c/fx.css", "/c/theme-quiet.css", "/c/c.css");
+		List<String> pageFiles = List.of("/c/", "/c/x.html", "/c/settings.html", "/c/archive-client.js", "/c/c-gallery.js", "/c/c-filters.js", "/c/c-editor.js", "/c/c-import.js", "/c/c-delete.js", "/c/c-batch.js", "/c/fx.js", "/c/theme-mode.js",
+				"/c/shell.js", "/c/c-ai.js", "/c/c-x-model.js", "/c/c-x.js", "/c/c-settings.js",
+				"/c/gallery.css", "/c/fx.css", "/c/theme-quiet.css", "/c/c.css", "/c/app.css");
 		for (String path : pageFiles) {
 			assertEquals(403, send(first, null, get(first, path)).statusCode(), path + " must need the launch session");
 		}
@@ -170,7 +173,7 @@ class DesktopServerIntegrationTest {
 		for (String path : pageFiles) {
 			assertEquals(200, send(first, cookie, get(first, path)).statusCode(), path);
 		}
-		assertTrue(send(first, cookie, get(first, "/c/")).body().contains("新版图库"));
+		assertTrue(send(first, cookie, get(first, "/c/")).body().contains("id=\"wall\""));
 		String oldGallery = send(first, cookie, get(first, "/")).body();
 		assertTrue(oldGallery.contains("browse-toolbar") && oldGallery.contains("app.js"), "old gallery stays at /");
 		assertTrue(oldGallery.contains("href=\"/c/\""), "old gallery links to the new one");
@@ -466,11 +469,10 @@ class DesktopServerIntegrationTest {
 		var list = mapper.readTree(send(running, cookie, get(running, "/api/illustrations?page=0&size=30")).body());
 		assertEquals(5, list.get("totalElements").asLong(), "the gallery list sees the new works");
 
-		// Known limit of the existing validation (not changed here): it checks the file signature against the
-		// extension, not whether the image decodes, so a truncated GIF that starts with a GIF header is accepted.
-		assertEquals("SUCCESS", importOne(running, cookie, "truncated.gif",
-				"GIF89a?".getBytes(StandardCharsets.US_ASCII)).get("status").asString());
-		assertEquals(6, originalFiles().size());
+		// A header-only file used to count as imported and then never display
+		var headerOnly = importOne(running, cookie, "truncated.gif", "GIF89a?".getBytes(StandardCharsets.US_ASCII));
+		assertEquals("FAILED", headerOnly.get("status").asString());
+		assertEquals(5, originalFiles().size(), "a rejected file leaves nothing on disk");
 
 		// The launch session still guards imports, and a rejected request stores nothing
 		assertEquals(403, send(running, null, multipart(running, "/api/illustrations/import",
@@ -479,8 +481,8 @@ class DesktopServerIntegrationTest {
 				List.of(new Part("intruder.png", png(Color.ORANGE)))), (name, value) -> true)
 				.header("Origin", "http://localhost:3000").build();
 		assertEquals(403, send(running, cookie, crossOrigin).statusCode());
-		assertEquals(6, jdbc(running).queryForObject("SELECT COUNT(*) FROM illustration", Integer.class));
-		assertEquals(6, originalFiles().size());
+		assertEquals(5, jdbc(running).queryForObject("SELECT COUNT(*) FROM illustration", Integer.class));
+		assertEquals(5, originalFiles().size());
 	}
 
 	/**
@@ -715,7 +717,10 @@ class DesktopServerIntegrationTest {
 				HttpResponse.BodyHandlers.ofString());
 		assertEquals(200, landed.statusCode());
 		assertEquals("/c/", landed.uri().getPath());
-		assertTrue(landed.body().contains("新版图库") && landed.body().contains("href=\"/\""), "C gallery, with its old-gallery link");
+		assertTrue(landed.body().contains("id=\"wall\"") && landed.body().contains("href=\"/\""), "C gallery, with its old-gallery link");
+		HttpResponse<String> script = browser.send(HttpRequest.newBuilder(running.baseUri().resolve("/c/c-x.js")).GET().build(),
+				HttpResponse.BodyHandlers.ofString());
+		assertEquals("no-cache", script.headers().firstValue("Cache-Control").orElseThrow(), "an update must reach the window's profile");
 		HttpResponse<String> old = browser.send(HttpRequest.newBuilder(running.baseUri().resolve("/")).GET().build(),
 				HttpResponse.BodyHandlers.ofString());
 		assertEquals(200, old.statusCode());

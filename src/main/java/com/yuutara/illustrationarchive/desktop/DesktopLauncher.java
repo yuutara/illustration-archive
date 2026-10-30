@@ -1,22 +1,14 @@
 package com.yuutara.illustrationarchive.desktop;
 
-import javax.swing.BorderFactory;
-import javax.swing.JButton;
-import javax.swing.JFrame;
-import javax.swing.JLabel;
-import javax.swing.JOptionPane;
-import javax.swing.JPanel;
-import javax.swing.SwingUtilities;
-import javax.swing.UIManager;
-import javax.swing.WindowConstants;
-import java.awt.BorderLayout;
-import java.awt.Desktop;
-import java.awt.FlowLayout;
-import java.awt.GridLayout;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
+import org.eclipse.swt.SWT;
+import org.eclipse.swt.widgets.Display;
+import org.eclipse.swt.widgets.MessageBox;
+import org.eclipse.swt.widgets.Shell;
+
 import java.io.IOException;
+import java.net.HttpURLConnection;
 import java.net.InetAddress;
+import java.net.Proxy;
 import java.net.ServerSocket;
 import java.net.URI;
 import java.nio.channels.FileChannel;
@@ -24,34 +16,39 @@ import java.nio.channels.FileLock;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.Optional;
 
 /**
- * Small control window for the desktop PoC: start the local server, open the gallery in the system browser,
- * open the data folder, and exit. Exiting closes the Spring context, which drains requests, closes the
- * connection pool (and with it the H2 file), and releases the port before the process ends.
+ * Starts the app: the splash image and a hidden window while the server comes up, then the window appears. This
+ * thread runs the window's event loop, and closing the window ends it: the Spring context closes, so requests drain,
+ * the connection pool closes (and with it the H2 file), and the port is released before the process ends.
  */
 public final class DesktopLauncher {
 
-	/** Stable port keeps browser-side preferences (theme, layout) between launches; falls back if busy. */
+	/** Stable port keeps the page's preferences (theme, layout) between launches; falls back if busy. */
 	static final int PREFERRED_PORT = 47391;
+	/** Windows groups the app's windows and taskbar entry under this. */
+	private static final String APP_ID = "IllustrationArchive";
+	private static final int ACTIVATE_TIMEOUT_MILLIS = 2_000;
+	private static final int REVEAL_ANYWAY_MILLIS = 15_000;
 
 	private final Path home;
 	private final FileLock instanceLock;
-	private final JFrame frame = new JFrame("Illustration Archive · Windows PoC");
-	private final JLabel status = new JLabel("正在启动本地图库…");
-	private final JLabel detail = new JLabel(" ");
-	private final JButton openGallery = new JButton("打开图库");
-	private final JButton openData = new JButton("打开数据文件夹");
-	private final JButton exit = new JButton("退出");
+	private final Display display;
 	private volatile DesktopServer.Running running;
 	private volatile boolean stopping;
+	private DesktopWindow window;
+	private DesktopControls controls;
 
-	private DesktopLauncher(Path home, FileLock instanceLock) {
+	private DesktopLauncher(Path home, FileLock instanceLock, Display display) {
 		this.home = home;
 		this.instanceLock = instanceLock;
+		this.display = display;
 	}
 
 	public static void main(String[] args) {
+		// Must be set before anything asks for the default ProxySelector, which reads it once.
+		System.setProperty("java.net.useSystemProxies", "true");
 		Path home = DesktopServer.defaultHome();
 		FileLock lock;
 		try {
@@ -59,61 +56,69 @@ public final class DesktopLauncher {
 			lock = FileChannel.open(home.resolve("instance.lock"), StandardOpenOption.CREATE, StandardOpenOption.WRITE)
 					.tryLock();
 		} catch (IOException exception) {
-			showFatal("无法使用数据目录：" + home + "\n" + exception.getMessage());
+			showMessage(SWT.ICON_ERROR, "无法使用数据目录：" + home + "\n" + exception.getMessage());
 			return;
 		}
 		if (lock == null) {
-			showFatal("Illustration Archive 已在运行。\n请使用已打开的控制窗口（可能在任务栏中）。");
+			showExisting(home);
 			return;
 		}
-		DesktopLauncher launcher = new DesktopLauncher(home, lock);
-		SwingUtilities.invokeLater(launcher::showWindow);
-		// Created from the main thread so Spring sees the Boot launcher's class loader.
+		Display.setAppName(APP_ID);
+		new DesktopLauncher(home, lock, new Display()).run();
+	}
+
+	/** A second launch means "show me the app"; the running instance left its entry address for this. */
+	private static void showExisting(Path home) {
+		Path entry = entryFile(home);
+		try {
+			if (Files.exists(entry)) {
+				askToShow(URI.create(Files.readString(entry).trim()));
+			}
+			// With no entry the app is still starting, and its window will appear by itself.
+		} catch (IOException | IllegalArgumentException unavailable) {
+			showMessage(SWT.ICON_INFORMATION, "插画档案已在运行。\n请在任务栏中找到已打开的窗口。");
+		}
+		DesktopSplash.close();
+	}
+
+	private static void askToShow(URI session) throws IOException {
+		// Direct on purpose: this is the app's own loopback port, which must never go through a proxy.
+		HttpURLConnection request = (HttpURLConnection) session.resolve("/api/desktop/show").toURL().openConnection(Proxy.NO_PROXY);
+		request.setRequestMethod("POST");
+		request.setConnectTimeout(ACTIVATE_TIMEOUT_MILLIS);
+		request.setReadTimeout(ACTIVATE_TIMEOUT_MILLIS);
+		request.setRequestProperty("Cookie", LocalAccessFilter.COOKIE_NAME + "=" + session.getQuery().substring("token=".length()));
+		if (request.getResponseCode() >= 300) {
+			throw new IOException("The running app answered " + request.getResponseCode());
+		}
+	}
+
+	private static Path entryFile(Path home) {
+		return home.resolve("window").resolve("entry.txt");
+	}
+
+	private void run() {
+		DesktopSplash.status("正在读取图库…");
+		window = DesktopWindow.open(display, home, DesktopSettings.savedProxy(home), this::openInDefaultBrowser, this::stop)
+				.orElse(null);
+		if (window == null) {
+			DesktopSplash.close();
+			controls = new DesktopControls(display, home, this::openInBrowser, this::stop);
+		}
+		// Created from the main thread so Spring sees the application's class loader.
 		ClassLoader loader = DesktopLauncher.class.getClassLoader();
 		Thread starter = new Thread(() -> {
 			Thread.currentThread().setContextClassLoader(loader);
-			launcher.startServer();
+			startServer();
 		}, "desktop-start");
 		starter.start();
-	}
 
-	private void showWindow() {
-		try {
-			UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
-			SwingUtilities.updateComponentTreeUI(frame);
-		} catch (ReflectiveOperationException | javax.swing.UnsupportedLookAndFeelException ignored) {
-			// The default look and feel is still fully usable.
-		}
-		openGallery.setEnabled(false);
-		openGallery.addActionListener(event -> openGallery());
-		openData.addActionListener(event -> openPath(home));
-		exit.addActionListener(event -> exit());
-
-		JPanel text = new JPanel(new GridLayout(0, 1, 0, 6));
-		text.add(status);
-		text.add(detail);
-		text.add(new JLabel("数据目录：" + home));
-		JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-		buttons.add(openData);
-		buttons.add(openGallery);
-		buttons.add(exit);
-		JPanel content = new JPanel(new BorderLayout(0, 12));
-		content.setBorder(BorderFactory.createEmptyBorder(16, 16, 12, 16));
-		content.add(text, BorderLayout.CENTER);
-		content.add(buttons, BorderLayout.SOUTH);
-
-		frame.setContentPane(content);
-		frame.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
-		frame.addWindowListener(new WindowAdapter() {
-			@Override
-			public void windowClosing(WindowEvent event) {
-				exit();
+		while (!stopping) {
+			if (!display.readAndDispatch()) {
+				display.sleep();
 			}
-		});
-		frame.pack();
-		frame.setMinimumSize(frame.getSize());
-		frame.setLocationRelativeTo(null);
-		frame.setVisible(true);
+		}
+		shutDown();
 	}
 
 	private void startServer() {
@@ -124,24 +129,82 @@ public final class DesktopLauncher {
 				return;
 			}
 			running = started;
-			SwingUtilities.invokeLater(() -> {
-				status.setText("运行中：仅本机可访问");
-				detail.setText(started.baseUri().toString());
-				openGallery.setEnabled(true);
-			});
-			openGallery();
+			started.context().getBean(DesktopActivation.class).onShow(() -> display.asyncExec(this::activate));
+			rememberEntry(started);
+			display.asyncExec(() -> show(started));
 		} catch (RuntimeException exception) {
 			Throwable cause = exception;
 			while (cause.getCause() != null) {
 				cause = cause.getCause();
 			}
 			String message = cause.getMessage() == null ? cause.getClass().getName() : cause.getMessage();
-			SwingUtilities.invokeLater(() -> {
-				status.setText("启动失败");
-				detail.setText("详见日志：" + home.resolve("logs").resolve("desktop.log"));
-				JOptionPane.showMessageDialog(frame, "启动失败：\n" + message, "Illustration Archive",
-						JOptionPane.ERROR_MESSAGE);
-			});
+			display.asyncExec(() -> startFailed(message));
+		}
+	}
+
+	private void show(DesktopServer.Running started) {
+		if (window != null) {
+			DesktopSplash.status("正在打开窗口…");
+			window.load(started.sessionUri());
+			display.timerExec(REVEAL_ANYWAY_MILLIS, window::reveal);
+		} else {
+			controls.ready(started.baseUri().toString());
+			openInBrowser();
+		}
+	}
+
+	private void startFailed(String message) {
+		DesktopSplash.close();
+		showMessage(SWT.ICON_ERROR, "启动失败：\n" + message + "\n\n详见日志：" + home.resolve("logs").resolve("desktop.log"));
+		stop();
+	}
+
+	private void activate() {
+		if (window != null) {
+			window.activate();
+		} else {
+			controls.activate();
+		}
+	}
+
+	private void stop() {
+		stopping = true;
+		display.wake();
+	}
+
+	private void openInDefaultBrowser(URI address) {
+		DesktopServer.Running current = running;
+		if (current != null) {
+			// Off the UI thread: the page that asked is waiting on it, and the browser may take a while to start.
+			new Thread(() -> current.context().getBean(DesktopExternal.class).browse(address), "desktop-external").start();
+		}
+	}
+
+	/** The fallback for machines without WebView2: the old app window if a Chromium is installed, or any browser. */
+	private void openInBrowser() {
+		DesktopServer.Running current = running;
+		if (current == null) {
+			return;
+		}
+		Optional<BrowserWindow> browserWindow = BrowserWindow.find(home, System.getenv());
+		if (browserWindow.isPresent()) {
+			try {
+				browserWindow.get().open(current.sessionUri(), current.context().getBean(DesktopSettings.class).proxy());
+				return;
+			} catch (IOException exception) {
+				exception.printStackTrace();
+			}
+		}
+		openInDefaultBrowser(current.sessionUri());
+	}
+
+	private void rememberEntry(DesktopServer.Running started) {
+		try {
+			Files.createDirectories(entryFile(home).getParent());
+			Files.writeString(entryFile(home), started.sessionUri().toString());
+		} catch (IOException exception) {
+			// Only a second launch needs this, and it degrades to a message.
+			exception.printStackTrace();
 		}
 	}
 
@@ -153,68 +216,34 @@ public final class DesktopLauncher {
 		}
 	}
 
-	private void openGallery() {
-		DesktopServer.Running current = running;
-		if (current != null) {
-			browse(current.sessionUri());
-		}
-	}
-
-	private void exit() {
-		if (stopping) {
-			return;
-		}
-		stopping = true;
-		openGallery.setEnabled(false);
-		exit.setEnabled(false);
-		status.setText("正在停止…");
-		Thread stopper = new Thread(() -> {
-			int code = 0;
+	private void shutDown() {
+		int code = 0;
+		try {
+			display.dispose();
+			Files.deleteIfExists(entryFile(home));
+			DesktopServer.Running current = running;
+			if (current != null) {
+				current.context().close();
+			}
+		} catch (IOException | RuntimeException exception) {
+			code = 1;
+			exception.printStackTrace();
+		} finally {
 			try {
-				DesktopServer.Running current = running;
-				if (current != null) {
-					current.context().close();
-				}
-			} catch (RuntimeException exception) {
-				code = 1;
-				exception.printStackTrace();
-			} finally {
-				try {
-					instanceLock.release();
-					instanceLock.channel().close();
-				} catch (IOException ignored) {
-					// The OS releases the lock when the process exits anyway.
-				}
+				instanceLock.release();
+				instanceLock.channel().close();
+			} catch (IOException ignored) {
+				// The OS releases the lock when the process exits anyway.
 			}
-			System.exit(code);
-		}, "desktop-stop");
-		stopper.start();
-	}
-
-	private void browse(URI uri) {
-		try {
-			if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
-				Desktop.getDesktop().browse(uri);
-			} else {
-				new ProcessBuilder("rundll32", "url.dll,FileProtocolHandler", uri.toString()).start();
-			}
-		} catch (IOException exception) {
-			SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(frame,
-					"无法打开浏览器，请手动访问：\n" + uri,
-					"Illustration Archive", JOptionPane.WARNING_MESSAGE));
 		}
+		System.exit(code);
 	}
 
-	private void openPath(Path path) {
-		try {
-			Desktop.getDesktop().open(path.toFile());
-		} catch (IOException | UnsupportedOperationException exception) {
-			JOptionPane.showMessageDialog(frame, "无法打开文件夹：" + path, "Illustration Archive",
-					JOptionPane.WARNING_MESSAGE);
-		}
-	}
-
-	private static void showFatal(String message) {
-		JOptionPane.showMessageDialog(null, message, "Illustration Archive", JOptionPane.WARNING_MESSAGE);
+	private static void showMessage(int icon, String message) {
+		Display display = Display.getCurrent() == null ? new Display() : Display.getCurrent();
+		MessageBox box = new MessageBox(new Shell(display), icon | SWT.OK);
+		box.setText("插画档案");
+		box.setMessage(message);
+		box.open();
 	}
 }

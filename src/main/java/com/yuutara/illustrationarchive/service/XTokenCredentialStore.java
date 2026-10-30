@@ -28,7 +28,7 @@ public class XTokenCredentialStore {
 
 	Credentials load() {
 		if (!Files.exists(path)) {
-			throw new XApiException("X OAuth credentials are missing. Generate access and refresh tokens in X Developer Console and fill the local credential file.", null);
+			throw new XApiException("X OAuth credentials are missing. Connect an X account or fill the local credential file.", null);
 		}
 		Properties values = new Properties();
 		try (Reader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
@@ -53,7 +53,19 @@ public class XTokenCredentialStore {
 				throw new XApiException("X OAuth expires_at must be an ISO-8601 UTC instant or blank.", null);
 			}
 		}
-		return new Credentials(accessToken, refreshToken, expiresAt);
+		return new Credentials(accessToken, refreshToken, expiresAt, values.getProperty("client_id", "").trim());
+	}
+
+	boolean exists() {
+		return Files.exists(path);
+	}
+
+	void delete() {
+		try {
+			Files.deleteIfExists(path);
+		} catch (IOException e) {
+			throw new XApiException("Cannot remove the local X OAuth credential file.", null);
+		}
 	}
 
 	void save(Credentials credentials) {
@@ -67,6 +79,7 @@ public class XTokenCredentialStore {
 			values.setProperty("access_token", credentials.accessToken());
 			values.setProperty("refresh_token", credentials.refreshToken());
 			values.setProperty("expires_at", credentials.expiresAt() == null ? "" : credentials.expiresAt().toString());
+			if (!credentials.clientId().isBlank()) values.setProperty("client_id", credentials.clientId());
 			try (Writer writer = Files.newBufferedWriter(temporary, StandardCharsets.UTF_8)) {
 				values.store(writer, "X OAuth credentials - keep private");
 			}
@@ -103,6 +116,10 @@ public class XTokenCredentialStore {
 		return value.chars().anyMatch(Character::isWhitespace);
 	}
 
-	record Credentials(String accessToken, String refreshToken, Instant expiresAt) {
+	/** A non-blank clientId marks tokens from the PKCE public-client flow, which refresh without a secret. */
+	record Credentials(String accessToken, String refreshToken, Instant expiresAt, String clientId) {
+		Credentials(String accessToken, String refreshToken, Instant expiresAt) {
+			this(accessToken, refreshToken, expiresAt, "");
+		}
 	}
 }

@@ -11,7 +11,12 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.util.Iterator;
 import java.util.Locale;
 
 @Service
@@ -46,10 +51,44 @@ public class IllustrationImportService {
 			throw new FileStorageValidationException("Uploaded file must not exceed 50 MB.");
 		}
 		validateExtension(originalFilename);
+		requireReadableImage(file);
 		try {
 			return archiveStoredFile(fileStorageService.store(originalFilename, file.getInputStream()));
 		} catch (IOException exception) {
 			throw new FileStorageException("Failed to store uploaded file.", exception);
+		}
+	}
+
+	/**
+	 * The storage layer only compares the file signature with the extension, so a file holding nothing but a
+	 * "GIF89a" header would count as imported and then never display. Reading the image header is enough to
+	 * reject that without decoding every frame of a large GIF.
+	 */
+	private void requireReadableImage(MultipartFile file) {
+		try (InputStream input = file.getInputStream()) {
+			requireImageHeader(input);
+		} catch (IOException exception) {
+			throw new FileStorageException("Failed to store uploaded file.", exception);
+		}
+	}
+
+	private void requireImageHeader(InputStream input) {
+		try (ImageInputStream image = ImageIO.createImageInputStream(input)) {
+			Iterator<ImageReader> readers = image == null ? java.util.Collections.emptyIterator() : ImageIO.getImageReaders(image);
+			if (!readers.hasNext()) {
+				throw new FileStorageValidationException("Uploaded file is not a supported image format.");
+			}
+			ImageReader reader = readers.next();
+			try {
+				reader.setInput(image);
+				if (reader.getWidth(0) <= 0 || reader.getHeight(0) <= 0) {
+					throw new FileStorageValidationException("Uploaded file is not a supported image format.");
+				}
+			} finally {
+				reader.dispose();
+			}
+		} catch (IOException | IndexOutOfBoundsException | IllegalArgumentException unreadable) {
+			throw new FileStorageValidationException("Uploaded file is not a supported image format.");
 		}
 	}
 

@@ -194,7 +194,7 @@ test("multi-page works keep page order; GIF and video pages use their own source
     assert.equal(multi.pages[1].full, "/api/assets/12/content");
     const video = Archive.get(2).pages[0];
     assert.equal(video.video, true);
-    assert.equal(video.full, null);
+    assert.equal(video.full, "/api/assets/21/content", "the viewer plays the stored MP4");
     assert.match(video.src, /^data:image\/svg\+xml/);
 });
 
@@ -507,7 +507,8 @@ test("a failed save keeps the draft and the reason, and the same draft can be re
     assert.match(session.state.error, /已不存在/);
     env.responses[patchKey(5)] = new TypeError("offline");
     assert.equal(await session.save(), null);
-    assert.match(session.state.error, /无法连接/);
+    assert.match(session.state.error, /无法确认/, "the PATCH may have committed, so it must not claim nothing was saved");
+    assert.equal(session.state.unconfirmed, true);
 
     env.responses[patchKey(5)] = NO_CONTENT;
     assert.ok(await session.save());

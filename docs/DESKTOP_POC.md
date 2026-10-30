@@ -1,6 +1,6 @@
-# Windows 本地图库 PoC
+# Windows 桌面版
 
-> 状态：PoC 已实现并完成首轮验收（2026-10-26），2026-10-27 完成收尾加固。这是**探索原型**，不是已批准的 V0.6 阶段；正式安装器、自动更新、独立 WebView 窗口均不在范围内。
+> 从 PoC 演进而来（2026-10-26 首轮验收），2026-10-30 起是正式的产品方向，路线见 [DESKTOP_ROADMAP.md](DESKTOP_ROADMAP.md)。本文前半部分保留 PoC 阶段的记录；**X、AI、窗口、数据目录的现状以[第一轮](#桌面产品化第一轮2026-10-30)为准**。
 
 ## 目标与边界
 
@@ -11,9 +11,9 @@
 ## 架构
 
 ```
-IllustrationArchivePoC.exe (jpackage 启动器 + 自带 Java 17 运行时)
-  └─ Boot jar，-Dillustration-archive.desktop=true
-       └─ IllustrationArchiveApplication.main → DesktopLauncher（Swing 控制窗）
+IllustrationArchive.exe (jpackage 启动器 + 自带 Java 21 运行时)
+  └─ 解压后的应用 jar 与 lib\，-splash + -Dillustration-archive.desktop=true
+       └─ IllustrationArchiveApplication.main → DesktopLauncher（主线程跑 SWT 事件循环）
             ├─ instance.lock 单实例锁
             ├─ DesktopServer.start(home)  → Spring profile "desktop"
             │    ├─ 文件型 H2：<home>\data\archive.mv.db（MODE=MySQL, IGNORECASE）
@@ -21,13 +21,13 @@ IllustrationArchivePoC.exe (jpackage 启动器 + 自带 Java 17 运行时)
             │    ├─ 媒体：<home>\media（数据库仍只存相对 storage_key）
             │    ├─ Tomcat 只监听 127.0.0.1（默认 47391，被占用时随机端口）
             │    └─ LocalAccessFilter：启动令牌 → SameSite=Strict Cookie
-            └─ 系统默认浏览器打开 http://127.0.0.1:<port>/desktop/session?token=…
+            └─ DesktopWindow：SWT Shell + WebView2 打开 http://127.0.0.1:<port>/desktop/session?token=…
                  └─ 写入会话 Cookie 后跳转到新版 C 图库 /c/（2026-10-28 起；此前为旧图库 /）
 ```
 
-首次启动和控制窗“打开图库”都走这个会话入口，所以都默认进入 `/c/`；旧图库仍在 `/`，C 图库顶栏的“旧图库”可以进入，二者共用同一个会话与访问保护。普通 MySQL 运行方式不加载这个过滤器，不受影响。
+应用窗口和回退时的“打开图库”都走这个会话入口，所以都默认进入 `/c/`；旧图库仍在 `/`，C 图库顶栏的“旧图库”可以进入，二者共用同一个会话与访问保护。普通 MySQL 运行方式不加载这个过滤器，不受影响。
 
-`<home>` 默认 `%LOCALAPPDATA%\IllustrationArchivePoC`，可用环境变量 `ILLUSTRATION_ARCHIVE_DESKTOP_HOME` 或系统属性 `illustration-archive.desktop.home` 覆盖。日志在 `<home>\logs\desktop.log`。
+`<home>` 默认 `%LOCALAPPDATA%\IllustrationArchive`，可用环境变量 `ILLUSTRATION_ARCHIVE_DESKTOP_HOME` 或系统属性 `illustration-archive.desktop.home` 覆盖。日志在 `<home>\logs\desktop.log`。
 
 ### 关键设计
 
@@ -40,21 +40,23 @@ IllustrationArchivePoC.exe (jpackage 启动器 + 自带 Java 17 运行时)
   - 校验 Host 必须是 `127.0.0.1:<port>` / `localhost:<port>`，防 DNS rebinding；
   - 非安全方法若带 Origin 必须同源，防同机其他端口（浏览器视为同站）的写请求；
   - 上一次启动的 Cookie 在重启后失效。
-- **退出释放**：控制窗"退出"或关闭窗口 → `context.close()`：Tomcat 优雅停机（最长 15 秒，等待进行中的导入）→ Hikari 关闭连接池 → H2 在最后一个连接关闭时关库（`DB_CLOSE_ON_EXIT=FALSE`，不依赖 H2 自己的关闭钩子）→ 释放单实例锁 → `System.exit`。
+- **退出释放**：关闭窗口 → `context.close()`：Tomcat 优雅停机（最长 15 秒，等待进行中的导入）→ Hikari 关闭连接池 → H2 在最后一个连接关闭时关库（`DB_CLOSE_ON_EXIT=FALSE`，不依赖 H2 自己的关闭钩子）→ 释放单实例锁 → `System.exit`。
 - **事务与文件补偿**：沿用现有服务逻辑，未改动。H2 在另一事务持有同 SHA-256 未提交行时，会在唯一索引上等待并在对方提交后报重复键，行为与 MySQL InnoDB 一致（已由测试验证）。
 
 ## 构建与运行
 
 ```powershell
-.\scripts\build-desktop-poc.ps1 -JavaHome "$HOME\.jdks\ms-17.0.19" -MavenArgs '-Dmaven.repo.local=C:\Users\YuanYuChou\.m2\repository'
+.\scripts\build-desktop.ps1 -JavaHome "$HOME\.jdks\ms-21.0.11" -MavenArgs '-Dmaven.repo.local=C:\Users\YuanYuChou\.m2\repository'
 ```
 
 产物（`dist/` 已被 Git 忽略）：
 
-- `dist\IllustrationArchivePoC\IllustrationArchivePoC.exe`：双击运行；整个文件夹约 171 MB（Boot jar 42 MB，其余为 jlink 运行时）。
-- `dist\IllustrationArchivePoC-win64.zip`：约 85 MB，解压后即可运行，目标机无需安装 Java。
+- `dist\IllustrationArchive\IllustrationArchive.exe`：双击运行；整个文件夹约 195 MB（应用约 46 MB，其余为 jlink 运行时，含 `java.exe` 和 CDS 基础归档）。第一次退出时生成约 40 MB 的 `app\app.jsa`，之后启动更快。
+- `dist\IllustrationArchive-win64.zip`：约 93 MB，解压后即可运行，目标机无需安装 Java。
 
-脚本不执行 `mvn clean`（运行中的本地实例可能占用 `target\` 下的文件），只删除 `target\classes` 和旧 jar；测试需单独运行。
+脚本不执行 `mvn clean`（运行中的本地实例可能占用 `target\` 下的文件），只删除 `target\classes` 和旧 jar；测试需单独运行。`dist` 里的应用正在运行时，脚本会拒绝覆盖，可用 `-OutputDir` 输出到别的目录。
+
+图标与启动图的源文件在 `packaging\icon\`（`app-icon.svg`、`app-icon-small.svg`、`splash.html`），生成结果 `app.ico`、`splash*.png` 一并提交，正常构建不需要重新生成。改了源文件后运行 `node scripts\build-icons.mjs`（用本机 Edge 渲染，只读本地文件），并把 `app-icon.svg` 同步到 `src\main\resources\static\c\`。
 
 ## 自动化测试
 
@@ -154,7 +156,7 @@ Codex 只读 Review 指出两点，均只改 `DesktopServer` 的桌面启动参�
 .\mvnw.cmd '-Dmaven.repo.local=C:\Users\YuanYuChou\.m2\repository' '-Dtest=CGalleryAcceptanceServer' '-Dsurefire.failIfNoSpecifiedTests=false' '-DargLine=-Djava.io.tmpdir=D:\IdeaProjects\illustration-archive\target\test-temp -Djdk.net.unixdomain.tmpdir=D:\IdeaProjects\illustration-archive\target\test-temp -Dc.acceptance.home=D:\ClaudeProjects\2026-10-28\c-gallery-acceptance' test
 ```
 
-用真实桌面启动器体验同一份验收图库：`mvnw package -DskipTests` 后，设置 `ILLUSTRATION_ARCHIVE_DESKTOP_HOME` 指向该目录，再 `java -Dillustration-archive.desktop=true -jar target\illustration-archive-0.0.1-SNAPSHOT.jar`，在控制窗“打开图库”后直接进入新版图库（2026-10-28 前需从旧图库“操作”菜单进入）。
+用真实桌面启动器体验同一份验收图库：`mvnw package -DskipTests` 后，设置 `ILLUSTRATION_ARCHIVE_DESKTOP_HOME` 指向该目录，再 `java -Dillustration-archive.desktop=true -jar target\illustration-archive-0.0.1-SNAPSHOT.jar`。
 
 验证（2026-10-28）：全量 `mvnw test` 396 tests，0 failures / errors，4 skipped（同前），BUILD SUCCESS；`node --test` 145/145。ego 浏览器在隔离图库上实测：分页（30 → 55，无重复）、空图库、首屏与翻页请求失败后重试、缺失缩略图回退、GIF、2 / 3 / 4 页循环牌堆与从当前页进入看图器、原图替换与翻页、详情、禁用入口只提示不操作、只发 GET、重启后读取、浅 / 深色。ego 窗口不刷新画面，动画与手感仍需人工验收。
 
@@ -350,8 +352,122 @@ Codex 只读 Review 指出两点，均只改 `DesktopServer` 的桌面启动参�
 - **整理面板**（`c-batch.js`）：改动先写成草稿，看清再应用。已有标签显示件数（如 2/3），可以“补齐”或移除；没动的标签是中性色，要改的才是群青。失败时草稿保留。
 - **测试**：契约测试 14 项在 H2 和一次性 MySQL schema 上通过，覆盖重复执行与只影响所选作品。`DesktopServerIntegrationTest` 经真实 HTTP 与隔离 H2 校验访问保护、三态作者、404 / 400，并用 CHECK 约束让标签写入在作者更新之后失败，证明 Spring 事务确实回滚。JS 247 项。
 
+## 桌面产品化第一轮（2026-10-30）
+
+方案与取舍见 [DESKTOP_ROADMAP.md](DESKTOP_ROADMAP.md)，这里记录实现要点和验证。
+
+### 启动与退出
+
+- 第一轮的 Edge `--app` 启动、SSE 关窗判断已被下文的 [SWT + WebView2 窗口](#swt--webview2-窗口2026-10-31) 取代，Edge 只作回退。
+- 数据目录：新库用 `%LOCALAPPDATA%\IllustrationArchive`。已有 `IllustrationArchivePoC` 且新目录不存在时继续用旧目录，不移动任何文件。
+
+### X
+
+- 流程：设置页提交 Client ID → `XAuthorizationService` 绑定回调端口、生成 `state` 与 PKCE S256、用默认浏览器打开授权页 → 回调校验 `state` → `XTokenManager.connect` 换 token 并写入 `<home>\config\x-oauth-tokens.properties`。
+- 伪造或无关的回调返回 400，不结束正在进行的登录。五分钟超时、取消、端口被占用、用户拒绝、X 拒绝、网络失败都有各自的说明。
+- 公开客户端刷新：凭据文件带 `client_id` 时，刷新只发 `client_id`、不带 Authorization 头。文件里没有 `client_id` 时走原来的机密客户端逻辑，MySQL 方式不变。
+- 断开：先删本机 token，再通知 X 撤销；通知失败时如实提示，可到 X 的“已连接的应用”撤销。
+- `x.api.base-url` 由 `DesktopServer` 固定为官方地址，环境变量改不了；测试经 `start(..., overrides)` 指向假 X。token 地址由它派生。
+- 代理：启动器设 `java.net.useSystemProxies=true`，`DesktopProxySelector` 在其上叠加设置页的手动代理，改动立即生效（JDK HttpClient 只在创建时读一次默认选择器，所以选择器本身是可变的）。回环地址永不走代理。
+
+### MySQL 数据迁移（2026-10-30）
+
+设计见 [路线文档](DESKTOP_ROADMAP.md#数据迁移只读旧库写新目录)。用包内运行时执行，在仓库根目录：
+
+```powershell
+# 试跑：内存数据库 + 只读媒体，一个文件都不写
+& dist\IllustrationArchive\runtime\bin\java.exe -jar dist\IllustrationArchive\app\illustration-archive-0.0.1-SNAPSHOT.jar --migrate-from-mysql --config=config\application-local.properties
+```
+
+```powershell
+# 真正复制到 %LOCALAPPDATA%\IllustrationArchive（已存在且非空时拒绝）
+& dist\IllustrationArchive\runtime\bin\java.exe -jar dist\IllustrationArchive\app\illustration-archive-0.0.1-SNAPSHOT.jar --migrate-from-mysql --config=config\application-local.properties --execute
+```
+
+退出码：0 成功，2 有媒体问题（用 `--allow-problems` 才会继续），1 失败。`--target=<目录>` 可换目标。密码不会打印。
+
+**要在普通终端里运行，不要从 Claude 桌面版里运行。** Claude 桌面版是 MSIX 应用，它启动的进程写 `%LOCALAPPDATA%` 时会被重定向到 `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Local\`，这个进程自己看得到，从资源管理器启动的应用看不到。
+
+### 新界面
+
+- 外壳：`shell.js` 控制导航和待处理数量；原 MySQL 方式没有桌面接口，仍显示“旧图库”。带 `data-external` 的链接交给默认浏览器（应用窗口的配置里没有登录 X），`POST /api/desktop/open-external` 只放行 X 与 AI Studio 的 HTTPS 地址。
+- X 收藏：选中后批量归档 / 跳过，或打开预览按 A / S 逐件处理；归档失败留在这一件并显示原因。**一次请求只归档一帖**，进度真实；断线时这一件标为无法确认，后面的不再发送。第一次同步前说明费用。
+- 设置：X 账号、AI、网络、数据。API Key 只写不读。
+- AI 分区在看图器信息栏，点击才上传，结果只在本次运行期间按作品记住。
+- MP4：看图器用原生播放器，作品墙用静音 `<video>` 显示首帧。视频页的比例是占位的 4:5。
+
+### 验证
+
+| 范围 | 结果 |
+| --- | --- |
+| `DesktopXIntegrationTest` | 10/10。真实 Spring、Tomcat、文件 H2 + 本地假 X：连接不触发读取、同步幂等、Unsupported、跳过、归档事务；过期 token 无 Secret 刷新与轮换持久化；伪造 `state`、拒绝授权；断开时 X 不可达；429；Gemini 密钥即时生效且不回传；代理校验与回环；外部链接白名单；换页不退出、关页退出；事件流不拖慢停机；无会话与跨源 403 |
+| `LegacyMigrationTest` | 7/7。ID、时间、BINARY、布尔、媒体；试跑不写文件；拒绝已有目录；哈希不符与缺失；路径穿越；版本不一致；不打印密码 |
+| 一次性 MySQL schema | `LegacyMigrationMySqlTest` 1/1、`XLikeSyncMigrationMySqlTest` 1/1、`IllustrationGalleryReadMySqlTest` 14/14，无残留 schema |
+| 全量 | `mvnw test` 459 tests，0 failures / errors，3 skipped；JS 256/256 |
+| Edge 实测 | Edge 156：启动进程立刻退出，真实关窗（WM_CLOSE）2 秒内配置目录下进程清零 |
+| ego-browser 自查 | 隔离 H2 + `-Dc.acceptance.inbox=14`：导航、X 收藏、预览、跳过、归档失败、批量条、授权等待与取消、无密钥提示、新建标签入口。不是完整验收 |
+| 打包 | 只检查包内容：新类与页面在 JAR 内，运行时含 `jdk.httpserver`。**未启动** |
+| 真实 MySQL 试跑（用户批准，2026-10-30） | 用包内 JAR 运行，4 秒，退出码 0，无问题项。全部行写入内存 H2：作者 18、标签 10、作品 31、资源 36、作品标签 31、X 条目 425、X 媒体 490、同步状态 2、已见游标 65。36 个原图（73.1 MB）全部有 SHA-256 记录且核对一致；磁盘上另有 32 张缩略图，正好对应 32 张 JPEG / PNG，没有未被引用的文件。前后媒体文件数与总字节不变，没有创建 `%LOCALAPPDATA%\IllustrationArchive`。这次只是试跑 |
+| 真实 MySQL 复制（用户批准，2026-10-30） | `--execute` 写入 `%LOCALAPPDATA%\IllustrationArchive`，3 秒，退出码 0。另用独立的只读程序核对：9 张表逐行比较全部字段（含时间到毫秒、BINARY、布尔），都与 MySQL 完全一致；68 个文件（36 个原图 + 32 张缩略图，82,176,624 字节）逐个 SHA-256 一致。源媒体文件数与总字节不变。新目录没有 `config`，X 需要重新授权。这是当时的快照。**当时从 Claude 桌面版内运行，结果落在了 MSIX 私有目录**，用户的 EXE 看不到，回退到了 PoC 目录；随后经 `explorer.exe` 在容器外复制到真实的 `%USERPROFILE%\AppData\Local\IllustrationArchive`，69 个文件（媒体 + 数据库）SHA-256 全部一致。私有目录里的副本保留未删 |
+
+用户验收（2026-10-30）：从资源管理器双击新包，独立窗口、导航、真实图库 31 件、X 收藏 384 件待整理都正常显示。
+
+未验证：真实 X、真实 Gemini、完整启动器的其余路径（窗口、关窗退出、再次双击、20 秒回退）、代理实际连通、物理拖放、MP4 实际播放。
+
+## X 收藏修复与启动图（2026-10-30）
+
+- 启动：jpackage 加 `--icon` 和 `-splash:$APPDIR/splash.png`，启动图由 java 启动器在加载类之前显示，`DesktopSplash` 只写真实阶段。
+- 静态资源：桌面模式 `Cache-Control: no-cache`。窗口配置跨版本保留，否则新 EXE 可能继续用旧脚本和页面。
+- 页面：`no-referrer`、`small` / `large` 图片尺寸、读不到时的占位与重试、按 ID 复用卡片、预载下一件，设计见 [路线文档](DESKTOP_ROADMAP.md#x-图片cdn-不接受本机-referer)。
+
+| 范围 | 结果 |
+| --- | --- |
+| 接口（隔离 H2，真实 384 条） | `inbox?page=0&size=40` P50 3.9 ms、P95 5.8 ms，响应 17 KB。后端不是瓶颈 |
+| 第 1 页图片（CDN） | 总量 7.2 MB → 2.8 MB；解码 39.8 MPx → 13.1 MPx |
+| 干净配置的 Edge | 旧页面 0/39 张加载（`ERR_BLOCKED_BY_ORB`）；新页面首屏范围内 29 张全部加载，其余待滚动懒加载 |
+| 逐件跳过 | 卡片 `<img>` 保留 0/39 → 35/39（其余 4 件已跳过），下一件 21–26 ms 出现 |
+| 真实窗口滚动 | Edge `--app` 180 fps，P50 5.6 ms，最差 11 ms。ego 里约 1000 ms 的帧在无图时也出现，是工具噪声 |
+| 读不到的图 | 第 1–3 页 3 张 404、另 1 张 403，GET 与 `<img>` 结论一致，页面显示占位。结论只到“CDN 对匿名请求不可用” |
+| 打包（隔离 home） | 图标、启动图、再次双击 0.7 s 交回运行中的实例、关窗 14 s 退出、无残留 |
+| 测试 | Java 定向 18/18（含 `DesktopServerIntegrationTest` 14/14）；JS 259/259。未跑全量 `mvnw test` |
+
+用户验收（2026-10-30，round2）：X 收藏能正常加载大量图片，翻页和浏览正常，GIF 能打开播放；仍读不到的媒体对应 X 上已删除、隐藏的帖子或被冻结的账号。
+
+## SWT + WebView2 窗口（2026-10-31）
+
+### 实现要点
+
+- **启动**：`DesktopLauncher` 的主线程跑 SWT 事件循环。`DesktopWindow` 先以全透明打开 Shell 并创建 WebView2，服务就绪后加载会话地址，首个页面加载完才显现（15 秒兜底），这样没有白屏闪烁；这段时间由 `-splash` 启动图覆盖。
+- **关闭**：`SWT.Close` 保存窗口状态，事件循环结束后关闭 Spring 上下文、释放单实例锁、`System.exit`。
+- **窗口状态**：`config\window.properties` 保存位置、大小、最大化和主题；保存的位置已不在任何显示器上时回到主显示器。主题由页面告知，所以下次启动在页面出现前就能用对标题栏颜色。
+- **页面桥**：`BrowserFunction` 注入 `window.iaDesktop(action, value)`，目前只有 `theme` 和 `open`。`LinkPolicy` 让窗口只显示应用自己的页面：外部 http(s) 交给默认浏览器，其他（例如文件拖到空白处产生的 `file:`）直接拦下。
+- **页面行为**（`shell.js`，仅在有 `iaDesktop` 时生效）：外部链接交给默认浏览器；拦下刷新、查找、打印、开发者工具等快捷键，保留 Ctrl+A / C / V / X / Z；输入框和选中文字保留右键菜单，其他地方不显示。“在新标签页打开原图”在窗口里隐藏，因为窗口没有标签页。
+- **再次双击**：`instance.lock` 被占用时，用 `<home>\window\entry.txt` 里的令牌 `POST /api/desktop/show`，运行中的实例把窗口带到前台。请求明确不走代理。还在启动中时不做任何事，窗口会自己出现。
+- **代理**：不传任何参数时 WebView2 继承 Windows 代理设置。设置里填了手动代理时，启动前经 `EdgeArgs` 传入，改动在下次打开应用时生效。
+- **回退**：`new Browser(SWT.EDGE)` 失败时，用 `DesktopControls`（SWT 小窗）加 `BrowserWindow`（Edge / Chrome `--app`）或默认浏览器。
+- **运行时**：`jlink` 自建（含 `java.exe` 和 CDS 基础归档，去掉 JDK 开发工具模块），再用 jpackage `--runtime-image` 打包。`jdeps` 列出的 `jdk.attach`、`jdk.jdi`、`jdk.jfr` 来自可选诊断路径，未打入。
+
+### 验证
+
+全部在隔离图库（真实 MySQL 只读复制）和干净的 WebView2 配置上进行，经调试端口读取页面状态，未操作键鼠。全程系统代理开启且设置未变，未打开 x.com，未调用 X API 或 Gemini。
+
+| 范围 | 结果 |
+| --- | --- |
+| 全量 | `mvnw test`（JDK 21）462 tests，0 failures / errors，19 skipped（未配置的 MySQL 可选测试与 LocalStack）；JS 264/264 |
+| 启动到页面就绪 | 3.0–3.4 s（原位、整体移动、zip 解压三种情况；之前约 8 s） |
+| X 收藏 | 39 张里 37 张加载，2 张显示占位、重试和打开原帖；MP4 `readyState 4`；滚动 180 fps，P50 5.6 ms |
+| 代理 | WebView2 的连接只有系统代理和本机回环地址；`127.0.0.1` 主服务直连 |
+| 内存（工作集） | JVM 约 297 MB + WebView2 约 423 MB，6 个进程 |
+| 其他 | 深色标题栏生效；数据文件夹能打开（AWT `Desktop` 与 SWT 同进程）；再次双击 0.6 s 交回运行中的实例；关窗后约 2 s 退出，无残留进程，H2 锁与 `entry.txt` 已清理 |
+| 打包 | 文件夹 252 MB，zip 109 MB，`runtime\bin\java.exe` 可运行迁移工具 |
+
+未验证：真实图库目录下的完整路径、物理拖放、文件选择框、右键与快捷键的实际手感、窗口位置恢复、缺少 WebView2 的回退、启动失败提示、真实 X 登录与同步、真实 Gemini。
+
 ## 已知问题与后续候选
 
 - Flyway 12.4 提示 H2 2.4.240 高于其验证版本，当前功能未受影响。
-- 体积：运行时使用 jpackage 默认模块集；可用 `--add-modules` 精简，或移除桌面模式用不到的 AWS SDK 依赖。
-- 未覆盖：正式安装器 / 签名、自动更新、独立 WebView 窗口、与 MySQL 数据之间的迁移工具、大图库下的 H2 性能。
+- 体积：CDS 归档约占 56 MB；可移除桌面模式用不到的 AWS SDK 依赖。
+- 未覆盖：正式安装器 / 签名、自动更新、大图库下的 H2 性能。
+- 导入校验只读图片头：文件头完好但内容截断的图片仍会通过。
+- 手动代理改动后，X 收藏里的图片要重新打开应用才走新代理（图片由浏览器窗口直接加载）。
+- 回调端口 47392 被占用时无法授权，页面会说明；没有备用端口，因为每多一个都要用户多登记一个回调地址。

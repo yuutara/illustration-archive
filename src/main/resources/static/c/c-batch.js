@@ -54,7 +54,7 @@
             else unset++;
         });
         if (!seen.size) return '目前都没有作者';
-        if (seen.size === 1 && !unset) return `目前都是 ${F.nameOf('author', [...seen][0])}`;
+        if (seen.size === 1 && !unset) return `目前都是 ${A.authorName(A.get(s.ids[0]))}`;
         return `目前有 ${seen.size} 位作者${unset ? `，${unset} 件没有作者` : ''}`;
     }
 
@@ -185,6 +185,17 @@
         authorButton.focus();
     }
 
+    // Esc、点背景可能是误触：有草稿时先提示一次，再来一次才放弃。“取消”和关闭按钮是明确的选择，直接关闭
+    function requestClose() {
+        if (s && !s.saving && hasChanges() && !s.leaveArmed) {
+            s.leaveArmed = true;
+            s.error = '这些改动还没有应用。再按一次 Esc 放弃，或点“应用”。';
+            render();
+            return;
+        }
+        close();
+    }
+
     function close({ restoreFocus = true } = {}) {
         if (!s || s.saving) return false;
         F.closePicker();
@@ -225,7 +236,8 @@
             anchor: authorButton,
             single: true,
             title: '选择作者',
-            hint: '所选作品都会改成这位作者；新建作者请到旧图库',
+            hint: '所选作品都会改成这位作者；输入名字可以新建',
+            create: true,
             selected: () => (s.author && s.author.id != null ? [s.author.id] : []),
             onToggle: (id) => { s.author = { id }; render(); }
         });
@@ -240,7 +252,8 @@
         F.openPicker('tag', {
             anchor: addTag,
             title: '添加标签',
-            hint: '勾选的标签会加到所选作品上；新建标签请到旧图库',
+            hint: '勾选的标签会加到所选作品上；输入名字可以新建',
+            create: true,
             selected: () => {
                 const on = new Set(s.add);
                 (s.counts || []).forEach((t) => { if (t.count === s.ids.length && !s.remove.has(t.id)) on.add(t.id); });
@@ -258,7 +271,7 @@
     applyButton.addEventListener('click', apply);
     $('batch-cancel').addEventListener('click', () => close());
     $('batch-close').addEventListener('click', () => close());
-    sheet.addEventListener('mousedown', (e) => { if (e.target === sheet) close(); });
+    sheet.addEventListener('mousedown', (e) => { if (e.target === sheet) requestClose(); });
 
-    window.CBatch = { open, close, isOpen: () => !!s };
+    window.CBatch = { open, close, requestClose, isOpen: () => !!s };
 })();

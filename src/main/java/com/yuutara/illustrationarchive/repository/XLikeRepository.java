@@ -8,10 +8,10 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.stereotype.Repository;
 
-import java.sql.Statement;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 @Repository
@@ -19,10 +19,12 @@ public class XLikeRepository {
 	public record ImportItem(long id, String xPostId, String xAuthorId,
 			String authorUsername, String authorDisplayName, XLikeStatus status) {
 	}
+	// Name the key column: H2 also returns defaulted columns (likes_order) for RETURN_GENERATED_KEYS.
+	private static final String[] GENERATED_ID = {"id"};
 	private static final String INSERT = """
 			INSERT INTO x_like_item (x_post_id, x_author_id, author_username,
 			    author_display_name, post_text, post_created_at, status, discovered_at, updated_at, likes_order)
-			VALUES (?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(3), UTC_TIMESTAMP(3), ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			""";
 	private static final String FIND_PENDING_PAGE = """
 			SELECT id, x_post_id, author_display_name, author_username, post_text, post_created_at, discovered_at
@@ -38,6 +40,11 @@ public class XLikeRepository {
 		this.jdbcTemplate = jdbcTemplate;
 	}
 
+	/** Passed in rather than calling UTC_TIMESTAMP(3), which only MySQL has; these columns hold UTC on both. */
+	private static LocalDateTime utcNow() {
+		return LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
+	}
+
 	/** The unique x_post_id key is the concurrency-safe source identity boundary. */
 	public Long insertIfAbsent(XLikeCandidate candidate) {
 		return insertIfAbsent(candidate, 0);
@@ -47,7 +54,7 @@ public class XLikeRepository {
 		GeneratedKeyHolder keys = new GeneratedKeyHolder();
 		try {
 			jdbcTemplate.update(connection -> {
-				var statement = connection.prepareStatement(INSERT, Statement.RETURN_GENERATED_KEYS);
+				var statement = connection.prepareStatement(INSERT, GENERATED_ID);
 				statement.setString(1, candidate.xPostId());
 				statement.setString(2, candidate.xAuthorId());
 				statement.setString(3, candidate.authorUsername());
@@ -56,7 +63,10 @@ public class XLikeRepository {
 				statement.setObject(6, candidate.postCreatedAt() == null ? null
 						: LocalDateTime.ofInstant(candidate.postCreatedAt(), ZoneOffset.UTC));
 				statement.setString(7, candidate.status().name());
-				statement.setLong(8, likesOrder);
+				LocalDateTime now = utcNow();
+				statement.setObject(8, now);
+				statement.setObject(9, now);
+				statement.setLong(10, likesOrder);
 				return statement;
 			}, keys);
 		} catch (DuplicateKeyException e) {
@@ -109,17 +119,17 @@ public class XLikeRepository {
 	public int skipIfPending(long itemId) {
 		return jdbcTemplate.update("""
 				UPDATE x_like_item
-				SET status = 'SKIPPED', updated_at = UTC_TIMESTAMP(3)
+				SET status = 'SKIPPED', updated_at = ?
 				WHERE id = ? AND status = 'PENDING'
-				""", itemId);
+				""", utcNow(), itemId);
 	}
 
 	/** Conditional update holds the row lock until the page transaction also refreshes media. */
 	public Long reopenUnsupported(String postId) {
 		int changed = jdbcTemplate.update("""
-				UPDATE x_like_item SET status = 'PENDING', updated_at = UTC_TIMESTAMP(3)
+				UPDATE x_like_item SET status = 'PENDING', updated_at = ?
 				WHERE x_post_id = ? AND status = 'UNSUPPORTED'
-				""", postId);
+				""", utcNow(), postId);
 		if (changed == 0) return null;
 		return jdbcTemplate.queryForObject("SELECT id FROM x_like_item WHERE x_post_id = ?", Long.class, postId);
 	}
@@ -136,8 +146,8 @@ public class XLikeRepository {
 	public void markImported(long itemId, long illustrationId) {
 		int changed = jdbcTemplate.update("""
 				UPDATE x_like_item SET status = 'IMPORTED', imported_illustration_id = ?,
-				updated_at = UTC_TIMESTAMP(3) WHERE id = ? AND status = 'PENDING'
-				""", illustrationId, itemId);
+				updated_at = ? WHERE id = ? AND status = 'PENDING'
+				""", illustrationId, utcNow(), itemId);
 		if (changed != 1) {
 			throw new IllegalStateException("X Like item is no longer pending.");
 		}

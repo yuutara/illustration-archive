@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-CN" data-look="quiet" data-mode="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="darkreader-lock">
+    <meta name="color-scheme" content="light dark">
+    <title>设置 · 插画档案</title>
+    <link rel="icon" type="image/svg+xml" href="app-icon.svg">
+    <link rel="stylesheet" href="gallery.css">
+    <link rel="stylesheet" href="theme-quiet.css">
+    <link rel="stylesheet" href="c.css">
+    <link rel="stylesheet" href="app.css">
+    <script src="theme-mode.js"></script>
+    <script src="/ui-capabilities.js"></script>
+    <script src="shell.js" defer></script>
+    <script src="c-x-model.js" defer></script>
+    <script src="c-settings.js" defer></script>
+</head>
+<body>
+<header class="masthead masthead-page">
+    <div class="mast-start">
+        <a class="wordmark" href="/c/">插画档案</a>
+        <nav class="mast-nav" aria-label="主导航" hidden>
+            <a href="/c/">图库</a>
+            <a href="/c/x.html">X 收藏<sup id="nav-inbox"></sup></a>
+            <a href="/c/settings.html" aria-current="page">设置</a>
+        </nav>
+    </div>
+    <div class="mast-actions">
+        <button class="icon-btn theme-toggle" id="theme-toggle" type="button" aria-pressed="false" aria-label="切换浅色 / 深色">
+            <svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg>
+        </button>
+    </div>
+</header>
+
+<main class="app-page settings">
+    <header class="app-head"><div><h1>设置</h1></div></header>
+
+    <section class="set-section" id="x">
+        <h2>X 账号</h2>
+        <div id="x-state"></div>
+        <div class="set-setup" id="x-setup">
+            <p>X 的接口按量计费，费用记在发起请求的开发者账号上，所以这里连接你自己的 X 开发者应用。只需要设置一次：</p>
+            <ol>
+                <li>打开 <a data-external href="https://console.x.com/" target="_blank" rel="noreferrer">X 开发者控制台</a>，新建一个应用，类型选 <b>Native App</b>。</li>
+                <li>回调地址（Callback URL）填：<code id="x-callback"></code> <button class="link" id="x-copy-callback" type="button">复制</button></li>
+                <li>建议在控制台设置每月花费上限，再充值少量额度。</li>
+                <li>把应用的 <b>Client ID</b> 粘贴到下面。它不是密码，这里也不需要 Client Secret。</li>
+            </ol>
+            <label class="set-field">
+                <span>Client ID</span>
+                <input id="x-client-id" type="text" autocomplete="off" spellcheck="false" maxlength="128">
+            </label>
+        </div>
+        <p class="set-error" id="x-error" role="alert" hidden></p>
+        <div class="set-actions" id="x-actions"></div>
+        <p class="set-note">授权在你的默认浏览器中进行，应用不会看到你的 X 密码。连接本身不产生费用；只有在“X 收藏”里点同步时才会读取并计费。</p>
+    </section>
+
+    <section class="set-section" id="ai">
+        <h2>AI 分析</h2>
+        <p id="ai-state"></p>
+        <label class="set-field">
+            <span>Gemini API Key</span>
+            <input id="ai-key" type="password" autocomplete="off" spellcheck="false" maxlength="512" placeholder="粘贴后保存">
+        </label>
+        <p class="set-error" id="ai-error" role="alert" hidden></p>
+        <div class="set-actions">
+            <button class="btn btn-ink" id="ai-save" type="button">保存</button>
+            <button class="btn" id="ai-clear" type="button" hidden>移除</button>
+            <a class="link" data-external href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">获取 API Key</a>
+        </div>
+        <p class="set-note">分析时图片会发送给 Google。使用免费额度时，Google 可能用这些内容改进产品，也可能由人工审核，请不要分析隐私或敏感图片。Gemini API 只在部分地区提供，中国大陆、香港和澳门不在官方支持列表内。</p>
+    </section>
+
+    <section class="set-section" id="network">
+        <h2>网络</h2>
+        <label class="set-field">
+            <span>代理地址</span>
+            <input id="proxy" type="text" autocomplete="off" spellcheck="false" maxlength="128" placeholder="留空则跟随 Windows 代理设置，例如 127.0.0.1:7890">
+        </label>
+        <p class="set-error" id="proxy-error" role="alert" hidden></p>
+        <div class="set-actions">
+            <button class="btn" id="proxy-save" type="button">保存</button>
+        </div>
+        <p class="set-note">连接 X 和 Gemini 时使用。留空时跟随 Windows 代理设置，应用不会更改系统代理。修改后，X 收藏里的图片需要重新打开应用才会走新的代理。</p>
+    </section>
+
+    <section class="set-section" id="data">
+        <h2>数据</h2>
+        <p class="set-path" id="data-dir"></p>
+        <div class="set-actions">
+            <button class="btn" id="data-open" type="button">打开数据文件夹</button>
+        </div>
+        <p class="set-note">作品、数据库和设置都在这个文件夹里，程序本身不含你的数据。<b>备份</b>：关闭应用后复制整个文件夹。<b>恢复</b>：关闭应用，把备份放回原位。删除程序不会删除图库。<code>config</code> 里有你的 X 登录凭据和 API Key，分享备份前请先删除这个子文件夹。</p>
+    </section>
+
+    <section class="set-section">
+        <h2>关于</h2>
+        <p>版本 <span id="version"></span></p>
+        <div class="set-actions">
+            <a class="link" href="/">打开旧版界面</a>
+        </div>
+    </section>
+</main>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+        <symbol id="i-moon" viewBox="0 0 24 24"><path d="M19.5 14.5A7.5 7.5 0 0 1 9.5 4.5a7.5 7.5 0 1 0 10 10Z"/></symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4"/></symbol>
+    </defs>
+</svg>
+</body>
+</html>

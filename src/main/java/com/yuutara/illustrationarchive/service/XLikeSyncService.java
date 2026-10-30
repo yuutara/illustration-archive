@@ -9,6 +9,8 @@ import com.yuutara.illustrationarchive.dto.XLikeSyncReport;
 import com.yuutara.illustrationarchive.repository.XLikeMediaRepository;
 import com.yuutara.illustrationarchive.repository.XLikeRepository;
 import com.yuutara.illustrationarchive.repository.XLikeSyncStateRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +25,7 @@ import java.util.Set;
 
 @Service
 public class XLikeSyncService {
+	private static final Logger log = LoggerFactory.getLogger(XLikeSyncService.class);
 	private final XApiClient client;
 	private final XLikePersistenceService persistence;
 	private final XLikeRepository items;
@@ -66,6 +69,7 @@ public class XLikeSyncService {
 			recent.reason = "API_FAILURE"; recent.partial = true; recent.scanKnown = false;
 			recent.upstreamStatus = failure.upstreamStatus(); history.reason = "SKIPPED_AFTER_FAILURE";
 		} catch (RuntimeException failure) {
+			log.warn("X Likes sync state could not be read or saved.", failure);
 			history.reason = "STATE_FAILURE"; history.partial = true;
 		}
 		var progress = progress();
@@ -131,6 +135,7 @@ public class XLikeSyncService {
 			Scan tail = scan(userId, current.maxResults(), current.nextToken(), budget.recentMaxPages(), false, usage, true, current);
 			total.add(tail);
 		} catch (RuntimeException failure) {
+			log.warn("X Likes recent checkpoint could not be read or saved.", failure);
 			total.reason = "STATE_FAILURE"; total.partial = true; total.hasMore = true;
 		} finally {
 			total.requested = usage.pages - initialPages; total.reserved = usage.reserved - initialReserved;
@@ -316,6 +321,7 @@ public class XLikeSyncService {
 						: persistence.saveRecentPage(page, checkpoint, nextCheckpoint, orderedPosts); }
 				catch (RuntimeException failure) {
 					if (!reportFailures) throw failure;
+					log.warn("X Likes page could not be saved.", failure);
 					result.reason = "SAVE_FAILURE";
 					result.partial = true;
 					break;

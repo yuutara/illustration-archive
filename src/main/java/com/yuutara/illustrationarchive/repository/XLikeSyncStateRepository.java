@@ -7,6 +7,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 import java.util.List;
 import tools.jackson.databind.ObjectMapper;
@@ -41,19 +44,19 @@ public class XLikeSyncStateRepository {
 		jdbcTemplate.update("INSERT INTO x_like_sync_seen_token (token_sha256) VALUES (?)", hash(nextToken));
 		jdbcTemplate.update("""
 				INSERT INTO x_like_sync_state (id, next_token, max_results, status, updated_at)
-				VALUES (1, ?, ?, 'ACTIVE', UTC_TIMESTAMP(3))
+				VALUES (1, ?, ?, 'ACTIVE', ?)
 				ON DUPLICATE KEY UPDATE next_token = VALUES(next_token),
-				    max_results = VALUES(max_results), status = 'ACTIVE', updated_at = UTC_TIMESTAMP(3)
-				""", nextToken, maxResults);
+				    max_results = VALUES(max_results), status = 'ACTIVE', updated_at = VALUES(updated_at)
+				""", nextToken, maxResults, utcNow());
 	}
 
 	public void markInvalid(int maxResults) {
 		jdbcTemplate.update("""
 				INSERT INTO x_like_sync_state (id, next_token, max_results, status, updated_at)
-				VALUES (1, NULL, ?, 'INVALID', UTC_TIMESTAMP(3))
+				VALUES (1, NULL, ?, 'INVALID', ?)
 				ON DUPLICATE KEY UPDATE next_token = NULL,
-				    max_results = VALUES(max_results), status = 'INVALID', updated_at = UTC_TIMESTAMP(3)
-				""", maxResults);
+				    max_results = VALUES(max_results), status = 'INVALID', updated_at = VALUES(updated_at)
+				""", maxResults, utcNow());
 	}
 
 	/** Remember a completed history scan so subsequent clicks do not pay to rescan it. */
@@ -61,10 +64,10 @@ public class XLikeSyncStateRepository {
 	public void markComplete(int maxResults) {
 		jdbcTemplate.update("""
 				INSERT INTO x_like_sync_state (id, next_token, max_results, status, updated_at)
-				VALUES (1, NULL, ?, 'COMPLETE', UTC_TIMESTAMP(3))
+				VALUES (1, NULL, ?, 'COMPLETE', ?)
 				ON DUPLICATE KEY UPDATE next_token = NULL, max_results = VALUES(max_results),
-				    status = 'COMPLETE', updated_at = UTC_TIMESTAMP(3)
-				""", maxResults);
+				    status = 'COMPLETE', updated_at = VALUES(updated_at)
+				""", maxResults, utcNow());
 		jdbcTemplate.update("DELETE FROM x_like_sync_seen_token WHERE sync_id = 1");
 	}
 
@@ -100,12 +103,12 @@ public class XLikeSyncStateRepository {
 		jdbcTemplate.update("""
 				INSERT INTO x_like_sync_state (id,next_token,max_results,status,updated_at,anchor_ids,head_ids,
 				    matched_count,order_next,order_floor,coverage_to_end)
-				VALUES (2,?,?,?,UTC_TIMESTAMP(3),?,?,?,?,?,?)
+				VALUES (2,?,?,?,?,?,?,?,?,?,?)
 				ON DUPLICATE KEY UPDATE next_token=VALUES(next_token),max_results=VALUES(max_results),
 				    status=VALUES(status),updated_at=VALUES(updated_at),anchor_ids=VALUES(anchor_ids),head_ids=VALUES(head_ids),
 				    matched_count=VALUES(matched_count),order_next=VALUES(order_next),order_floor=VALUES(order_floor),
 				    coverage_to_end=VALUES(coverage_to_end)
-				""", state.nextToken(), state.maxResults(), state.status(), json(state.anchorIds()), json(state.headIds()),
+				""", state.nextToken(), state.maxResults(), state.status(), utcNow(), json(state.anchorIds()), json(state.headIds()),
 				state.matched(), state.orderNext(), state.orderFloor(), state.coverageToEnd());
 		if (state.nextToken() != null && "ACTIVE".equals(state.status())) {
 			jdbcTemplate.update("INSERT IGNORE INTO x_like_sync_seen_token (sync_id,token_sha256) VALUES (2,?)", hash(state.nextToken()));
@@ -116,6 +119,11 @@ public class XLikeSyncStateRepository {
 	public void restartRecent(RecentState state) {
 		jdbcTemplate.update("DELETE FROM x_like_sync_seen_token WHERE sync_id=2");
 		saveRecent(state);
+	}
+
+	/** Passed in rather than calling UTC_TIMESTAMP(3), which only MySQL has; updated_at holds UTC on both. */
+	private static LocalDateTime utcNow() {
+		return LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
 	}
 
 	private static List<String> ids(String json) { return json == null ? null : List.of(JSON.readValue(json, String[].class)); }

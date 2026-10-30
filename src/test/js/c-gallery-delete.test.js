@@ -106,7 +106,7 @@ class FakeImage {
 
 const STATIC_IDS = ["masthead", "wall", "wall-status", "wall-status-text", "wall-retry", "wall-more", "empty", "empty-import",
     "no-match", "no-match-title", "no-match-text", "no-match-clear", "count-all", "q", "toast", "theme-toggle", "help-open", "shortcuts", "shortcuts-close",
-    "viewer", "sv-canvas", "sv-img", "sv-notice", "sv-prev", "sv-next", "sv-back", "sv-zoom", "sv-info-toggle", "sv-edit-toggle",
+    "viewer", "sv-canvas", "sv-img", "sv-video", "sv-notice", "sv-prev", "sv-next", "sv-back", "sv-zoom", "sv-info-toggle", "sv-edit-toggle",
     "sv-more", "sv-menu", "sv-original", "sv-source", "sv-fit", "sv-actual", "sv-delete", "sv-title", "sv-by", "sv-pages",
     "sv-num", "sv-pos", "sv-info",
     "select-toggle", "batchbar", "bb-count", "bb-all", "bb-edit", "bb-done",

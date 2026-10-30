@@ -2,12 +2,12 @@
 
 > 本文件只记录**当前**项目阶段，是阶段判断的权威来源；与仓库实际不一致时以仓库为准。
 > 历史阶段、开发流水与旧验收证据已归档到 [PROJECT_HISTORY.md](PROJECT_HISTORY.md)，默认不需要阅读。
-> 最后整理：2026-10-26（文档精简；未改变代码、配置、migration 或项目阶段）。
+> 最后更新：2026-10-30（产品目标确定为完整 Windows 桌面应用，见下）。
 
 ## 当前版本与阶段
 
 - 最新发布：`v0.5.0`，指向 `396ed46 feat: complete V0.5 AI analysis and UX polish`；V0.5 已正式封版。
-- 阶段：maintenance / interest-driven。**没有已批准的 V0.6**，新阶段须由用户明确确认。
+- 阶段：**Windows 桌面产品化**（用户 2026-10-30 确定）。目标是普通用户双击即用的完整桌面应用，保留并接入原有 X Likes、Inbox、GIF / 多图、Gemini 分析与 OCR / 翻译。路线见 [DESKTOP_ROADMAP.md](DESKTOP_ROADMAP.md)。版本号未定，发布由用户决定。
 - 主线分支：`v0.5-ai-analysis`，HEAD 为 `4645b22`。
 - 最近一次维护：X Likes 同步一致性修复（`5800c64`），2026-10-15 经 PR #1 合并（`4645b22`）；`v0.5.0` tag 未改变。
 - `master`：远端 `origin/master` 已于 2026-10-26 00:38 推送到 `4645b22`，与主线一致（同日 `git ls-remote` 联网核对）；本地 `master` 分支仍停在 V0.4 发布提交 `a40ece5`，尚未更新。
@@ -24,7 +24,7 @@
 - OAuth access token 按需自动刷新；初始 token 仍需在 X Developer Console 手工生成，没有浏览器授权流程。
 - Gallery Masonry、统一 Viewer 与 Inspector、全库搜索、Author / Tag 多选筛选、元数据编辑、Dark Mode、移动端布局。
 - 可选能力（默认关闭或需显式选择）：Gemini 多图 / 漫画分析（结果不持久化）、S3-compatible 存储实验、Docker Compose。
-- GitHub Actions CI：Java 17 `verify`、Node 24 JS 测试、Docker image build。
+- GitHub Actions CI：Java 21 `verify`、Node 24 JS 测试、Docker image build。
 - 功能、API、配置和核心设计细节见 [README](../README.md)。
 
 ## 近期健康基线
@@ -43,9 +43,9 @@
 ## 重要限制
 
 - 无用户鉴权：仅供本机使用，不要暴露到公网或不可信局域网。
-- 依赖 MySQL；本地配置从进程工作目录下的 `./config/` 读取。
+- 原服务器方式依赖 MySQL，本地配置从进程工作目录下的 `./config/` 读取；桌面版用 H2，配置在数据目录内。
 - 整数 / 布尔配置写成空值（例如 `AI_ANALYSIS_TIMEOUT_SECONDS=`）会覆盖默认值并导致启动失败；不用时应删除该行，而不是留空。
-- X API 按量计费，Likes 接口没有 `since_id` 或点赞时间；同步结果是"按 API 观察衔接"，不保证与网页版完全一致。
+- X API 按量计费，费用记在发起请求的开发者账号上；Likes 接口没有 `since_id` 或点赞时间；同步结果是"按 API 观察衔接"，不保证与网页版完全一致。
 - 真实 X Sync 会产生费用，调用前须确认预算；History 的旧游标可能已失效，需显式重置。
 - Gemini 模型由代码固定为 `gemini-3.1-flash-lite`；图片会发送到 Google，免费额度以用户的 Google 项目为准。
 - 数据库事务不能回滚文件系统操作；已应用的 migration 不得修改，schema 变更只能新增 migration。
@@ -54,7 +54,7 @@
 
 ## 当前工作
 
-- 没有进行中的功能开发。
+- 进行中：Windows 桌面产品化，等待用户验收 SWT + WebView2 窗口，见下方最后一条。
 - 2026-10-26：完成接手健康检查；同日完成本次文档精简与维护流程调整（只改文档）。
 - 2026-10-26：完成 Windows 本地图库 PoC（文件型 H2 + jpackage + 系统浏览器 + 控制窗），自动化测试与人工验收通过，详见 [DESKTOP_POC.md](DESKTOP_POC.md)。属于探索原型，未推进阶段；MySQL 运行方式不变。若保留 PoC，新的 schema migration 需同时提供 `db/migration-h2` 等价版本。
 - 2026-10-27：桌面版 UI / UX 方向探索。`prototypes/desktop-ui/` 提供两套使用相同测试数据的静态原型（A 工作台、B 画廊），双击其中的 `index.html` 即可打开。用户选定 **B 画廊**，并吸收 A 的多选批量编辑与键盘快捷键，均已并入原型 B。原型未接后端，正式实现尚未开始；实现时需为图库查询补充“最近导入 / 待整理”范围和排序参数。
@@ -69,6 +69,9 @@
 - 2026-10-30：**C 图库视觉重做（静展）**：用户在可交互预览中选定“1+2 融合”，取代 C 暖纸。`theme-quiet.css` 取代 `theme-paper.css`：只用无衬线、中性灰阶加群青、玻璃保留且折射仍关闭。说明只写真实信息，看图器信息改为右侧栏并加作品主色环境光，顶栏下滑收起，未接入入口先隐藏。后端、数据库、migration 未改；已验收的交互保留，只调了牌堆的展开角度。Refactoring UI Skill 按需使用：固定在提交 `4459662`，放在仓库外的 `D:\ClaudeProjects\tools`，未注册、未写配置。详见 [DESKTOP_POC.md](DESKTOP_POC.md#视觉重做静展2026-10-30)。视觉与手感待用户验收；真实 MySQL 与 `dist` 未更新。
 - 2026-10-30：**C 图库未打标签与排序**：列表接口新增 `untagged`、`sort`（newest / oldest / title / author），与关键词、作者、标签及分页组合；每种排序以作品 ID 收尾，翻页不漏不重，无标题 / 无作者排最后。页面增加“全部 / 未打标签”范围（带全库待打标签数）和排序菜单，条件写进地址。无 schema / migration 改动；MyBatis 列表读取结构不变。H2 与一次性 MySQL schema 契约测试通过，真实 MySQL 业务库未写入。用户已人工验收通过；`dist` 未更新。详见 [DESKTOP_POC.md](DESKTOP_POC.md#未打标签与排序2026-10-30)。已提交为 `4b7a486`。
 - 2026-10-30：**C 图库批量整理**：选择模式（点选、Ctrl / Shift、全选已载入）加整理面板，统一改作者、增减标签，先成草稿再一次应用。新增 `POST /api/illustrations/batch/metadata`（单事务，全部生效或全部不生效，可安全重试）与 `/batch/tags`。不提供批量删除。无 schema / migration 改动。H2 与一次性 MySQL schema 契约测试通过，事务回滚经真实 Spring 与 HTTP 验证，真实 MySQL 业务库未写入。`dist` 未更新，桌面视觉与交互待用户验收。详见 [DESKTOP_POC.md](DESKTOP_POC.md#批量整理2026-10-30)。
+- 2026-10-30：**桌面产品化第一轮：能力打通**。X 同步、Inbox、归档接入 H2 桌面模式，复用原服务：`UTC_TIMESTAMP(3)` 改为 Java 传入的 UTC 参数（H2 没有该函数，注册自定义函数会让数据库文件依赖 Java 类名），`x_like_item` 插入按列名取键；同步失败原先被吞掉，现在记日志。新增 PKCE 公开客户端登录（`XAuthorizationService`，独立回调监听 `127.0.0.1:47392`）、用户自有 Client ID、设置页、统一导航、X 收藏页、看图器 AI 分区、MP4 播放、代理（跟随 Windows 或手动）、Gemini 密钥运行时生效。Edge `--app` 独立窗口，SSE 在线通道判断关窗退出。`--migrate-from-mysql` 只读迁移到新目录。REVIEW 的 R2–R4、R6–R8 已修。无 schema / migration 改动。`mvnw test`：459 tests，0 failures / errors，3 skipped（F03 / F06 MySQL、LocalStack，本轮未配置），含一次性 MySQL schema 上的迁移工具与 X Sync 迁移测试，服务器上无残留 schema；此后的小改动重跑了相关类。JS 256/256。隔离 H2 + 假 Inbox 用 ego-browser 自查了 X 收藏、设置、AI 分区和新建入口。`dist\IllustrationArchive` 已构建，未启动过。同日经用户批准，先对真实 MySQL 只读试跑，再复制到 `%LOCALAPPDATA%\IllustrationArchive`（作品 31、X 条目 425）：独立核对 9 张表逐行一致、68 个文件 SHA-256 一致，源库与媒体未变。该目录现在是桌面版的默认图库，是当时的快照；MySQL 仍在，之后的新增不会自动同步，也没有 X 登录。用户已从资源管理器双击新包验收：独立窗口、导航、真实图库 31 件、X 收藏 384 件待整理都正常。**未验证**：真实 X 授权与同步（付费）、真实 Gemini、物理拖放、MP4 播放。详见 [DESKTOP_ROADMAP.md](DESKTOP_ROADMAP.md) 与 [DESKTOP_POC.md](DESKTOP_POC.md#桌面产品化第一轮2026-10-30)。
+- 2026-10-30：**X 收藏修复、桌面选型、图标与启动图**。图片失败的主因：X CDN 对本机 Referer 返回 351，干净配置的 Edge 里旧页面 0/39 张加载；两个 Inbox 页面改为 `no-referrer`。列表用 `small`、预览用 `large`，解码量降 67%；读不到时显示占位，逐件整理时卡片不再重建。接口 P50 3.9 ms，后端未改。桌面模式静态资源 `no-cache`。选定 SWT + WebView2（隔离原型通过代理继承、媒体、性能、关闭四项，正式迁移与 Java 21 留到下一轮）。新增应用图标与启动图，正常启动不再显示 Swing 控制窗。Java 定向 18/18、JS 259/259，未跑全量。新包在 `dist\round2`，`dist\IllustrationArchive` 未更新。真实图库手感、观感待用户验收。详见 [DESKTOP_ROADMAP.md](DESKTOP_ROADMAP.md) 与 [DESKTOP_POC.md](DESKTOP_POC.md#x-收藏修复与启动图2026-10-30)。
+- 2026-10-31：**SWT + WebView2 窗口迁移**。用户先验收了 round2：X 收藏能正常浏览，GIF 能播放；仍读不到的媒体对应 X 上已删除、隐藏的帖子或被冻结的账号，属于上游不可访问，保留占位、重试与打开原帖，不自动删除记录。项目升到 Java 21（CI、Docker 同步），JVM 直接持有窗口，删除 Swing 控制窗和 SSE 关窗判断，Edge `--app` 只作缺少 WebView2 时的回退。窗口位置与主题记忆、标题栏跟随主题、外链走默认浏览器、再次双击唤起窗口。打包改为 jlink 运行时 + 解压布局 + 打包时生成的 CDS 归档，到页面就绪约 3 秒（原约 8 秒），包体 252 MB。业务服务、数据库与 migration 未改。`mvnw test`（JDK 21）462 tests，0 failures，19 skipped；JS 264/264。隔离图库上实机验证通过，真实图库待用户验收；新包在 `dist\round3`。详见 [DESKTOP_POC.md](DESKTOP_POC.md#swt--webview2-窗口2026-10-31)。
 - 分工：Claude Code 负责主要开发；Codex 负责复杂技术设计与必要的 Review；ChatGPT 负责阶段性产品方向讨论。具体约定见 [AGENTS.md](../AGENTS.md)。
 
 ## 后续候选（均未排期，需用户确认）
@@ -79,8 +82,7 @@
 - 依赖补丁更新（例如 Spring Boot 4.1.x 补丁版本），需配套完整测试。
 - V0.5 封版时保留的 P1：Picker 重复搜索按钮、Inbox 重复成功链接、来源重复、手机 Detail 管理信息顺序。
 - 留待未来版本决定：跨作品导航、超过四页或动态媒体的 AI 分析、AI 结果持久化。
-- 桌面化：PoC 已验证 H2 替代 MySQL、独立数据目录与 jpackage 打包可行（见 [DESKTOP_POC.md](DESKTOP_POC.md) 的已知问题）；X 授权流程、安装器 / 签名、自动更新仍未处理，正式立项需用户确认。
-- 探索话题（只讨论，不实施）：免费的 X Likes 同步路径；官方数据归档、浏览器扩展等方案各有完整性或平台规则风险。
+- 桌面化的后续工作包见 [DESKTOP_ROADMAP.md](DESKTOP_ROADMAP.md#工作包)。
 
 ## 文档导航
 
@@ -89,6 +91,7 @@
 | [AGENTS.md](../AGENTS.md) | 协作规则与维护约定 | 每次任务 |
 | 本文件 | 当前版本、阶段、健康基线、限制与候选 | 每次任务 |
 | [README.md](../README.md) | 功能、API、运行配置、核心设计与测试 | 涉及运行、API 或设计时 |
-| [DESKTOP_POC.md](DESKTOP_POC.md) | Windows 本地图库 PoC：架构、构建、测试与验收记录 | 涉及桌面化、H2 或打包时 |
+| [DESKTOP_ROADMAP.md](DESKTOP_ROADMAP.md) | 桌面应用的能力现状、关键决定、X 费用与风险、工作包 | 规划桌面工作时 |
+| [DESKTOP_POC.md](DESKTOP_POC.md) | Windows 桌面版：架构、构建、测试与验收记录 | 涉及桌面化、H2 或打包时 |
 | [X_LIKES_SYNC_CONSISTENCY.md](X_LIKES_SYNC_CONSISTENCY.md) | 同步预算、Recent / History、检查点、V7 迁移与验收边界 | 涉及 X Sync 时 |
 | [PROJECT_HISTORY.md](PROJECT_HISTORY.md) | V0.1–V0.5 与维护阶段的历史归档 | 需要追溯历史决策或证据时 |

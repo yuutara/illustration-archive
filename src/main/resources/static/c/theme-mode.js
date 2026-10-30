@@ -28,6 +28,7 @@
         set(mode) {
             apply(mode);
             try { localStorage.setItem(KEY, mode); } catch (e) { /* 同上 */ }
+            if (window.iaDesktop) window.iaDesktop('theme', mode); // 应用窗口的标题栏跟着变
         }
     };
 })();

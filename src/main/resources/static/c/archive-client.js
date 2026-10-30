@@ -127,9 +127,9 @@
             mimeType: mime,
             format: formatOf(mime),
             video,
-            // 作品墙和牌堆用缩略图；GIF 没有缩略图，直接用原图（仍是动图）
-            src: video ? placeholder('视频暂不支持预览') : gif ? contentUrl(asset.id) : thumbnailUrl(asset.id),
-            full: video ? null : contentUrl(asset.id),
+            // 作品墙和牌堆用缩略图；GIF 没有缩略图，直接用原图（仍是动图）；视频由作品墙叠一层 <video> 显示首帧
+            src: video ? placeholder('视频') : gif ? contentUrl(asset.id) : thumbnailUrl(asset.id),
+            full: contentUrl(asset.id),
             width: video ? 800 : null,
             height: video ? 1000 : null,
             fullWidth: null,
@@ -550,7 +550,10 @@
                 body: JSON.stringify(patch)
             });
         } catch (e) {
-            throw new RequestError(0, '无法连接到本地图库服务，修改没有保存');
+            // 请求可能已经到达并提交，只是回执丢了：不能说“没有保存”。编辑是幂等的，再保存一次是安全的
+            const unconfirmed = new RequestError(0, '无法确认这次修改是否已保存：本地图库服务没有回应');
+            unconfirmed.unconfirmed = true;
+            throw unconfirmed;
         }
         if (!response.ok) throw new RequestError(response.status, await saveFailure(response));
         const refresh = isFiltered() || query.sort === 'title' || query.sort === 'author';
@@ -668,6 +671,7 @@
                 if (!Object.keys(body).length) return { unchanged: true };
                 s.phase = 'saving';
                 s.error = null;
+                s.unconfirmed = false;
                 changed();
                 try {
                     const result = await saveWork(id, body);
@@ -677,12 +681,36 @@
                 } catch (error) {
                     s.phase = 'ready';
                     s.error = error.message;
+                    s.unconfirmed = !!error.unconfirmed;
                     changed();
                     return null;
                 }
             },
             dispose() { disposed = true; listeners.clear(); }
         };
+    }
+
+    /* ---------------- 新建作者 / 标签 ---------------- */
+
+    // 成功返回新建的条目；失败抛出带说明的错误（同名标签由服务端以 409 拒绝）
+    async function createFacet(kind, name) {
+        let response;
+        try {
+            response = await fetch(kind === 'author' ? '/api/authors' : '/api/tags', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify(kind === 'author' ? { displayName: name } : { name })
+            });
+        } catch (e) {
+            throw new RequestError(0, '无法连接到本地图库服务');
+        }
+        if (!response.ok) {
+            let message = '';
+            try { message = (await response.json()).message || ''; } catch (e) { /* 没有可读的说明 */ }
+            throw new RequestError(response.status, message || `没有创建成功（${response.status}）`);
+        }
+        return response.json();
     }
 
     /* ---------------- 本地导入 ---------------- */
@@ -1011,6 +1039,7 @@
         lastError: () => lastError,
         loadMore,
         loadDetail,
+        createFacet,
         loadFull,
         measure,
         displayTitle,

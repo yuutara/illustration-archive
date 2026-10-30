@@ -129,6 +129,30 @@ test("only the changes made are sent, in one request: an untouched author and un
     assert.equal(env.Batch.isOpen(), false);
 });
 
+test("the shared author is named from the loaded work, without waiting for the filter's name cache", async () => {
+    const env = await setup();
+    env.Batch.open([1, 2]);
+    await settle();
+    assert.equal(env.ids["batch-author-note"].textContent, "目前都是 Lumen");
+});
+
+test("Esc on a draft warns once and keeps it; a second Esc discards, and an empty panel just closes", async () => {
+    const env = await setup();
+    env.Batch.open([1, 2, 3]);
+    await settle();
+    env.Batch.requestClose();
+    assert.equal(env.ids["batch-sheet"].hidden, true, "nothing to lose");
+    env.Batch.open([1, 2, 3]);
+    await settle();
+    action(chip(env, "夏"), "补齐").click();
+    env.Batch.requestClose();
+    assert.equal(env.ids["batch-sheet"].hidden, false);
+    assert.match(env.ids["batch-error"].textContent, /还没有应用/);
+    assert.equal(env.ids["batch-summary"].textContent, "添加 1 个标签");
+    env.Batch.requestClose();
+    assert.equal(env.ids["batch-sheet"].hidden, true);
+});
+
 test("the author can be set or cleared, and either can be undone back to keeping it", async () => {
     const env = await setup();
     env.Batch.open([1, 2]);
