@@ -1,6 +1,6 @@
 /*
  * C 图库 · 浅色 / 深色：在 <head> 里同步执行，首屏就用对的配色，避免闪一下。
- * 方案固定为 C 暖纸；选择只保存在本机浏览器，首次使用跟随系统设置。
+ * 主题固定为静展；选择只保存在本机浏览器，首次使用跟随系统设置。
  */
 (function () {
     'use strict';
@@ -17,7 +17,7 @@
     }
 
     function apply(mode) {
-        root.dataset.look = 'paper';
+        root.dataset.look = 'quiet';
         root.dataset.mode = mode;
     }
 

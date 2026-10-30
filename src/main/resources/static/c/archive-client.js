@@ -91,9 +91,8 @@
 
     // 占位图：一张纸色的 SVG，写明原因（视频暂不支持 / 图片无法载入），尺寸给出 4:5 的版面
     function placeholder(text) {
-        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000" viewBox="0 0 800 1000">`
-            + `<rect width="800" height="1000" fill="#e9e6dd"/>`
-            + `<text x="400" y="510" font-family="sans-serif" font-size="40" fill="#8a8880" text-anchor="middle">${text}</text></svg>`;
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600">`
+            + `<text x="400" y="312" font-family="sans-serif" font-size="30" fill="#8b8b85" text-anchor="middle">${text}</text></svg>`;
         return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
     }
 

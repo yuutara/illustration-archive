@@ -221,12 +221,13 @@
     border-radius: var(--r-card, 4px);
     background: var(--paper-2);
     box-shadow: 0 0 0 1px var(--stack-rim, rgba(251, 250, 247, .7)), 0 6px 14px -8px rgba(36, 33, 29, .45);
-    transform-origin: 18% 100%;
+    /* 绕中心转：列间距只有 10px，后层向两侧各露出一点，不压到相邻列的说明 */
+    transform-origin: 50% 50%;
 }
 /* 每页一张：静止时只露出顶牌之后的两张，其余藏起来（仍保持解码，换牌时不闪） */
 .fx-layers img:not([data-depth]) { visibility: hidden; }
-.fx-layers img[data-depth="1"] { z-index: 2; transform: translate(4px, -4px) rotate(2deg); filter: brightness(.97); }
-.fx-layers img[data-depth="2"] { z-index: 1; transform: translate(8px, -8px) rotate(4deg); filter: brightness(.94); }
+.fx-layers img[data-depth="1"] { z-index: 2; transform: translate(1px, -5px) rotate(.8deg); filter: brightness(.97); }
+.fx-layers img[data-depth="2"] { z-index: 1; transform: translate(2px, -9px) rotate(1.6deg); filter: brightness(.94); }
 /* 换牌途中：整叠由脚本逐帧摆放；图片按钮变透明、只保留点击区域，顶牌由牌堆里同一页的那张来画 */
 .piece.fx-decking .fx-layers img { visibility: visible; transition: none; }
 .piece.fx-decking .piece-open { background: transparent !important; box-shadow: none !important; transform: none !important; }
@@ -237,8 +238,8 @@
 /* 悬停时后层微微展开，提示“这是一叠” —— 静态的终点，不会持续晃动 */
 @media (prefers-reduced-motion: no-preference) {
     html:not(.fx-reduce).fx-stack .fx-layers img { transition: transform .45s var(--fx-gentle); }
-    html:not(.fx-reduce).fx-stack body:not(.is-selecting) .piece:hover:not(.fx-pulled, .fx-decking) .fx-layers img[data-depth="1"] { transform: translate(6px, -7px) rotate(3.2deg); }
-    html:not(.fx-reduce).fx-stack body:not(.is-selecting) .piece:hover:not(.fx-pulled, .fx-decking) .fx-layers img[data-depth="2"] { transform: translate(12px, -13px) rotate(6.4deg); }
+    html:not(.fx-reduce).fx-stack body:not(.is-selecting) .piece:hover:not(.fx-pulled, .fx-decking) .fx-layers img[data-depth="1"] { transform: translate(2px, -8px) rotate(1.2deg); }
+    html:not(.fx-reduce).fx-stack body:not(.is-selecting) .piece:hover:not(.fx-pulled, .fx-decking) .fx-layers img[data-depth="2"] { transform: translate(3px, -14px) rotate(2.4deg); }
 }
 .fx-stack .piece.fx-pulled .fx-layers img { transition: none; }
 
@@ -396,11 +397,11 @@ body.fx-dragging .piece-open { transform: none !important; }
     box-shadow: var(--gl-inset), var(--gl-line), var(--gl-drop);
     text-shadow: var(--gl-text-shadow);
 }
-.fx-wall.fx-mat-glass .piece-edit { position: absolute; height: 30px; padding: 0 13px 0 11px; font-weight: 500; transition: opacity .15s, transform .39s var(--fx-snappy), box-shadow .2s, background-color .2s; }
+.fx-wall.fx-mat-glass .piece-edit { position: absolute; height: 30px; padding: 0 13px 0 11px; font-weight: 400; transition: opacity .15s, transform .39s var(--fx-snappy), box-shadow .2s, background-color .2s; }
 .fx-wall.fx-mat-glass .piece-edit:hover { background: var(--gl-bg-hover); box-shadow: var(--gl-inset), var(--gl-line), var(--gl-drop-hover); }
 .fx-wall.fx-mat-glass .piece-edit:active { box-shadow: var(--gl-press), var(--gl-line), var(--gl-drop); }
 .fx-wall.fx-mat-glass .piece-edit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.fx-wall.fx-mat-glass .mark { height: 22px; padding: 0 9px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.fx-wall.fx-mat-glass .mark { height: 22px; padding: 0 9px; font-weight: 400; font-variant-numeric: tabular-nums; }
 .fx-wall.fx-mat-glass .piece-check {
     border: 0;
     /* 空圆点压一层浅墨色：浅色天空上也看得见，深色作品上白圈依然清楚 */
@@ -539,7 +540,7 @@ body.is-locked .fxlab { top: 12px; bottom: auto; left: 50%; flex-direction: colu
 @keyframes fxlab-flash { from { box-shadow: 0 0 0 6px var(--accent-soft); } }
 .fxlab-panel { width: 330px; max-height: min(640px, calc(100vh - 90px)); padding: 14px 16px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); box-shadow: 0 24px 60px -16px rgba(36, 33, 29, .35); overflow: auto; }
 .fxlab-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-.fxlab-head strong { font: 400 16px var(--serif); }
+.fxlab-head strong { font: 600 16px var(--sans); }
 .fxlab-x { width: 26px; height: 26px; padding: 0; border: 0; border-radius: 6px; color: var(--muted); background: none; font-size: 18px; line-height: 1; }
 .fxlab-x:hover { background: var(--paper-2); }
 .fxlab-seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; padding: 3px; border-radius: 9px; background: var(--paper-2); }

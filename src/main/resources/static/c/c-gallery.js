@@ -79,6 +79,8 @@
 
     const pieces = new Map();
 
+    const hasCaption = (work) => Boolean(work.title || A.authorName(work));
+
     function pieceFor(work) {
         let fig = pieces.get(work.id);
         if (!fig) {
@@ -113,11 +115,12 @@
         img.height = p.height;
         fig.classList.toggle('is-broken', p.broken);
         fig.querySelector('.piece-open').setAttribute('aria-label', '查看 ' + A.displayTitle(work));
-        fig.querySelector('.piece-title').textContent = A.displayTitle(work);
+        // 说明只写真实信息：有标题写标题，有作者写作者，都没有就不写，不用文件名或“未命名”占位
+        fig.querySelector('.piece-title').textContent = work.title || '';
         const name = A.authorName(work);
         const ab = fig.querySelector('.piece-author');
-        ab.textContent = name || '未设置作者';
-        ab.classList.toggle('is-none', !name);
+        ab.textContent = name;
+        fig.classList.toggle('no-caption', !hasCaption(work));
         ab.disabled = !work.author;
         ab.title = work.author ? `只看 ${name} 的作品` : '';
         if (freshIds.delete(work.id)) {
@@ -136,8 +139,8 @@
     function renderWall() {
         const wall = $('wall');
         const roomy = state.density === 'roomy';
-        const target = roomy ? 290 : 200;
-        const gap = roomy ? 32 : 14;
+        const target = roomy ? 230 : 165;
+        const gap = roomy ? 10 : 6;
         const width = wall.clientWidth;
         const cols = Math.max(1, Math.floor((width + gap) / (target + gap)));
         const colWidth = (width - gap * (cols - 1)) / cols;
@@ -150,7 +153,7 @@
         const columns = [], heights = [];
         for (let i = 0; i < cols; i++) {
             const col = el('div', 'wall-col');
-            col.style.gap = (roomy ? gap - 4 : gap) + 'px';
+            col.style.gap = (roomy ? 16 : gap) + 'px';
             wall.appendChild(col);
             columns.push(col);
             heights.push(0);
@@ -159,7 +162,7 @@
             const p = work.pages[0];
             const i = heights.indexOf(Math.min(...heights));
             columns[i].appendChild(pieceFor(work));
-            heights[i] += colWidth * (p.height / p.width) + (roomy ? 34 : 0) + gap;
+            heights[i] += colWidth * (p.height / p.width) + (roomy && hasCaption(work) ? 26 : 0) + gap;
         });
         renderStatus();
         fx('playWall', before);
@@ -219,7 +222,16 @@
         document.querySelectorAll('.density button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
         renderWall();
     }));
-    window.addEventListener('scroll', () => $('masthead').classList.toggle('is-scrolled', window.scrollY > 4), { passive: true });
+    // 顶栏：滚动后变玻璃；向下浏览时收起，把屏幕让给作品。累计移动超过 8px 才判断方向，拖动和松手滑行时不闪动
+    let lastScrollY = 0;
+    window.addEventListener('scroll', () => {
+        const y = window.scrollY;
+        const masthead = $('masthead');
+        masthead.classList.toggle('is-scrolled', y > 4);
+        if (Math.abs(y - lastScrollY) < 8) return;
+        masthead.classList.toggle('is-tucked', y > lastScrollY && y > 160);
+        lastScrollY = y;
+    }, { passive: true });
     let wallWidth = 0;
     new ResizeObserver(([entry]) => {
         if (Math.abs(entry.contentRect.width - wallWidth) < 1) return;
@@ -268,12 +280,6 @@
     const canvas = $('sv-canvas');
     const img = $('sv-img');
     let chromeTimer = null;
-
-    function mix(hex, base, amount) {
-        const p = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
-        const a = p(hex), b = p(base);
-        return '#' + a.map((v, i) => Math.round(v * amount + b[i] * (1 - amount)).toString(16).padStart(2, '0')).join('');
-    }
 
     function indexOf(id) { return state.results.findIndex((w) => w.id === id); }
 
@@ -334,7 +340,7 @@
             v.anchor = null;
             $('sv-prev').disabled = i <= 0;
             $('sv-next').disabled = i >= state.results.length - 1 && !A.hasMore();
-            num.innerHTML = `${String(i + 1).padStart(2, '0')}<small>/ ${total}</small>`;
+            num.innerHTML = `${i + 1}<small>/ ${total}</small>`;
             num.title = '';
         } else {
             const k = v.anchor ?? 0;
@@ -351,7 +357,8 @@
         const work = A.get(id);
         if (v.id !== id) v.anchor = null;
         v.id = id;
-        viewer.style.setProperty('--tint', mix(work.pages[0].tone || '#d8d3c8', '#121110', 0.32));
+        // 环境光取作品主色；还没量出主色时不铺
+        viewer.style.setProperty('--tone', work.pages[0].tone || 'transparent');
         updatePosition();
         const pagesBox = $('sv-pages');
         pagesBox.innerHTML = '';
@@ -374,13 +381,16 @@
 
     function renderCaption() {
         const work = A.get(state.viewer.id);
-        $('sv-title').textContent = A.displayTitle(work);
-        const by = $('sv-by');
-        by.innerHTML = '';
-        by.append(A.authorName(work) || '未设置作者');
+        const name = A.authorName(work);
+        // 没有标题时作者就是这件作品的名字；文件名只在信息栏的“文件”里
+        $('sv-title').textContent = work.title || name || '未命名作品';
+        const parts = [];
+        if (work.title) parts.push(name || '未设置作者');
+        else if (work.author && work.author.displayName && work.author.xUsername) parts.push('@' + work.author.xUsername);
         const tags = work.detail ? work.detail.tags : [];
-        if (tags.length) by.append('　·　' + tags.map((t) => t.name).join('、'));
-        if (work.createdAt) by.append('　·　' + A.relativeDay(work.createdAt) + '导入');
+        if (tags.length) parts.push(tags.map((t) => t.name).join('、'));
+        if (work.createdAt) parts.push(A.relativeDay(work.createdAt) + '导入');
+        $('sv-by').textContent = parts.join(' · ');
         const source = $('sv-source');
         const url = work.detail && work.detail.sourceUrl;
         source.href = url || '#';
@@ -563,7 +573,7 @@
         v.info = open;
         $('sv-info').hidden = !open;
         $('sv-info-toggle').setAttribute('aria-pressed', String(open));
-        viewer.style.setProperty('--info', open ? 'min(300px, 40vh)' : '0px');
+        viewer.style.setProperty('--info', open ? (window.innerWidth <= 1080 ? '320px' : '360px') : '0px');
         if (open) renderInfo();
         showChrome();
     }

@@ -1,0 +1,233 @@
+/*
+ * C 图库主题「静展」：克制的画廊层次 + 沉浸的浏览与看图。只在 html[data-look="quiet"] 下生效，不改手势与交互。
+ *
+ * 层次（由后到前）：
+ *   1 底      中性灰阶，不带色偏，作品的颜色不受影响；深色不是纯黑，浅色不是纯白
+ *   2 作品    平放，一圈极细的内描边把白底作品和页面分开；悬停时投影取作品自己的颜色
+ *   3 玻璃    只用于浮在内容之上的控件：滚动后的顶栏、图上按钮、浮层、操作条、看图器工具；
+ *             中性底、几乎不提饱和（1.08），不放大作品颜色；折射保持关闭
+ *   4 环境光  只在看图器里，取当前作品主色的一点点，铺在作品背后
+ *
+ * 颜色：界面只有黑白灰，唯一的色相是群青，只给焦点、选中、已选条件和链接；红色只给删除。
+ * 字：只用无衬线，字号 12 / 13 / 14 / 16 / 20，字重 400 / 600，数字等宽。
+ * 圆角：作品 8、控件 8、浮层 12、对话框 16；胶囊只给玻璃控件。
+ */
+
+/* ===================== 浅色 ===================== */
+html[data-look="quiet"] {
+    color-scheme: light;
+    --paper: #f6f6f5;
+    --paper-2: #ebebe9;
+    --card: #ffffff;
+    --ink: #1b1b1a;
+    --ink-2: #474745;
+    --muted: #6a6a65;
+    --faint: #84847e;
+    --line: #e2e2df;
+    --accent: #3550d4;
+    --accent-text: #3550d4;
+    --accent-hi: #5a72e6;
+    --accent-soft: #e9edfc;
+    --danger: #c0362c;
+    --warn: #8a5a17;
+    --r-card: 8px;
+    --masthead-glass: rgba(246, 246, 245, .76);
+    --stack-rim: rgba(255, 255, 255, .95);
+    --art-edge: 0 0 0 1px rgba(0, 0, 0, .06);
+    --art-shadow: var(--art-edge);
+    --art-shadow-hover: var(--art-edge), 0 2px 4px rgba(0, 0, 0, .05), 0 18px 32px -18px rgba(0, 0, 0, .34);
+    --gl-bg: rgba(255, 255, 255, .7);
+    --gl-bg-hover: rgba(255, 255, 255, .88);
+    --gl-bg-panel: rgba(255, 255, 255, .82);
+    --gl-bg-bar: rgba(255, 255, 255, .76);
+    --gl-blur-s: blur(12px) saturate(1.08);
+    --gl-blur-l: blur(24px) saturate(1.08);
+    --gl-line: 0 0 0 1px rgba(0, 0, 0, .07);
+    --gl-inset: inset 0 1px 0 rgba(255, 255, 255, .8);
+    --gl-drop: 0 1px 2px rgba(0, 0, 0, .07), 0 8px 22px -10px rgba(0, 0, 0, .26);
+    --gl-drop-hover: 0 2px 4px rgba(0, 0, 0, .07), 0 14px 30px -12px rgba(0, 0, 0, .3);
+    --gl-drop-panel: 0 2px 6px rgba(0, 0, 0, .05), 0 26px 52px -20px rgba(0, 0, 0, .3);
+    --gl-press: inset 0 1px 3px rgba(0, 0, 0, .14);
+    --gl-rim: linear-gradient(150deg, rgba(255, 255, 255, .85), rgba(255, 255, 255, .2) 32%, rgba(255, 255, 255, 0) 58%, rgba(255, 255, 255, .35));
+    --gl-text-shadow: none;
+    --gl-fill-hover: rgba(0, 0, 0, .05);
+    --gl-sep: rgba(0, 0, 0, .07);
+    --gl-sep-strong: rgba(0, 0, 0, .14);
+    --gl-field: rgba(255, 255, 255, .7);
+    --gl-field-bg: rgba(0, 0, 0, .045);
+    --gl-field-bg-hover: rgba(0, 0, 0, .065);
+}
+
+/* ===================== 深色 ===================== */
+html[data-look="quiet"][data-mode="dark"] {
+    color-scheme: dark;
+    --paper: #111111;
+    --paper-2: #1f1f1f;
+    --card: #1a1a1a;
+    --ink: #ededeb;
+    --ink-2: #c6c6c2;
+    --muted: #9c9c95;
+    --faint: #7f7f78;
+    --line: #2c2c2b;
+    --accent: #93a6ff;
+    --accent-text: #a8b7ff;
+    --accent-hi: #a8b7ff;
+    --accent-soft: #22263f;
+    --danger: #f08072;
+    --warn: #d9b26a;
+    --masthead-glass: rgba(17, 17, 17, .72);
+    --stack-rim: rgba(0, 0, 0, .55);
+    --art-edge: 0 0 0 1px rgba(255, 255, 255, .05);
+    --art-shadow: var(--art-edge);
+    --art-shadow-hover: var(--art-edge), 0 20px 36px -18px rgba(0, 0, 0, .85);
+    --gl-bg: rgba(38, 38, 38, .62);
+    --gl-bg-hover: rgba(52, 52, 52, .72);
+    --gl-bg-panel: rgba(34, 34, 34, .84);
+    --gl-bg-bar: rgba(34, 34, 34, .78);
+    --gl-line: 0 0 0 1px rgba(0, 0, 0, .5);
+    --gl-inset: inset 0 1px 0 rgba(255, 255, 255, .09);
+    --gl-drop: 0 1px 2px rgba(0, 0, 0, .35), 0 8px 22px -10px rgba(0, 0, 0, .7);
+    --gl-drop-hover: 0 2px 4px rgba(0, 0, 0, .35), 0 14px 30px -12px rgba(0, 0, 0, .75);
+    --gl-drop-panel: 0 2px 6px rgba(0, 0, 0, .35), 0 26px 52px -20px rgba(0, 0, 0, .8);
+    --gl-press: inset 0 1px 3px rgba(0, 0, 0, .4);
+    --gl-rim: linear-gradient(150deg, rgba(255, 255, 255, .26), rgba(255, 255, 255, .06) 32%, rgba(255, 255, 255, 0) 58%, rgba(255, 255, 255, .1));
+    --gl-fill-hover: rgba(255, 255, 255, .07);
+    --gl-sep: rgba(255, 255, 255, .07);
+    --gl-sep-strong: rgba(255, 255, 255, .14);
+    --gl-field: rgba(255, 255, 255, .05);
+    --gl-field-bg: rgba(255, 255, 255, .06);
+    --gl-field-bg-hover: rgba(255, 255, 255, .09);
+}
+
+/* ===================== 骨架 ===================== */
+html[data-look="quiet"] body { background: var(--paper); font-variant-numeric: tabular-nums; }
+html[data-look="quiet"] :focus-visible { outline-color: var(--accent); }
+html[data-look="quiet"] :is(.btn, .text-btn, .text-select select, .density, .fchip) { border-radius: 8px; }
+html[data-look="quiet"] .btn { border-color: var(--line); background: var(--card); box-shadow: none; }
+html[data-look="quiet"] .btn:hover:not(:disabled) { border-color: var(--faint); }
+html[data-look="quiet"] .btn-ink,
+html[data-look="quiet"].fx-press .btn-ink:not(:disabled) { border-color: var(--ink); color: var(--paper); background: var(--ink); background-image: none; box-shadow: none; }
+html[data-look="quiet"] .btn-ink:hover:not(:disabled) { border-color: var(--ink); opacity: .86; }
+html[data-look="quiet"] .btn-ink:disabled { border-color: var(--line); color: var(--faint); background: var(--paper-2); }
+html[data-look="quiet"] .btn-danger { border-color: var(--danger); color: #fff; background: var(--danger); }
+html[data-look="quiet"][data-mode="dark"] .btn-danger { color: #111111; }
+html[data-look="quiet"] .btn-danger:hover:not(:disabled) { border-color: var(--danger); filter: brightness(.94); }
+html[data-look="quiet"] .text-btn[aria-pressed="true"] { color: var(--paper); background: var(--ink); }
+html[data-look="quiet"] .scopes button { font-size: 14px; }
+html[data-look="quiet"] .scopes button[aria-current="true"] { font-weight: 600; }
+html[data-look="quiet"] .scopes sup { font: 400 12px var(--sans); }
+/* 只在文字和小图标上用群青，保证小字对比度 */
+html[data-look="quiet"] :is(.link, .info-source, .ed-tag, .fchip, .pk-create, .st-success, .text-btn.has-value, .piece-author:hover, .info-author:hover, .info-tags button:hover, .sg-chip:hover, .sg-chip.is-active, .ed-tag-add:hover) { color: var(--accent-text); }
+html[data-look="quiet"] .st-duplicate { color: var(--warn); }
+
+/* 顶栏：滚动后是玻璃；向下浏览时收起，把屏幕让给作品，向上滚动或有焦点时回来 */
+html[data-look="quiet"] .masthead { background: var(--paper); transition: transform .45s var(--fx-gentle), box-shadow .25s, background-color .25s; }
+html[data-look="quiet"].fx-masthead .masthead { background: transparent; -webkit-backdrop-filter: none; backdrop-filter: none; }
+html[data-look="quiet"].fx-masthead .masthead.is-scrolled { background: var(--masthead-glass); -webkit-backdrop-filter: blur(24px) saturate(1.08); backdrop-filter: blur(24px) saturate(1.08); box-shadow: 0 1px 0 var(--gl-sep); }
+html[data-look="quiet"] .masthead.is-tucked:not(:focus-within) { transform: translateY(-100%); box-shadow: none; }
+html[data-look="quiet"].fx-masthead.fx-mat-glass .omnibox { border-radius: 8px; background: var(--gl-field-bg); box-shadow: none; }
+html[data-look="quiet"].fx-masthead.fx-mat-glass .omnibox::before { content: none; }
+html[data-look="quiet"].fx-masthead.fx-mat-glass .omnibox:hover { background: var(--gl-field-bg-hover); }
+html[data-look="quiet"].fx-masthead.fx-mat-glass .omnibox:focus-within { background: var(--card); box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px color-mix(in srgb, var(--accent) 14%, transparent); }
+@media (prefers-reduced-motion: reduce) {
+    html[data-look="quiet"] .masthead.is-tucked:not(:focus-within) { transform: none; }
+}
+
+/* ===================== 作品 ===================== */
+html[data-look="quiet"] .piece-open { box-shadow: var(--art-shadow); }
+html[data-look="quiet"].fx-wall .piece-open { background-color: color-mix(in srgb, var(--fx-tone, var(--paper-2)) 42%, var(--paper-2)); }
+html[data-look="quiet"].fx-wall body:not(.is-selecting) .piece:hover .piece-open {
+    transform: translateY(-2px);
+    box-shadow: var(--art-edge), 0 2px 4px rgba(0, 0, 0, .05), 0 18px 32px -18px color-mix(in srgb, var(--fx-tone, #1b1b1a) 88%, #000);
+}
+html[data-look="quiet"].fx-wall .piece:hover .piece-title { color: var(--ink); }
+html[data-look="quiet"] .piece.is-selected .piece-open { background: var(--accent-soft); box-shadow: 0 0 0 2.5px var(--accent); }
+html[data-look="quiet"] .piece.is-selected .piece-open img { border-radius: 4px; }
+html[data-look="quiet"] .fx-layers img { box-shadow: 0 0 0 1px var(--stack-rim), 0 4px 12px -8px rgba(0, 0, 0, .35); }
+html[data-look="quiet"][data-mode="dark"] .piece.is-selected .piece-check {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 22 22'%3E%3Cpath d='M6 11.4 9.4 14.6 16 7.6' fill='none' stroke='%23111111' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* ===================== 玻璃 ===================== */
+html[data-look="quiet"].fx-wall.fx-mat-glass .mark { color: var(--ink); font: 400 12px/22px var(--sans); }
+html[data-look="quiet"].fx-popover.fx-mat-glass :is(.pk, .suggest, .sv-menu) { border-radius: 12px; }
+html[data-look="quiet"].fx-popover.fx-mat-glass .toast { border-radius: 8px; color: var(--ink); background: var(--gl-bg-panel); box-shadow: var(--gl-inset), var(--gl-line), var(--gl-drop-panel); }
+html[data-look="quiet"].fx-popover.fx-mat-glass .toast::before { background: var(--gl-rim); }
+
+/* ===================== 看图器 ===================== */
+/* 跟随深浅色；工具是同一配方的中性玻璃。环境光取作品主色，铺在作品背后 */
+html[data-look="quiet"] .viewer {
+    --v-bg: #efefed;
+    --amb: 24%;
+    --gd-bg: rgba(255, 255, 255, .64);
+    --gd-bg-panel: rgba(255, 255, 255, .84);
+    --gd-edge: inset 0 1px 0 rgba(255, 255, 255, .8), 0 0 0 1px rgba(0, 0, 0, .07);
+    --gd-drop: 0 1px 2px rgba(0, 0, 0, .07), 0 12px 28px -12px rgba(0, 0, 0, .28);
+    --gd-blur: blur(20px) saturate(1.08);
+    --gd-rim: var(--gl-rim);
+    color: var(--ink);
+}
+html[data-look="quiet"][data-mode="dark"] .viewer {
+    --v-bg: #0c0c0c;
+    --amb: 38%;
+    --gd-bg: rgba(38, 38, 38, .58);
+    --gd-bg-panel: rgba(28, 28, 28, .72);
+    --gd-edge: inset 0 1px 0 rgba(255, 255, 255, .09), 0 0 0 1px rgba(0, 0, 0, .5);
+    --gd-drop: 0 12px 30px -10px rgba(0, 0, 0, .7);
+}
+html[data-look="quiet"] .viewer::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(58% 66% at calc(50% - max(var(--editor), var(--info)) / 2) 46%, color-mix(in srgb, var(--tone, transparent) var(--amb), transparent), transparent 78%);
+    pointer-events: none;
+}
+html[data-look="quiet"] .sv-canvas img { box-shadow: 0 1px 2px rgba(0, 0, 0, .08), 0 30px 60px -28px rgba(0, 0, 0, .4); }
+html[data-look="quiet"][data-mode="dark"] .sv-canvas img { box-shadow: 0 0 0 1px rgba(255, 255, 255, .04), 0 30px 70px -20px rgba(0, 0, 0, .8); }
+
+html[data-look="quiet"] .viewer .sv-btn:not(.sv-btn-strong),
+html[data-look="quiet"].fx-viewer.fx-mat-glass .sv-top-right .sv-btn:not(.sv-btn-strong),
+html[data-look="quiet"].fx-viewer.fx-mat-glass #sv-back { color: var(--ink-2); text-shadow: none; }
+html[data-look="quiet"] .viewer .sv-btn:not(.sv-btn-strong):is(:hover, [aria-pressed="true"], [aria-expanded="true"]),
+html[data-look="quiet"] #sv-back:hover { color: var(--ink); }
+html[data-look="quiet"].fx-viewer .sv-top-right .sv-btn[aria-pressed="true"] { color: var(--ink); background: var(--gl-fill-hover); }
+html[data-look="quiet"].fx-viewer .sv-top-right .fx-glider { background: var(--gl-fill-hover); }
+html[data-look="quiet"].fx-viewer.fx-mat-glass .sv-btn-strong,
+html[data-look="quiet"] .viewer .sv-btn-strong { color: var(--paper); background: var(--ink); box-shadow: none; text-shadow: none; }
+html[data-look="quiet"].fx-viewer.fx-mat-glass .sv-btn-strong:hover,
+html[data-look="quiet"] .viewer .sv-btn-strong:hover { color: var(--paper); background: var(--ink); opacity: .86; }
+html[data-look="quiet"].fx-viewer.fx-mat-glass #sv-back:hover,
+html[data-look="quiet"].fx-viewer.fx-mat-glass .sv-edge:hover::before { background: var(--gl-bg-hover); }
+html[data-look="quiet"] .sv-zoom { color: var(--muted); }
+html[data-look="quiet"] .sv-edge { color: var(--ink-2); }
+html[data-look="quiet"] .sv-edge:hover .icon { color: var(--ink); }
+html[data-look="quiet"].fx-viewer .sv-edge:focus-visible::before { outline-color: var(--accent); }
+html[data-look="quiet"] .sv-cap-text p { color: var(--muted); }
+html[data-look="quiet"] .sv-pages button { border-radius: 4px; }
+html[data-look="quiet"] .sv-pages button[aria-current="true"] { border-color: var(--ink); }
+html[data-look="quiet"] :is(.sv-num, .sv-num small, .sv-count > small) { color: var(--muted); }
+html[data-look="quiet"].fx-popover.fx-mat-glass .sv-menu { color: var(--ink); }
+html[data-look="quiet"].fx-popover.fx-mat-glass :is(.sv-menu a:hover, .sv-menu button:hover) { background: var(--gl-fill-hover); }
+html[data-look="quiet"].fx-popover.fx-mat-glass .sv-menu .danger { color: var(--danger); }
+html[data-look="quiet"].fx-popover.fx-mat-glass .sv-menu a[aria-disabled="true"] { color: var(--faint); }
+html[data-look="quiet"].fx-popover.fx-mat-glass .sv-menu kbd { border-color: var(--gl-sep-strong); color: var(--muted); }
+
+/* ===================== 信息栏、编辑、对话框 ===================== */
+html[data-look="quiet"] .sv-info { color: var(--ink); background: var(--gd-bg-panel); -webkit-backdrop-filter: var(--gd-blur); backdrop-filter: var(--gd-blur); box-shadow: -1px 0 0 var(--gl-sep); }
+html[data-look="quiet"] .info-tags button { border: 0; border-radius: 8px; background: var(--gl-fill-hover); }
+html[data-look="quiet"] .sv-editor { background: var(--card); box-shadow: -1px 0 0 var(--line), -24px 0 48px -12px rgba(0, 0, 0, .16); }
+html[data-look="quiet"][data-mode="dark"] .sv-editor { box-shadow: -1px 0 0 var(--line), -24px 0 48px -12px rgba(0, 0, 0, .6); }
+html[data-look="quiet"] :is(.ed-field input, .ed-field textarea, .ed-picker) { border-color: transparent; border-radius: 8px; background: var(--paper); }
+html[data-look="quiet"] .ed-picker:hover { border-color: var(--line); }
+html[data-look="quiet"] :is(.ed-field input, .ed-field textarea):focus { border-color: var(--accent); background: var(--card); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+html[data-look="quiet"] :is(.ed-tag, .ed-tag-add) { border-radius: 8px; }
+html[data-look="quiet"] .ed-dirty { border-radius: 6px; color: var(--ink-2); background: var(--paper-2); }
+html[data-look="quiet"] .sheet { border-radius: 16px; background: var(--card); box-shadow: 0 0 0 1px var(--line), 0 30px 70px -24px rgba(0, 0, 0, .3); }
+html[data-look="quiet"][data-mode="dark"] .sheet { box-shadow: 0 0 0 1px var(--line), 0 30px 70px -20px rgba(0, 0, 0, .8); }
+html[data-look="quiet"] .sheet-backdrop { background: rgba(0, 0, 0, .3); }
+html[data-look="quiet"][data-mode="dark"] .sheet-backdrop { background: rgba(0, 0, 0, .55); }
+html[data-look="quiet"] .dropzone { border-color: var(--line); background: var(--paper); }
+html[data-look="quiet"] .dropzone.is-over, html[data-look="quiet"] .drag-hint .dropzone { border-color: var(--accent); background: var(--accent-soft); }
+
+/* 紧凑密度的悬停说明压在图片上：文字始终是白色，压过上面悬停与作者名的配色 */
+html[data-look="quiet"].fx-wall .compact .piece :is(.piece-title, .piece-author, .piece-author:hover) { color: #fff; }

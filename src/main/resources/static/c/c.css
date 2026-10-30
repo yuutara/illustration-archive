@@ -1,4 +1,4 @@
-/* C 图库 · 页面专属样式：载入状态、未接入入口、看图器提示（配色来自 theme-paper.css 的令牌） */
+/* C 图库 · 页面专属样式：载入状态、未接入入口、看图器提示（配色来自 theme-quiet.css 的令牌） */
 
 /* 未接入的入口：保留位置、明显变淡，悬停显示原因 */
 button:disabled[data-not-yet], .piece-edit:disabled { cursor: not-allowed; opacity: .45; }
@@ -10,10 +10,10 @@ button:disabled[data-not-yet], .piece-edit:disabled { cursor: not-allowed; opaci
 .mast-actions { display: flex; align-items: center; gap: 8px; justify-self: end; }
 .mast-link { padding: 0 6px; color: var(--muted); font-size: 13px; text-decoration: none; white-space: nowrap; }
 .mast-link:hover { color: var(--accent-text, var(--accent)); text-decoration: underline; text-underline-offset: 3px; }
-.preview-badge { margin-left: 2px; padding: 2px 7px; border-radius: 6px; color: var(--accent-text, var(--accent)); background: var(--accent-soft); font: 500 11px/1.4 var(--sans); letter-spacing: .04em; align-self: center; }
+.preview-badge { color: var(--faint); font: 400 12px/1 var(--sans); }
 
 /* 搜索框：右侧“/”提示，有内容时换成清除按钮 */
-.omni-key { min-width: 20px; height: 20px; padding: 0 5px; border: 1px solid var(--line); border-radius: 5px; color: var(--faint); font: 12px/18px var(--num); text-align: center; }
+.omni-key { min-width: 20px; height: 20px; padding: 0 5px; border: 1px solid var(--line); border-radius: 5px; color: var(--faint); font: 12px/18px var(--sans); text-align: center; }
 .omnibox:focus-within .omni-key, .omnibox.has-value .omni-key { display: none; }
 .omni-clear { display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%; color: var(--muted); background: none; }
 .omni-clear:hover { color: var(--ink); background: var(--paper-2); }
@@ -22,7 +22,7 @@ button:disabled[data-not-yet], .piece-edit:disabled { cursor: not-allowed; opaci
 /* 已选条件：同组之间写“或”，最后是结果数 */
 .fchip-label { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fjoin { color: var(--faint); font-size: 12px; }
-.result-count { margin-left: 4px; color: var(--muted); font: 13px var(--num); white-space: nowrap; }
+.result-count { margin-left: 4px; color: var(--muted); font-size: 13px; white-space: nowrap; }
 
 /* 作者 / 标签弹层（服务端候选，分页） */
 .pk-hint { margin: 0 4px 6px; color: var(--faint); font-size: 12px; }
@@ -73,13 +73,12 @@ button:disabled[data-not-yet], .piece-edit:disabled { cursor: not-allowed; opaci
 .imp-action:empty { display: none; }
 .imp-action .link { font-size: 13px; }
 .st-uploading { color: var(--ink-2); }
-.st-unknown { color: var(--danger); font-weight: 500; }
-html[data-mode="dark"] .st-duplicate { color: #d9b26a; }
+.st-unknown { color: var(--danger); font-weight: 600; }
 .import-list li.is-uploading .thumb { animation: c-pulse 1.1s ease-in-out infinite alternate; }
 @keyframes c-pulse { from { opacity: 1; } to { opacity: .45; } }
 .import-bar { height: 3px; margin: 14px 0 0; border-radius: 2px; background: var(--paper-2); overflow: hidden; }
 .import-bar span { display: block; height: 100%; width: 0; border-radius: inherit; background: var(--accent); transition: width .25s ease; }
-.import-notice { margin-top: 12px; padding: 10px 12px; border-radius: 10px; color: var(--ink-2); background: var(--paper-2); font-size: 13px; }
+.import-notice { margin-top: 12px; padding: 10px 12px; border-radius: 8px; color: var(--ink-2); background: var(--paper-2); font-size: 13px; }
 .import-notice p { margin: 0; }
 .import-notice p + p { margin-top: 6px; }
 .import-notice .link { font-size: 13px; }
@@ -93,7 +92,7 @@ html[data-mode="dark"] .st-duplicate { color: #d9b26a; }
 .sv-editor { z-index: 4; }
 .ed-fields { display: flex; flex-direction: column; gap: 18px; min-width: 0; margin: 0; padding: 0; border: 0; }
 .ed-fields:disabled { opacity: .55; }
-.ed-status { margin: 0; padding: 10px 12px; border-radius: 10px; color: var(--muted); background: var(--paper-2); font-size: 13px; }
+.ed-status { margin: 0; padding: 10px 12px; border-radius: 8px; color: var(--muted); background: var(--paper-2); font-size: 13px; }
 .ed-status.is-loading::before { content: ""; display: inline-block; width: 11px; height: 11px; margin-right: 8px; border: 1.5px solid var(--line); border-top-color: var(--accent); border-radius: 50%; vertical-align: -1px; animation: c-spin .8s linear infinite; }
 .ed-status.is-error { color: var(--danger); }
 .ed-status .link { font-size: 13px; }
@@ -102,13 +101,8 @@ html[data-mode="dark"] .st-duplicate { color: #d9b26a; }
 .ed-picker > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ed-clear { flex: none; height: 40px; padding: 0 10px; border: 0; border-radius: 8px; color: var(--muted); background: none; font-size: 13px; }
 .ed-clear:hover { color: var(--ink); background: var(--paper-2); }
-.ed-error { margin: 0 28px; padding: 10px 12px; border-radius: 10px; color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); font-size: 13px; }
+.ed-error { margin: 0 28px; padding: 10px 12px; border-radius: 8px; color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); font-size: 13px; }
 .ed-actions .btn:disabled { cursor: not-allowed; opacity: .5; }
-
-/* 放弃修改的确认按钮：暖纸主题的 .btn 会盖掉 .btn-danger 的底色，这里按主题补回 */
-html[data-look="paper"] .btn-danger { border-color: var(--danger); color: #fff; background: var(--danger); }
-html[data-look="paper"] .btn-danger:hover { filter: brightness(.94); }
-html[data-look="paper"][data-mode="dark"] .btn-danger { color: #1a1918; }
 
 /*
  * 单件删除的确认框：先让人认出是哪一件（封面、名称、图片数），再说清后果。
@@ -132,11 +126,11 @@ html[data-look="paper"][data-mode="dark"] .btn-danger { color: #1a1918; }
 .del-cover.is-stack::after { transform: translate(9px, -8px) rotate(8deg); opacity: .7; }
 .del-work-text { min-width: 0; }
 .sheet-small .del-work p { margin: 0; }
-.sheet-small .del-name { display: -webkit-box; overflow: hidden; color: var(--ink); font: 400 17px/1.35 var(--serif); -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.sheet-small .del-name { display: -webkit-box; overflow: hidden; color: var(--ink); font: 600 14px/1.4 var(--sans); -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
 .sheet-small .del-meta { margin-top: 4px; color: var(--muted); font-size: 13px; }
 .sheet-small .del-text { margin-top: 16px; color: var(--ink-2, var(--ink)); }
 .sheet-small .del-draft { margin-top: 8px; color: var(--accent-text, var(--accent)); font-size: 13px; }
-.sheet-small .del-status { margin-top: 14px; padding: 10px 12px; border-radius: 10px; font-size: 13px; }
+.sheet-small .del-status { margin-top: 14px; padding: 10px 12px; border-radius: 8px; font-size: 13px; }
 .del-status.is-error { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
 .del-status.is-unknown { color: var(--ink); background: var(--paper-2); box-shadow: inset 0 0 0 1px var(--line); }
 #delete-confirm[aria-busy="true"] .btn:disabled { cursor: progress; }
@@ -155,7 +149,7 @@ html[data-look="paper"][data-mode="dark"] .btn-danger { color: #1a1918; }
 .sv-menu #sv-delete::before { content: ""; position: absolute; top: -4px; left: 10px; right: 10px; height: 1px; background: var(--line); }
 
 /* 看图器：信息里的作者和标签可以点，回到图库只看它 */
-.info-author { margin: 0; font: 500 16px var(--serif); text-align: left; }
+.info-author { margin: 0; font: 600 16px/1.4 var(--display); text-align: left; }
 .sv-menu a[aria-disabled="true"] { pointer-events: none; }
 .sv-menu button:disabled { color: var(--faint); cursor: not-allowed; }
 .sv-notice {

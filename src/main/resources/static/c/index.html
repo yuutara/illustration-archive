@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN" data-look="paper" data-mode="light">
+<html lang="zh-CN" data-look="quiet" data-mode="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,7 +9,7 @@
     <title>插画档案 · 新版图库（预览）</title>
     <link rel="stylesheet" href="gallery.css">
     <link rel="stylesheet" href="fx.css">
-    <link rel="stylesheet" href="theme-paper.css">
+    <link rel="stylesheet" href="theme-quiet.css">
     <link rel="stylesheet" href="c.css">
     <script src="theme-mode.js"></script>
     <script src="archive-client.js" defer></script>
@@ -22,7 +22,7 @@
 </head>
 <body>
 <header class="masthead" id="masthead">
-    <a class="wordmark" href="/c/" title="新版图库">插画档案<span>Illustration Archive</span><em class="preview-badge">预览</em></a>
+    <a class="wordmark" href="/c/" title="新版图库">插画档案<small class="preview-badge">预览</small></a>
     <div class="omnibox" id="omnibox" role="search">
         <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
         <label class="visually-hidden" for="q">搜索作品</label>
@@ -45,16 +45,16 @@
 <div class="filterbar">
     <nav class="scopes" aria-label="范围">
         <button type="button" data-scope="all" aria-current="true">全部<sup id="count-all"></sup></button>
-        <button type="button" data-scope="recent" disabled title="“最近导入”需要新的查询参数，列为后续事项">最近导入</button>
-        <button type="button" data-scope="untidy" disabled title="“待整理”需要新的查询参数，列为后续事项">待整理</button>
+        <button type="button" data-scope="recent" hidden disabled title="“最近导入”需要新的查询参数，列为后续事项">最近导入</button>
+        <button type="button" data-scope="untidy" hidden disabled title="“待整理”需要新的查询参数，列为后续事项">待整理</button>
     </nav>
     <div class="active-filters" id="active-filters" aria-live="polite"></div>
     <div class="filter-tools">
         <button class="text-btn" id="author-filter" type="button" aria-haspopup="dialog" aria-expanded="false" title="按作者筛选，可多选">作者 <span class="caret">▾</span></button>
         <button class="text-btn" id="tag-filter" type="button" aria-haspopup="dialog" aria-expanded="false" title="按标签筛选，可多选">标签 <span class="caret">▾</span></button>
-        <span class="sep" aria-hidden="true"></span>
-        <button class="text-btn" id="select-toggle" type="button" aria-pressed="false" data-not-yet="批量整理尚未接入新版图库">选择</button>
-        <label class="text-select" title="其他排序方式需要新的查询参数，列为后续事项">
+        <span class="sep" aria-hidden="true" hidden></span>
+        <button class="text-btn" id="select-toggle" type="button" aria-pressed="false" hidden data-not-yet="批量整理尚未接入新版图库">选择</button>
+        <label class="text-select" title="其他排序方式需要新的查询参数，列为后续事项" hidden>
             <span class="visually-hidden">排序</span>
             <select id="sort" disabled>
                 <option value="newest">最新导入</option>

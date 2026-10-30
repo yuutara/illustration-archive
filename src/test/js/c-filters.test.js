@@ -87,6 +87,7 @@ function setup({ search = "" } = {}) {
     const document = {
         activeElement: null,
         body: new Node("body"),
+        documentElement: { clientWidth: 1200 },
         getElementById: (id) => ids[id],
         createElement: (tag) => new Node(tag),
         addEventListener() {},

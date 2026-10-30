@@ -611,7 +611,7 @@
     const wallWrap = document.querySelector('.wall-wrap');
     const SLOP = 6;
     const PULL_X = 140, PULL_Y = 50, RUBBER = 0.55;
-    const LAYER_BASE = { 1: { x: 4, y: -4, r: 2 }, 2: { x: 8, y: -8, r: 4 } };
+    const LAYER_BASE = { 1: { x: 1, y: -5, r: .8 }, 2: { x: 2, y: -9, r: 1.6 } };
     const ZERO = { ox: 0, oy: 0, rot: 0, lift: 0, s: 0 };
     const pulls = new Map();
     let gesture = null;
@@ -726,7 +726,7 @@
     const decks = new Map();
     const SWIPE_COMMIT = 0.28, SWIPE_FLICK = 0.5, BLEND_MS = 200;
     // 换牌时用悬停展开后的叠卡位置：拖动时指针就在卡上，落定后与 CSS 的悬停状态一致，不会抖一下
-    const SLOTS = [{ x: 0, y: 0, r: 0 }, { x: 6, y: -7, r: 3.2 }, { x: 12, y: -13, r: 6.4 }];
+    const SLOTS = [{ x: 0, y: 0, r: 0 }, { x: 2, y: -8, r: 1.2 }, { x: 3, y: -14, r: 2.4 }];
     const mod = (a, n) => ((a % n) + n) % n;
     const workOfFig = (fig) => window.Archive.get(Number(fig.dataset.id));
     // 第几张（0 为顶牌）：按排列方向从当前页数过去

@@ -162,7 +162,7 @@ class DesktopServerIntegrationTest {
 	void cGalleryIsServedBehindTheLaunchSessionAndReadsAPagedMultiPageLibraryAcrossRestart() throws Exception {
 		DesktopServer.Running first = start();
 		List<String> pageFiles = List.of("/c/", "/c/archive-client.js", "/c/c-gallery.js", "/c/c-filters.js", "/c/c-editor.js", "/c/c-import.js", "/c/c-delete.js", "/c/fx.js", "/c/theme-mode.js",
-				"/c/gallery.css", "/c/fx.css", "/c/theme-paper.css", "/c/c.css");
+				"/c/gallery.css", "/c/fx.css", "/c/theme-quiet.css", "/c/c.css");
 		for (String path : pageFiles) {
 			assertEquals(403, send(first, null, get(first, path)).statusCode(), path + " must need the launch session");
 		}

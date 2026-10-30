@@ -212,7 +212,7 @@
         const w = p.root.offsetWidth, h = p.root.offsetHeight;
         let top = r.bottom + 6;
         if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 6);
-        p.root.style.left = Math.max(8, Math.min(r.left, window.innerWidth - w - 8)) + 'px';
+        p.root.style.left = Math.max(8, Math.min(r.left, document.documentElement.clientWidth - w - 8)) + 'px';
         p.root.style.top = top + 'px';
     }
 
