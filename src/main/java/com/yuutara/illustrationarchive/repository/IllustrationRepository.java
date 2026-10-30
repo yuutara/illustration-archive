@@ -105,11 +105,12 @@ public class IllustrationRepository {
 	}
 
 	public long count(IllustrationGalleryQuery query) {
-		return galleryMapper.count(query.authorIds(), query.tagIds(), likePattern(query.q()));
+		return galleryMapper.count(query.authorIds(), query.tagIds(), query.untagged(), likePattern(query.q()));
 	}
 
 	public List<IllustrationGalleryItem> findGalleryPage(IllustrationGalleryQuery query, int size, long offset) {
-		return galleryMapper.findPage(query.authorIds(), query.tagIds(), likePattern(query.q()), size, offset);
+		return galleryMapper.findPage(query.authorIds(), query.tagIds(), query.untagged(), likePattern(query.q()),
+				query.sort().name(), size, offset);
 	}
 
 	/** Works without assets are absent from the map; callers default to an empty list. */

@@ -44,22 +44,16 @@
 
 <div class="filterbar">
     <nav class="scopes" aria-label="范围">
-        <button type="button" data-scope="all" aria-current="true">全部<sup id="count-all"></sup></button>
-        <button type="button" data-scope="recent" hidden disabled title="“最近导入”需要新的查询参数，列为后续事项">最近导入</button>
-        <button type="button" data-scope="untidy" hidden disabled title="“待整理”需要新的查询参数，列为后续事项">待整理</button>
+        <button type="button" id="scope-all" aria-current="true">全部<sup id="count-all"></sup></button>
+        <button type="button" id="scope-untagged" title="只看还没有任何标签的作品">未打标签<sup id="count-untagged"></sup></button>
     </nav>
     <div class="active-filters" id="active-filters" aria-live="polite"></div>
     <div class="filter-tools">
         <button class="text-btn" id="author-filter" type="button" aria-haspopup="dialog" aria-expanded="false" title="按作者筛选，可多选">作者 <span class="caret">▾</span></button>
         <button class="text-btn" id="tag-filter" type="button" aria-haspopup="dialog" aria-expanded="false" title="按标签筛选，可多选">标签 <span class="caret">▾</span></button>
-        <span class="sep" aria-hidden="true" hidden></span>
+        <span class="sep" aria-hidden="true"></span>
         <button class="text-btn" id="select-toggle" type="button" aria-pressed="false" hidden data-not-yet="批量整理尚未接入新版图库">选择</button>
-        <label class="text-select" title="其他排序方式需要新的查询参数，列为后续事项" hidden>
-            <span class="visually-hidden">排序</span>
-            <select id="sort" disabled>
-                <option value="newest">最新导入</option>
-            </select>
-        </label>
+        <button class="text-btn" id="sort-toggle" type="button" aria-haspopup="menu" aria-expanded="false" title="排序方式">最新归档 <span class="caret">▾</span></button>
         <div class="density" role="group" aria-label="排列密度">
             <button type="button" data-density="roomy" aria-pressed="true" title="舒展">
                 <svg class="icon" aria-hidden="true"><use href="#i-roomy"/></svg>
@@ -80,7 +74,7 @@
         <button class="btn btn-ink" id="empty-import" type="button">导入作品</button>
     </div>
     <div class="empty" id="no-match" hidden>
-        <p class="empty-title">没有符合条件的作品</p>
+        <p class="empty-title" id="no-match-title">没有符合条件的作品</p>
         <p id="no-match-text">换个关键词，或去掉一些条件试试。</p>
         <button class="btn" id="no-match-clear" type="button">清除全部条件</button>
     </div>

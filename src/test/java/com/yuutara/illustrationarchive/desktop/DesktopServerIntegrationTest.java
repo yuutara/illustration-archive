@@ -287,6 +287,24 @@ class DesktopServerIntegrationTest {
 			assertEquals(byAmamiya, pagesOfFour(running, cookie, filter, byAmamiya.size(), handle), handle);
 		}
 
+		// Untagged combined with an author and with sorts, over HTTP and across pages of 4.
+		java.util.Set<Long> untagged = new java.util.TreeSet<>();
+		tagsOf.forEach((id, tags) -> { if (tags.isEmpty()) untagged.add(id); });
+		java.util.Set<Long> untaggedByAmamiya = new java.util.TreeSet<>(untagged);
+		untaggedByAmamiya.retainAll(byAmamiya);
+		assertTrue(untagged.size() > 4, "the untagged case spans pages of 4");
+		assertEquals(untagged, pagesOfFour(running, cookie, "&untagged=true", untagged.size(), "untagged"));
+		assertEquals(untaggedByAmamiya, pagesOfFour(running, cookie, "&untagged=true&authorId=" + amamiya,
+				untaggedByAmamiya.size(), "untagged by author"));
+		for (String sort : List.of("newest", "oldest", "title", "author")) {
+			assertEquals(new java.util.TreeSet<>(text.keySet()),
+					pagesOfFour(running, cookie, "&sort=" + sort, text.size(), sort), sort);
+		}
+		assertEquals(400, send(running, cookie, get(running, "/api/illustrations?sort=size")).statusCode());
+		var echoed = mapper.readTree(send(running, cookie, get(running, "/api/illustrations?size=1&untagged=true&sort=TITLE")).body()).get("filters");
+		assertTrue(echoed.get("untagged").asBoolean());
+		assertEquals("title", echoed.get("sort").asString());
+
 		var filters = mapper.readTree(send(running, cookie, get(running, "/api/illustrations?size=1&authorId=" + amamiya
 				+ "&authorId=" + lumen + "&tagId=999999")).body()).get("filters");
 		assertEquals(java.util.Set.of("雨宫ゆき", "Lumen Kiln"), names(filters.get("authors"), "displayName"),

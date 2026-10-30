@@ -38,7 +38,8 @@
 
 	<!--
 	  Shared by count and page so both always filter identically. Authors are OR-ed, tags are OR-ed, and the
-	  author, tag and keyword groups are AND-ed. Tags use EXISTS so a work matching several tags stays one row.
+	  author, tag, untagged and keyword groups are AND-ed. Tags use EXISTS so a work matching several tags stays
+	  one row. Untagged together with tag ids matches nothing; the page never sends both.
 	-->
 	<sql id="galleryFilter">
 		<where>
@@ -50,6 +51,9 @@
 				AND EXISTS (SELECT 1 FROM illustration_tag selected_tag
 					WHERE selected_tag.illustration_id = i.id AND selected_tag.tag_id IN
 					<foreach collection="tagIds" item="tagId" open="(" separator=", " close=")">#{tagId}</foreach>)
+			</if>
+			<if test="untagged">
+				AND NOT EXISTS (SELECT 1 FROM illustration_tag any_tag WHERE any_tag.illustration_id = i.id)
 			</if>
 			<if test="pattern != null">
 				<!-- The concatenated handle does not inherit H2's IGNORECASE, so both sides are lowered. -->
@@ -69,7 +73,11 @@
 		<include refid="galleryFilter"/>
 	</select>
 
-	<!-- Newest import first; id breaks created_at ties so pages neither skip nor repeat. -->
+	<!--
+	  Every order ends on i.id, which is unique, so pages neither skip nor repeat. Works without a title or an
+	  author always come last, in either database. Title and author order follow the database collation:
+	  case-insensitive in both, but CJK order can differ between MySQL and H2.
+	-->
 	<select id="findPage" resultMap="galleryItem">
 		SELECT
 			i.id AS illustration_id,
@@ -91,7 +99,18 @@
 			LIMIT 1
 		)
 		<include refid="galleryFilter"/>
-		ORDER BY i.created_at DESC, i.id DESC
+		<choose>
+			<when test="sort == 'OLDEST'">ORDER BY i.created_at ASC, i.id ASC</when>
+			<when test="sort == 'TITLE'">
+				ORDER BY CASE WHEN i.title IS NULL OR TRIM(i.title) = '' THEN 1 ELSE 0 END,
+					CASE WHEN TRIM(i.title) = '' THEN NULL ELSE i.title END ASC, i.created_at DESC, i.id DESC
+			</when>
+			<when test="sort == 'AUTHOR'">
+				ORDER BY CASE WHEN a.id IS NULL THEN 1 ELSE 0 END, a.display_name ASC, a.id ASC,
+					i.created_at DESC, i.id DESC
+			</when>
+			<otherwise>ORDER BY i.created_at DESC, i.id DESC</otherwise>
+		</choose>
 		LIMIT #{size} OFFSET #{offset}
 	</select>
 

@@ -1,8 +1,9 @@
 /*
- * C 图库 · 搜索与作者 / 标签筛选，以及编辑器复用的候选弹层
+ * C 图库 · 搜索、作者 / 标签筛选、“未打标签”与排序，以及编辑器复用的候选弹层
  *
- * 条件只有三组：关键词、作者（可多选）、标签（可多选）。作者之间、标签之间是“或”，三组之间是“且”，
- * 全部交给服务端在整个图库上筛选（archive-client.js 的 setQuery），不在已载入的作品里过滤。
+ * 条件分四组：关键词、作者（可多选）、标签（可多选）、未打标签。作者之间、标签之间是“或”，组与组之间是“且”，
+ * 全部交给服务端在整个图库上筛选和排序（archive-client.js 的 setQuery），不在已载入的作品里处理。
+ * “未打标签”和选定标签互斥。排序不算条件：清除条件时保留。
  *
  * - 搜索框边输入边搜索（停顿 300ms）；中文输入法拼写、选词期间不搜索，选词用的 Enter / Esc 也不当作命令。
  * - 作者 / 标签弹层向服务端按关键词搜索候选，滚到底继续往下翻，找得到前 20 条之外的项。
@@ -26,6 +27,13 @@
         author: { label: '作者', key: 'authorIds', button: 'author-filter', placeholder: '搜索作者名或 @账号', hint: '可多选：满足其中任一位作者即可' },
         tag: { label: '标签', key: 'tagIds', button: 'tag-filter', placeholder: '搜索标签', hint: '可多选：带有其中任一个标签即可' }
     };
+
+    const SORTS = [
+        ['newest', '最新归档', '最近进入图库的排在最前'],
+        ['oldest', '最早归档', '最早进入图库的排在最前'],
+        ['title', '标题 A–Z', '没有标题的作品排在最后'],
+        ['author', '作者 A–Z', '同一作者排在一起，没有作者的排在最后']
+    ];
 
     /* ---------------- 条件与名称 ---------------- */
 
@@ -92,13 +100,16 @@
         apply({ [KINDS[kind].key]: [item.id] });
     }
 
-    function clearAll() {
+    function clearAll(extra = {}) {
         clearTimeout(searchTimer);
         input.value = '';
         syncSearchBox();
         closePicker();
-        apply({ q: '', authorIds: [], tagIds: [] });
+        apply({ q: '', authorIds: [], tagIds: [], untagged: false, ...extra });
     }
+
+    // 回到能看到最新作品的状态：清除全部条件，并换回默认排序
+    const showNewest = () => clearAll({ sort: 'newest' });
 
     function syncUrl() {
         const url = location.pathname + A.searchOf(A.query()) + location.hash;
@@ -201,7 +212,98 @@
             b.classList.toggle('has-value', n > 0);
             b.firstChild.textContent = n ? `${cfg.label} · ${n} ` : `${cfg.label} `;
         });
+        if (q.untagged) {
+            $('scope-all').removeAttribute('aria-current');
+            $('scope-untagged').setAttribute('aria-current', 'true');
+        } else {
+            $('scope-untagged').removeAttribute('aria-current');
+            $('scope-all').setAttribute('aria-current', 'true');
+        }
+        const sort = $('sort-toggle');
+        sort.classList.toggle('has-value', q.sort !== 'newest');
+        sort.firstChild.textContent = SORTS.find(([value]) => value === q.sort)[1] + ' ';
     }
+
+    /* ---------------- 范围：全部 / 未打标签 ---------------- */
+
+    $('scope-all').addEventListener('click', () => apply({ untagged: false }));
+    $('scope-untagged').addEventListener('click', () => apply({ untagged: true, tagIds: [] }));
+
+    // 标签页旁的数字：整个图库还有多少件待打标签，读不到时留空
+    let countRequest = 0;
+    function refreshUntaggedCount() {
+        const mine = ++countRequest;
+        A.untaggedCount()
+            .then((n) => { if (mine === countRequest) $('count-untagged').textContent = String(n); })
+            .catch(() => { if (mine === countRequest) $('count-untagged').textContent = ''; });
+    }
+
+    /* ---------------- 排序菜单 ---------------- */
+
+    let sortMenu = null;
+
+    function closeSortMenu(restoreFocus = false) {
+        if (!sortMenu) return;
+        const m = sortMenu;
+        sortMenu = null;
+        document.removeEventListener('mousedown', m.onOutside, true);
+        m.root.remove();
+        m.anchor.setAttribute('aria-expanded', 'false');
+        if (restoreFocus) m.anchor.focus();
+    }
+
+    function openSortMenu() {
+        if (sortMenu) { closeSortMenu(); return; }
+        closePicker();
+        const anchor = $('sort-toggle');
+        const root = el('div', 'pk pk-menu');
+        root.setAttribute('role', 'menu');
+        root.setAttribute('aria-label', '排序方式');
+        const current = A.query().sort;
+        const m = { anchor, root, items: [], active: 0 };
+        const activate = (i) => {
+            m.active = i;
+            m.items.forEach((item, n) => item.classList.toggle('is-active', n === i));
+            m.items[i].focus();
+        };
+        SORTS.forEach(([value, label, hint], i) => {
+            const item = el('button', 'pk-item');
+            item.type = 'button';
+            item.title = hint;
+            item.setAttribute('role', 'menuitemradio');
+            item.setAttribute('aria-checked', String(value === current));
+            item.classList.toggle('is-selected', value === current);
+            item.innerHTML = '<span class="pk-check" aria-hidden="true"></span><span class="pk-label"></span>';
+            item.querySelector('.pk-label').textContent = label;
+            item.addEventListener('mousemove', () => { if (m.active !== i) activate(i); });
+            item.addEventListener('click', () => {
+                closeSortMenu(true);
+                apply({ sort: value });
+            });
+            root.appendChild(item);
+            m.items.push(item);
+        });
+        // 焦点在菜单里时方向键、Esc 只归菜单，不落到作品墙
+        root.addEventListener('keydown', (e) => {
+            e.stopPropagation();
+            const last = m.items.length - 1;
+            if (e.key === 'ArrowDown') { e.preventDefault(); activate(m.active === last ? 0 : m.active + 1); }
+            else if (e.key === 'ArrowUp') { e.preventDefault(); activate(m.active === 0 ? last : m.active - 1); }
+            else if (e.key === 'Home') { e.preventDefault(); activate(0); }
+            else if (e.key === 'End') { e.preventDefault(); activate(last); }
+            else if (e.key === 'Escape') { e.preventDefault(); closeSortMenu(true); }
+            else if (e.key === 'Tab') closeSortMenu();
+        });
+        m.onOutside = (e) => { if (!root.contains(e.target) && !anchor.contains(e.target)) closeSortMenu(); };
+        document.addEventListener('mousedown', m.onOutside, true);
+        sortMenu = m;
+        document.body.appendChild(root);
+        anchor.setAttribute('aria-expanded', 'true');
+        position(m);
+        activate(Math.max(0, SORTS.findIndex(([value]) => value === current)));
+    }
+
+    $('sort-toggle').addEventListener('click', openSortMenu);
 
     /* ---------------- 作者 / 标签弹层 ---------------- */
 
@@ -239,6 +341,7 @@
         const anchor = options.anchor || $(cfg.button);
         if (picker && picker.anchor === anchor) { closePicker(); return; }
         closePicker();
+        closeSortMenu();
         const root = el('div', 'pk');
         root.setAttribute('role', 'dialog');
         root.setAttribute('aria-label', options.title || `按${cfg.label}筛选`);
@@ -420,8 +523,9 @@
     Object.keys(KINDS).forEach((kind) => {
         $(KINDS[kind].button).addEventListener('click', () => openPicker(kind));
     });
-    window.addEventListener('resize', () => { if (picker) position(picker); });
-    window.addEventListener('scroll', () => { if (picker) position(picker); }, { passive: true });
+    const reposition = () => { [picker, sortMenu].forEach((open) => { if (open) position(open); }); };
+    window.addEventListener('resize', reposition);
+    window.addEventListener('scroll', reposition, { passive: true });
 
     /* ---------------- 跟随查询 ---------------- */
 
@@ -440,6 +544,8 @@
             if (picker) renderPicker(picker);
         } else if (event.type === 'error') {
             renderSummary();
+        } else if (event.type === 'updated' || event.type === 'refresh' || event.type === 'removed') {
+            refreshUntaggedCount();
         } else if (event.type === 'blocked') {
             // 数据层拒绝了换查询（有未保存的编辑或正在保存）：条件不变，搜索框回到当前条件
             restoreSearchBox();
@@ -450,9 +556,10 @@
     input.value = A.query().q;
     syncSearchBox();
     renderSummary();
+    refreshUntaggedCount();
 
     window.CFilters = {
-        only, clearAll, renderSummary, closePicker, openPicker, learn, nameOf, cancelPendingSearch,
+        only, clearAll, showNewest, renderSummary, closePicker, openPicker, learn, nameOf, cancelPendingSearch,
         known: (kind, id) => names[kind].get(id) || null,
         isPickerOpen: () => !!picker
     };

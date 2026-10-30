@@ -4,6 +4,7 @@ import com.yuutara.illustrationarchive.dto.AuthorSummary;
 import com.yuutara.illustrationarchive.dto.GalleryAsset;
 import com.yuutara.illustrationarchive.dto.IllustrationGalleryItem;
 import com.yuutara.illustrationarchive.dto.IllustrationGalleryQuery;
+import com.yuutara.illustrationarchive.dto.IllustrationGallerySort;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -40,6 +41,7 @@ abstract class IllustrationGalleryReadContract {
 	private static final List<Long> ALL = List.of(9L, 8L, 2L, 7L, 6L, 5L, 4L, 3L, 1L);
 
 	private IllustrationRepository repository;
+	private JdbcTemplate jdbc;
 
 	/** A migrated, empty database reserved for this test class. */
 	protected abstract DataSource openDatabase() throws Exception;
@@ -54,7 +56,7 @@ abstract class IllustrationGalleryReadContract {
 	@BeforeAll
 	void seed() throws Exception {
 		DataSource dataSource = openDatabase();
-		JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+		jdbc = new JdbcTemplate(dataSource);
 		jdbc.update("INSERT INTO author (id, display_name, x_username) VALUES (1, 'Same artist', 'same_a'),"
 				+ " (2, 'Same artist', 'Same_B'), (3, 'Mori 森', NULL)");
 		jdbc.update("INSERT INTO tag (id, name) VALUES (1, '探索风景'), (2, '探索旅行'), (3, '100%_!'), (4, 'unused')");
@@ -171,6 +173,89 @@ abstract class IllustrationGalleryReadContract {
 		assertPaged(ids(null, List.of(), List.of(1L, 2L)), 3, List.of(9L, 2L, 3L, 1L));
 		assertTrue(repository.findGalleryPage(q(null), 5, 9).isEmpty());
 		assertTrue(repository.findGalleryPage(q(null), 5, 100).isEmpty());
+	}
+
+	private static IllustrationGalleryQuery sorted(String q, List<Long> authorIds, List<Long> tagIds, boolean untagged,
+			IllustrationGallerySort sort) {
+		return IllustrationGalleryQuery.withIds(q, authorIds, tagIds, untagged, sort);
+	}
+
+	private static IllustrationGalleryQuery sorted(IllustrationGallerySort sort) {
+		return sorted(null, List.of(), List.of(), false, sort);
+	}
+
+	@Test
+	void untaggedFindsExactlyTheWorksWithoutAnyTagAndCombinesWithTheOtherFilters() {
+		IllustrationGalleryQuery untagged = sorted(null, List.of(), List.of(), true, null);
+		assertResult(untagged, List.of(8L, 7L, 6L, 4L));
+		assertResult(sorted(null, List.of(2L), List.of(), true, null), List.of(4L));
+		assertResult(sorted(null, List.of(1L), List.of(), true, null), List.of());
+		assertResult(sorted("bang", List.of(), List.of(), true, null), List.of(7L));
+		assertResult(sorted("夏日", List.of(), List.of(), true, null), List.of());
+		assertResult(sorted(null, List.of(3L), List.of(), true, IllustrationGallerySort.OLDEST), List.of(7L, 8L));
+		assertResult(sorted(null, List.of(), List.of(1L), true, null), List.of());
+		assertPaged(untagged, 3, List.of(8L, 7L, 6L, 4L));
+	}
+
+	@Test
+	void oldestIsTheExactReverseOfNewest() {
+		List<Long> oldest = new ArrayList<>(ALL);
+		java.util.Collections.reverse(oldest);
+		assertResult(sorted(IllustrationGallerySort.OLDEST), oldest);
+		assertResult(sorted(IllustrationGallerySort.NEWEST), ALL);
+		for (int size : List.of(1, 2, 4)) {
+			assertPaged(sorted(IllustrationGallerySort.OLDEST), size, oldest);
+		}
+	}
+
+	@Test
+	void titleOrderIgnoresLetterCaseAndKeepsUntitledWorksLast() {
+		List<Long> byTitle = List.of(4L, 3L, 5L, 6L, 7L, 9L, 1L, 2L, 8L);
+		assertResult(sorted(IllustrationGallerySort.TITLE), byTitle);
+		for (int size : List.of(1, 2, 4)) {
+			assertPaged(sorted(IllustrationGallerySort.TITLE), size, byTitle);
+		}
+		assertResult(sorted(null, List.of(3L), List.of(), false, IllustrationGallerySort.TITLE), List.of(7L, 8L));
+	}
+
+	@Test
+	void equalTitlesAndBlankTitlesStayInAStablePageOrder() {
+		work(jdbc, 21, "Twin", null, null, T2);
+		work(jdbc, 22, "twin", null, null, T2);
+		work(jdbc, 23, "Twin", null, null, T3);
+		work(jdbc, 24, "", null, null, T3);
+		work(jdbc, 25, "   ", null, null, T3);
+		try {
+			// Equal titles fall back to newest first, then id; blank titles count as untitled.
+			List<Long> expected = List.of(4L, 3L, 5L, 6L, 7L, 9L, 23L, 22L, 21L, 1L, 2L, 25L, 24L, 8L);
+			assertResult(sorted(IllustrationGallerySort.TITLE), expected);
+			for (int size : List.of(1, 3, 5)) {
+				assertPaged(sorted(IllustrationGallerySort.TITLE), size, expected);
+			}
+		} finally {
+			jdbc.update("DELETE FROM illustration WHERE id BETWEEN 21 AND 25");
+		}
+	}
+
+	@Test
+	void authorOrderGroupsEachAuthorAndKeepsWorksWithoutAnAuthorLast() {
+		// Authors 1 and 2 share a display name: they stay separate groups, each newest first.
+		List<Long> byAuthor = List.of(8L, 7L, 2L, 1L, 4L, 3L, 9L, 6L, 5L);
+		assertResult(sorted(IllustrationGallerySort.AUTHOR), byAuthor);
+		for (int size : List.of(1, 2, 4)) {
+			assertPaged(sorted(IllustrationGallerySort.AUTHOR), size, byAuthor);
+		}
+	}
+
+	@Test
+	void keywordAuthorTagFiltersKeepTheirMeaningUnderEverySort() {
+		for (IllustrationGallerySort sort : IllustrationGallerySort.values()) {
+			IllustrationGalleryQuery query = sorted("夏日", List.of(1L), List.of(1L), false, sort);
+			List<Long> found = repository.findGalleryPage(query, 100, 0).stream().map(IllustrationGalleryItem::id).toList();
+			assertEquals(java.util.Set.of(1L, 2L), new HashSet<>(found), sort.name());
+			assertEquals(2, repository.count(query), sort.name());
+		}
+		assertPaged(sorted(null, List.of(2L, 3L), List.of(), true, IllustrationGallerySort.TITLE), 1, List.of(4L, 7L, 8L));
 	}
 
 	private void assertPaged(IllustrationGalleryQuery query, int size, List<Long> expected) {

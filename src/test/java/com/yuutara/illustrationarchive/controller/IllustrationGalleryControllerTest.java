@@ -2,6 +2,7 @@ package com.yuutara.illustrationarchive.controller;
 
 import com.yuutara.illustrationarchive.dto.AuthorSummary;
 import com.yuutara.illustrationarchive.dto.IllustrationGalleryQuery;
+import com.yuutara.illustrationarchive.dto.IllustrationGallerySort;
 import com.yuutara.illustrationarchive.dto.IllustrationGalleryItem;
 import com.yuutara.illustrationarchive.dto.IllustrationGalleryPage;
 import com.yuutara.illustrationarchive.dto.GalleryAsset;
@@ -15,6 +16,7 @@ import java.util.List;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -114,6 +116,22 @@ class IllustrationGalleryControllerTest {
 		mvc.perform(get("/api/illustrations").param("q", "  夏日  ").param("authorId", "12").param("tagId", "7"))
 				.andExpect(status().isOk());
 		verify(service).getGallery(0, 24, query);
+	}
+
+	@Test
+	void bindsUntaggedAndSortAndRejectsUnknownValues() throws Exception {
+		var service = mock(IllustrationGalleryService.class);
+		var query = IllustrationGalleryQuery.withIds("夏日", List.of(12L), List.of(), true, IllustrationGallerySort.OLDEST);
+		when(service.getGallery(0, 24, query)).thenReturn(new IllustrationGalleryPage(0, 24, 0, 0, List.of(), null));
+		var mvc = MockMvcBuilders.standaloneSetup(new IllustrationGalleryController(service)).build();
+		mvc.perform(get("/api/illustrations").param("q", "夏日").param("authorId", "12")
+				.param("untagged", "true").param("sort", "oldest")).andExpect(status().isOk());
+		verify(service).getGallery(0, 24, query);
+
+		mvc.perform(get("/api/illustrations").param("sort", "created_at; DROP TABLE illustration"))
+				.andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+		mvc.perform(get("/api/illustrations").param("untagged", "maybe")).andExpect(status().isBadRequest());
+		verifyNoMoreInteractions(service);
 	}
 
 	@Test

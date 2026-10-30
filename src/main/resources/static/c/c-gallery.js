@@ -183,6 +183,12 @@
         const settledEmpty = total === 0 && !loading && !error;
         $('empty').hidden = !(settledEmpty && !filtered);
         $('no-match').hidden = !(settledEmpty && filtered);
+        // 只有“未打标签”这一个条件时，空结果是好消息，不是没找到
+        const query = A.query();
+        const allTagged = query.untagged && !query.q && !query.authorIds.length;
+        $('no-match-title').textContent = allTagged ? '所有作品都打好标签了' : '没有符合条件的作品';
+        $('no-match-text').textContent = allTagged ? '暂时没有需要整理的作品。' : '换个关键词，或去掉一些条件试试。';
+        $('no-match-clear').textContent = allTagged ? '回到全部作品' : '清除全部条件';
         const status = $('wall-status');
         const text = $('wall-status-text');
         const retry = $('wall-retry');
@@ -885,4 +891,6 @@
     renderWall();
     // 页面地址里带着条件（刷新、或从别处带条件打开）时直接按条件载入
     A.setQuery(A.queryFromSearch(location.search));
+    // 带着条件打开页面时，列表响应给不出全库总数，单独取一次；失败只影响“全部”旁的数字
+    if (A.isFiltered()) A.libraryCount().then((n) => { libraryTotal = n; renderStatus(); }).catch(() => {});
 })();

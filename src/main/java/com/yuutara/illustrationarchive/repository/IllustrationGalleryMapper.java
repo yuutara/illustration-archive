@@ -13,17 +13,19 @@ import java.util.List;
  *
  * <p>Filters arrive as plain parameters rather than the query record so the dynamic SQL tests only
  * lists and strings. An empty id list means "no filter on this group"; {@code pattern} is a ready LIKE
- * pattern escaped with {@code !}, or null for no keyword.
+ * pattern escaped with {@code !}, or null for no keyword; {@code sort} is a constant name of
+ * {@code IllustrationGallerySort}, which only selects one of the fixed ORDER BY clauses in the XML.
  */
 @Mapper
 public interface IllustrationGalleryMapper {
 
 	long count(@Param("authorIds") List<Long> authorIds, @Param("tagIds") List<Long> tagIds,
-			@Param("pattern") String pattern);
+			@Param("untagged") boolean untagged, @Param("pattern") String pattern);
 
 	/** Rows carry no page assets yet; the service attaches them from {@link #findAssets}. */
 	List<IllustrationGalleryItem> findPage(@Param("authorIds") List<Long> authorIds, @Param("tagIds") List<Long> tagIds,
-			@Param("pattern") String pattern, @Param("size") int size, @Param("offset") long offset);
+			@Param("untagged") boolean untagged, @Param("pattern") String pattern, @Param("sort") String sort,
+			@Param("size") int size, @Param("offset") long offset);
 
 	/** Assets of the given (non-empty) works, ordered by work, then sort order and id. */
 	List<AssetRow> findAssets(@Param("illustrationIds") List<Long> illustrationIds);

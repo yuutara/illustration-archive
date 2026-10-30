@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @Service
@@ -65,7 +66,8 @@ public class IllustrationGalleryService {
 				totalPages,
 				previewItems,
 				new IllustrationGalleryFilters(query.q(), query.authorId(), query.tagId(), author, tag,
-                        query.authorIds(), query.tagIds(), authors, tags)
+                        query.authorIds(), query.tagIds(), authors, tags, query.untagged(),
+                        query.sort().name().toLowerCase(Locale.ROOT))
 		);
 	}
 

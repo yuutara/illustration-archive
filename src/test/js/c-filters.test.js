@@ -38,6 +38,7 @@ class Node {
     appendChild(child) { child.parent = this; this.children.push(child); return child; }
     remove() { this.removed = true; }
     setAttribute(name, value) { this.attributes.set(name, String(value)); }
+    removeAttribute(name) { this.attributes.delete(name); }
     getAttribute(name) { return this.attributes.get(name) ?? null; }
     addEventListener(type, fn) { this.listeners.set(type, [...(this.listeners.get(type) || []), fn]); }
     removeEventListener() {}
@@ -77,13 +78,14 @@ const authorRows = (from, count) => Array.from({ length: count }, (_, i) => ({ i
 // 45 isolated fake authors: one full candidate page of 30, then 15 more
 const AUTHORS = authorRows(1, 45);
 
-function setup({ search = "" } = {}) {
+function setup({ search = "", untaggedCount = () => 7 } = {}) {
     const ids = {};
-    for (const id of ["q", "q-clear", "omnibox", "active-filters", "author-filter", "tag-filter"]) ids[id] = new Node("div", id);
+    for (const id of ["q", "q-clear", "omnibox", "active-filters", "author-filter", "tag-filter", "scope-all", "scope-untagged", "count-untagged", "sort-toggle"]) ids[id] = new Node("div", id);
     const timers = [];
     const requests = [];
     const location = { pathname: "/c/", search, hash: "" };
     const urls = [];
+    const counts = [];
     const document = {
         activeElement: null,
         body: new Node("body"),
@@ -98,6 +100,13 @@ function setup({ search = "" } = {}) {
         window, document, location, console, URLSearchParams, AbortController,
         history: { state: null, replaceState(_, __, url) { urls.push(url); location.search = url.slice(location.pathname.length); } },
         fetch: async (url) => {
+            // 标签页旁的数字是独立请求，与当前查询无关，不计入 requests
+            if (url.endsWith("&size=1&untagged=true")) {
+                counts.push(url);
+                const n = untaggedCount();
+                if (n instanceof Error) throw n;
+                return { ok: true, status: 200, json: async () => ({ page: 0, size: 1, totalElements: n, totalPages: 1, items: [], filters: null }) };
+            }
             requests.push(url);
             if (url.startsWith("/api/authors?")) {
                 const p = new URL(url, "http://localhost").searchParams;
@@ -118,7 +127,7 @@ function setup({ search = "" } = {}) {
     vm.runInContext(filtersSource, context);
     const runTimers = () => { const due = timers.splice(0); due.forEach((t) => t.fn && t.fn()); return due.filter((t) => t.fn).map((t) => t.ms); };
     const settle = () => new Promise((resolve) => setImmediate(resolve));
-    return { ids, requests, urls, runTimers, settle, document, window, Archive: window.Archive, CFilters: window.CFilters };
+    return { ids, requests, counts, urls, runTimers, settle, document, window, Archive: window.Archive, CFilters: window.CFilters };
 }
 
 const searchRequests = (requests) => requests.map((u) => new URL(u, "http://localhost").searchParams.get("q"));
@@ -262,7 +271,7 @@ test("when the gallery refuses to leave (继续编辑 or saving), search and chi
     await env.settle();
     assert.equal(asked.length, 2, "each change asks first");
     assert.equal(env.requests.length, before, "nothing was requested");
-    assert.deepEqual(JSON.parse(JSON.stringify(env.Archive.query())), { q: "sea", authorIds: [1], tagIds: [] });
+    assert.deepEqual(JSON.parse(JSON.stringify(env.Archive.query())), { q: "sea", authorIds: [1], tagIds: [], untagged: false, sort: "newest" });
     assert.equal(q.value, "sea", "the search box returns to the applied query");
 
     answer = true;
@@ -278,4 +287,130 @@ test("“only this author” replaces the author group and keeps the other condi
     env.CFilters.only("author", { id: 8, displayName: "Lumen Kiln", xUsername: "lumenkiln" });
     await env.settle();
     assert.equal(env.requests.at(-1), "/api/illustrations?page=0&size=30&q=sea&authorId=8&tagId=3");
+});
+
+/* ---------------- 未打标签与排序 ---------------- */
+
+const param = (url, name) => new URL(url, "http://localhost").searchParams.getAll(name);
+const sortItems = (env) => env.document.body.children.at(-1).children;
+const openSort = (env) => { env.ids["sort-toggle"].dispatch("click"); return sortItems(env); };
+
+test("the untagged scope filters on the server, shows in the address and survives a reload", async () => {
+    const env = setup();
+    await env.settle();
+    assert.equal(env.ids["scope-all"].getAttribute("aria-current"), "true");
+    env.ids["scope-untagged"].dispatch("click");
+    await env.settle();
+    assert.deepEqual(param(env.requests.at(-1), "untagged"), ["true"]);
+    assert.equal(env.urls.at(-1), "/c/?untagged=true");
+    assert.equal(env.ids["scope-untagged"].getAttribute("aria-current"), "true");
+    assert.equal(env.ids["scope-all"].getAttribute("aria-current"), null);
+    assert.equal(env.Archive.isFiltered(), true);
+
+    env.ids["scope-all"].dispatch("click");
+    await env.settle();
+    assert.deepEqual(param(env.requests.at(-1), "untagged"), []);
+    assert.equal(env.urls.at(-1), "/c/");
+
+    const restored = setup({ search: "?untagged=true&sort=oldest&q=%E6%B5%B7" });
+    await restored.settle();
+    assert.equal(restored.ids["scope-untagged"].getAttribute("aria-current"), "true");
+    assert.equal(restored.ids["sort-toggle"].firstChild.textContent, "最早归档 ");
+    const first = restored.requests[0];
+    assert.deepEqual([param(first, "untagged"), param(first, "sort"), param(first, "q")], [["true"], ["oldest"], ["海"]]);
+});
+
+test("the untagged scope and selected tags exclude each other; author and keyword stay combined", async () => {
+    const env = setup({ search: "?tagId=3&authorId=1&q=sea" });
+    await env.settle();
+    env.ids["scope-untagged"].dispatch("click");
+    await env.settle();
+    const inScope = env.requests.at(-1);
+    assert.deepEqual([param(inScope, "tagId"), param(inScope, "authorId"), param(inScope, "q"), param(inScope, "untagged")],
+        [[], ["1"], ["sea"], ["true"]]);
+
+    env.CFilters.only("tag", { id: 9, name: "海" });
+    await env.settle();
+    const onTag = env.requests.at(-1);
+    assert.deepEqual([param(onTag, "tagId"), param(onTag, "untagged")], [["9"], []]);
+    assert.equal(env.ids["scope-all"].getAttribute("aria-current"), "true");
+
+    const both = setup({ search: "?untagged=true&tagId=3" });
+    await both.settle();
+    assert.equal(both.Archive.query().untagged, false, "an address with both keeps the selected tag");
+});
+
+test("clearing the conditions leaves the sort alone; showNewest also returns to the default sort", async () => {
+    const env = setup({ search: "?untagged=true&q=sea&sort=title" });
+    await env.settle();
+    env.CFilters.clearAll();
+    await env.settle();
+    assert.equal(env.urls.at(-1), "/c/?sort=title");
+    assert.equal(env.Archive.isFiltered(), false, "sorting alone is not a filter");
+    env.CFilters.showNewest();
+    await env.settle();
+    assert.equal(env.urls.at(-1), "/c/");
+});
+
+test("the sort menu marks the current order, moves with the keyboard and changes the order once", async () => {
+    const env = setup();
+    await env.settle();
+    const items = openSort(env);
+    assert.equal(items.length, 4);
+    assert.equal(env.ids["sort-toggle"].getAttribute("aria-expanded"), "true");
+    assert.deepEqual(items.map((i) => i.getAttribute("aria-checked")), ["true", "false", "false", "false"]);
+    assert.ok(items[0].focused > 0, "focus starts on the current order");
+
+    const menu = env.document.body.children.at(-1);
+    let e = menu.dispatch("keydown", { key: "ArrowUp" });
+    assert.ok(items[3].focused > 0, "the arrows wrap around");
+    assert.ok(e.stopped, "keys stay inside the menu instead of moving the gallery focus");
+    menu.dispatch("keydown", { key: "ArrowDown" });
+    menu.dispatch("keydown", { key: "ArrowDown" });
+    assert.ok(items[1].focused > 0);
+
+    const before = env.requests.length;
+    items[2].dispatch("click");
+    await env.settle();
+    assert.equal(env.requests.length, before + 1);
+    assert.deepEqual(param(env.requests.at(-1), "sort"), ["title"]);
+    assert.equal(env.urls.at(-1), "/c/?sort=title");
+    assert.equal(menu.removed, true);
+    assert.equal(env.ids["sort-toggle"].firstChild.textContent, "标题 A–Z ");
+    assert.ok(env.ids["sort-toggle"].classList.contains("has-value"), "a non-default order is marked");
+    assert.ok(env.ids["sort-toggle"].focused > 0, "focus returns to the button");
+
+    openSort(env);
+    const second = env.document.body.children.at(-1);
+    second.dispatch("keydown", { key: "Escape" });
+    await env.settle();
+    assert.equal(second.removed, true);
+    assert.equal(env.ids["sort-toggle"].getAttribute("aria-expanded"), "false");
+    assert.equal(env.requests.length, before + 1, "Esc changes nothing");
+});
+
+test("an unknown sort in the address falls back to the default and is not sent", async () => {
+    const env = setup({ search: "?sort=created_at" });
+    await env.settle();
+    assert.equal(env.Archive.query().sort, "newest");
+    assert.deepEqual(param(env.requests[0], "sort"), []);
+});
+
+test("the untagged count follows list refreshes and ignores plain searches; a failed count stays blank", async () => {
+    let n = 7;
+    const env = setup({ untaggedCount: () => n });
+    await env.settle();
+    assert.equal(env.ids["count-untagged"].textContent, "7");
+    assert.equal(env.counts.length, 1);
+    env.ids["scope-untagged"].dispatch("click");
+    await env.settle();
+    assert.equal(env.counts.length, 1, "changing the query does not recount");
+    n = 6;
+    await env.Archive.refreshLoaded();
+    await env.settle();
+    assert.equal(env.ids["count-untagged"].textContent, "6");
+
+    const failing = setup({ untaggedCount: () => new Error("offline") });
+    await failing.settle();
+    assert.equal(failing.ids["count-untagged"].textContent, "");
 });

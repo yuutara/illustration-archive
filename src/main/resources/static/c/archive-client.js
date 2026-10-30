@@ -37,7 +37,7 @@
     const detailLoads = new Map();
     let detailSeq = 0;
     const listeners = new Set();
-    let query = { q: '', authorIds: [], tagIds: [] };
+    let query = { q: '', authorIds: [], tagIds: [], untagged: false, sort: 'newest' };
     let generation = 0;
     let started = false;
     let controller = null;
@@ -53,19 +53,33 @@
     const idList = (list) => [...new Set((list || []).map(Number).filter((n) => Number.isInteger(n) && n > 0))]
         .sort((a, b) => a - b);
 
-    // 条件规范化：关键词去首尾空白，id 去重排序；同样的条件得到同样的内容，便于判断“没变”
+    const SORTS = ['newest', 'oldest', 'title', 'author'];
+
+    // 条件规范化：关键词去首尾空白，id 去重排序；同样的条件得到同样的内容，便于判断“没变”。
+    // “未打标签”和选定标签互斥（同时成立只会是空结果）：选了标签就退出“未打标签”
     function normalizeQuery(next = {}) {
-        return { q: String(next.q || '').trim(), authorIds: idList(next.authorIds), tagIds: idList(next.tagIds) };
+        const tagIds = idList(next.tagIds);
+        return {
+            q: String(next.q || '').trim(), authorIds: idList(next.authorIds), tagIds,
+            untagged: !!next.untagged && !tagIds.length,
+            sort: SORTS.includes(next.sort) ? next.sort : 'newest'
+        };
     }
 
-    const sameQuery = (a, b) => a.q === b.q && a.authorIds.join() === b.authorIds.join() && a.tagIds.join() === b.tagIds.join();
+    const sameQuery = (a, b) => a.q === b.q && a.authorIds.join() === b.authorIds.join() && a.tagIds.join() === b.tagIds.join()
+        && a.untagged === b.untagged && a.sort === b.sort;
 
-    // 作者、标签各自用重复参数（authorId=1&authorId=2），与旧图库和后端契约一致；参数名也用于页面地址
+    // 排序不算筛选：不减少作品，“全部”旁的总数照常更新
+    const isFiltered = () => !!(query.q || query.authorIds.length || query.tagIds.length || query.untagged);
+
+    // 作者、标签各自用重复参数（authorId=1&authorId=2），与旧图库和后端契约一致；参数名也用于页面地址。默认排序不写进地址
     function queryParams(q) {
         const params = new URLSearchParams();
         if (q.q) params.append('q', q.q);
         q.authorIds.forEach((id) => params.append('authorId', String(id)));
         q.tagIds.forEach((id) => params.append('tagId', String(id)));
+        if (q.untagged) params.append('untagged', 'true');
+        if (q.sort !== 'newest') params.append('sort', q.sort);
         return params;
     }
 
@@ -74,10 +88,13 @@
         return `/api/illustrations?page=${page}&size=${PAGE_SIZE}` + (extra ? '&' + extra : '');
     }
 
-    // 页面地址里的条件（/c/?q=…&authorId=…&tagId=…），刷新后保留
+    // 页面地址里的条件（/c/?q=…&authorId=…&tagId=…&untagged=true&sort=…），刷新后保留
     function queryFromSearch(search) {
         const params = new URLSearchParams(search || '');
-        return normalizeQuery({ q: params.get('q'), authorIds: params.getAll('authorId'), tagIds: params.getAll('tagId') });
+        return normalizeQuery({
+            q: params.get('q'), authorIds: params.getAll('authorId'), tagIds: params.getAll('tagId'),
+            untagged: params.get('untagged') === 'true', sort: params.get('sort')
+        });
     }
 
     function searchOf(q) {
@@ -518,7 +535,8 @@
     }
 
     /*
-     * 保存：PATCH 成功（204，无响应体，不解析）后强制重读详情；有搜索或筛选时再按服务端结果刷新已载入的列表。
+     * 保存：PATCH 成功（204，无响应体，不解析）后强制重读详情；有搜索或筛选时（作品可能移出结果）、
+     * 按标题或作者排序时（作品可能换位置）再按服务端结果刷新已载入的列表。
      * 返回 { listed, detailError, refreshError }：listed 为 false 表示这件作品已不符合当前条件、移出了结果。
      * PATCH 失败时抛出带说明的错误，本地数据不变。
      */
@@ -535,10 +553,10 @@
             throw new RequestError(0, '无法连接到本地图库服务，修改没有保存');
         }
         if (!response.ok) throw new RequestError(response.status, await saveFailure(response));
-        const filtered = !!(query.q || query.authorIds.length || query.tagIds.length);
+        const refresh = isFiltered() || query.sort === 'title' || query.sort === 'author';
         const result = { listed: true, detailError: null, refreshError: null };
         if (!(await loadDetail(id, { force: true }))) result.detailError = getWork(id) ? getWork(id).detailError : null;
-        if (filtered) {
+        if (refresh) {
             const refreshed = await refreshLoaded();
             if (refreshed.error) result.refreshError = refreshed.error;
         }
@@ -843,6 +861,12 @@
         return page.totalElements;
     }
 
+    // 整个图库里还有多少件没打标签，与当前查询无关
+    async function untaggedCount() {
+        const page = await getJson('/api/illustrations?page=0&size=1&untagged=true');
+        return page.totalElements;
+    }
+
     // 看图器用：载入原图并记下真实尺寸；失败时返回 null，界面保留缩略图并说明
     async function loadFull(page) {
         if (!page.full) return null;
@@ -903,8 +927,8 @@
         get: getWork,
         listed: (id) => byId.has(id),
         total: () => total,
-        query: () => ({ q: query.q, authorIds: [...query.authorIds], tagIds: [...query.tagIds] }),
-        isFiltered: () => !!(query.q || query.authorIds.length || query.tagIds.length),
+        query: () => ({ ...query, authorIds: [...query.authorIds], tagIds: [...query.tagIds] }),
+        isFiltered,
         filters: () => filters,
         generation: () => generation,
         setQuery,
@@ -920,6 +944,7 @@
         removeWork,
         isDeleting: (id) => deletions.has(id),
         libraryCount,
+        untaggedCount,
         IMPORT_MAX_BYTES,
         hasMore,
         isLoading: () => loading != null,

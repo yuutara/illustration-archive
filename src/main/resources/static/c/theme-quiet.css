@@ -102,7 +102,7 @@ html[data-look="quiet"][data-mode="dark"] {
 /* ===================== 骨架 ===================== */
 html[data-look="quiet"] body { background: var(--paper); font-variant-numeric: tabular-nums; }
 html[data-look="quiet"] :focus-visible { outline-color: var(--accent); }
-html[data-look="quiet"] :is(.btn, .text-btn, .text-select select, .density, .fchip) { border-radius: 8px; }
+html[data-look="quiet"] :is(.btn, .text-btn, .density, .fchip) { border-radius: 8px; }
 html[data-look="quiet"] .btn { border-color: var(--line); background: var(--card); box-shadow: none; }
 html[data-look="quiet"] .btn:hover:not(:disabled) { border-color: var(--faint); }
 html[data-look="quiet"] .btn-ink,

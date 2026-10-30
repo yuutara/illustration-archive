@@ -4,7 +4,6 @@
 button:disabled[data-not-yet], .piece-edit:disabled { cursor: not-allowed; opacity: .45; }
 .piece-edit:disabled:hover { background: var(--gl-bg); }
 .scopes button:disabled { color: var(--faint); cursor: not-allowed; }
-.text-select select:disabled { cursor: not-allowed; opacity: .5; }
 .omnibox.is-disabled { opacity: .62; }
 .omnibox.is-disabled input { cursor: not-allowed; }
 .mast-actions { display: flex; align-items: center; gap: 8px; justify-self: end; }
@@ -31,6 +30,12 @@ button:disabled[data-not-yet], .piece-edit:disabled { cursor: not-allowed; opaci
 .pk-status.is-error { color: var(--danger); }
 .pk-status .link { font-size: 12px; }
 .pk-input::-webkit-search-cancel-button { display: none; }
+
+/* 排序菜单：沿用弹层的玻璃与展开动效；只有当前项显示勾，其余不画圆点 */
+.pk-menu { width: 168px; padding: 6px; }
+.pk-menu .pk-item { width: 100%; height: 34px; border: 0; color: inherit; background: none; font-size: 13px; text-align: left; }
+.pk-menu .pk-item:focus-visible { outline: none; }
+.pk-menu .pk-item:not(.is-selected) .pk-check { border-color: transparent !important; }
 
 /* 窄窗口：筛选条单独占一行，不挤掉右侧工具 */
 @media (max-width: 860px) {

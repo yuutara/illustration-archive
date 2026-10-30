@@ -2,6 +2,7 @@ package com.yuutara.illustrationarchive.controller;
 
 import com.yuutara.illustrationarchive.dto.IllustrationGalleryPage;
 import com.yuutara.illustrationarchive.dto.IllustrationGalleryQuery;
+import com.yuutara.illustrationarchive.dto.IllustrationGallerySort;
 import com.yuutara.illustrationarchive.service.IllustrationGalleryService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -29,9 +30,12 @@ public class IllustrationGalleryController {
 			@RequestParam(defaultValue = "24") int size,
 			@RequestParam(required = false) String q,
 			@RequestParam(required = false) List<Long> authorId,
-			@RequestParam(required = false) List<Long> tagId
+			@RequestParam(required = false) List<Long> tagId,
+			@RequestParam(defaultValue = "false") boolean untagged,
+			@RequestParam(required = false) String sort
 	) {
-		return illustrationGalleryService.getGallery(page, size, IllustrationGalleryQuery.withIds(q, authorId, tagId));
+		return illustrationGalleryService.getGallery(page, size, IllustrationGalleryQuery.withIds(
+				q, authorId, tagId, untagged, IllustrationGallerySort.fromParam(sort)));
 	}
 
 	@ExceptionHandler(IllegalArgumentException.class)

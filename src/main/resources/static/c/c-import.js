@@ -202,6 +202,12 @@
             clear.addEventListener('click', () => { if (close()) filters('clearAll'); });
             lines.push([`新导入的 ${lastNotice.hidden} 件不符合当前的搜索或筛选条件，所以没有出现在图库里。`, clear]);
         }
+        if (lastNotice && lastNotice.later) {
+            const newest = el('button', 'link', '查看最新归档');
+            newest.type = 'button';
+            newest.addEventListener('click', () => { if (close()) filters('showNewest'); });
+            lines.push([`新导入的 ${lastNotice.later} 件不在已载入的这部分作品里。`, newest]);
+        }
         if (lastNotice && lastNotice.refreshError) {
             lines.push([`图库列表没能刷新：${lastNotice.refreshError}。刷新页面即可看到新作品。`]);
         }
@@ -226,8 +232,11 @@
             try { host('setLibraryTotal', await A.libraryCount()); } catch (e) { /* 只影响“全部”旁的数字 */ }
         }
         if (queue !== mine) return;
-        const hidden = A.isFiltered() ? mine.newIds().filter((id) => !A.listed(id)).length : 0;
-        lastNotice = { hidden, refreshError: result.error ? result.error.message : null };
+        const unlisted = mine.newIds().filter((id) => !A.listed(id)).length;
+        // 最新归档时新作品排在最前，没出现只可能是条件不符；其他排序下也可能排在还没载入的后面
+        const later = !result.error && A.query().sort !== 'newest' && A.hasMore() ? unlisted : 0;
+        const hidden = !later && A.isFiltered() ? unlisted : 0;
+        lastNotice = { hidden, later, refreshError: result.error ? result.error.message : null };
         render();
     }
 

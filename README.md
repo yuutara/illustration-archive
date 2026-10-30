@@ -197,7 +197,7 @@ Tag ID 会先校验存在性，并去除重复 ID，然后在同一数据库事�
 
 | Method | Path | Request | Response / 行为 |
 | --- | --- | --- | --- |
-| `GET` | `/api/illustrations?page=0&size=24&q=...&authorId=1&authorId=2&tagId=3` | 全部可省略。默认 `page=0`、`size=24`；`page >= 0`，`size` 为 `1..100`。`q` 去首尾空白，空白等同未传，最多 200 个字符；`authorId`、`tagId` 可重复传多个正整数，每类最多 100 个，自动去重；不存在的 ID 返回零结果而不报错；非法参数返回 `400` | `IllustrationGalleryPage`：`page`、`size`、`totalElements`、`totalPages`、`items[]`，以及描述规范化条件的 `filters`（关键词、ID 数组、Author / Tag 摘要；单选时保留标量字段）。每个 item 包含封面、`assetCount`、有序 `assets[]` 等公开摘要 |
+| `GET` | `/api/illustrations?page=0&size=24&q=...&authorId=1&authorId=2&tagId=3&untagged=true&sort=newest` | 全部可省略。默认 `page=0`、`size=24`；`page >= 0`，`size` 为 `1..100`。`q` 去首尾空白，空白等同未传，最多 200 个字符；`authorId`、`tagId` 可重复传多个正整数，每类最多 100 个，自动去重；不存在的 ID 返回零结果而不报错；`untagged=true` 只返回没有任何标签的作品，与 `tagId` 同传时结果为空；`sort` 为 `newest`（默认）、`oldest`、`title`、`author`，都以唯一的作品 ID 收尾，翻页不漏不重，没有标题 / 作者的作品排在最后；非法参数返回 `400` | `IllustrationGalleryPage`：`page`、`size`、`totalElements`、`totalPages`、`items[]`，以及描述规范化条件的 `filters`（关键词、ID 数组、Author / Tag 摘要、`untagged`、`sort`；单选时保留标量字段）。每个 item 包含封面、`assetCount`、有序 `assets[]` 等公开摘要 |
 | `GET` | `/api/illustrations/{id}` | Path variable `id` | `IllustrationDetail`：基础元数据、Author、`assets[]`、`tags[]`、创建/更新时间 |
 | `PATCH` | `/api/illustrations/{id}` | `application/json`；可包含 `title`、`sourceUrl`、`note`、`authorId`、`tagIds` | 按上文三态语义更新，成功返回 `204 No Content` |
 | `DELETE` | `/api/illustrations/{id}` | 无请求体 | 删除数据库记录并在事务提交后清理原图与缩略图，成功返回 `204 No Content` |

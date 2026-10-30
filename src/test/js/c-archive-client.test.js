@@ -233,7 +233,7 @@ test("query URLs repeat authorId / tagId, encode Chinese text, and keep the unfi
     assert.deepEqual(params.getAll("tagId"), ["5"]);
 
     const fromUrl = Archive.queryFromSearch("?q=%E6%B5%B7&authorId=7&authorId=2&tagId=9&other=1");
-    assert.deepEqual(plain(fromUrl), { q: "海", authorIds: [2, 7], tagIds: [9] });
+    assert.deepEqual(plain(fromUrl), { q: "海", authorIds: [2, 7], tagIds: [9], untagged: false, sort: "newest" });
     assert.equal(Archive.searchOf(fromUrl), "?q=%E6%B5%B7&authorId=2&authorId=7&tagId=9");
     assert.equal(Archive.searchOf({ q: "   " }), "", "an empty query leaves the page URL bare");
 });
@@ -993,3 +993,54 @@ test("a work that an edit had already moved out of the filtered results is remov
     assert.equal(env.Archive.get(8), null);
     assert.equal(env.Archive.total(), 0);
 });
+
+/* ---------------- 未打标签与排序 ---------------- */
+
+test("untagged and sort join the query URL; the default order keeps the old URL", () => {
+    const { Archive } = setup();
+    assert.equal(Archive.searchOf({}), "");
+    assert.equal(Archive.searchOf({ sort: "newest" }), "");
+    assert.equal(Archive.searchOf({ untagged: true, sort: "oldest", authorIds: [2] }), "?authorId=2&untagged=true&sort=oldest");
+    assert.equal(Archive.searchOf({ untagged: true, tagIds: [1] }), "?tagId=1", "a selected tag wins over untagged");
+    assert.equal(Archive.searchOf({ sort: "no-such-order" }), "");
+    assert.deepEqual(plain(Archive.queryFromSearch("?untagged=true&sort=author")),
+        { q: "", authorIds: [], tagIds: [], untagged: true, sort: "author" });
+});
+
+test("changing only the order reloads from the first page; the same order again does nothing", async () => {
+    const newest = Array.from({ length: 35 }, (_, i) => item(100 - i, [jpeg(3000 + i)]));
+    const oldest = [...newest].reverse();
+    const env = setup({ responses: {
+        [listUrl(0)]: () => pageOf(0, 35, newest.slice(0, 30)),
+        [listUrl(0, "&sort=oldest")]: () => pageOf(0, 35, oldest.slice(0, 30)),
+        [listUrl(1, "&sort=oldest")]: () => pageOf(1, 35, oldest.slice(30))
+    } });
+    await env.Archive.setQuery({});
+    await env.Archive.setQuery({ sort: "oldest" });
+    assert.equal(env.Archive.works[0].id, 66);
+    const requests = env.requests.length;
+    await env.Archive.setQuery({ sort: "oldest" });
+    assert.equal(env.requests.length, requests);
+    await env.Archive.loadMore();
+    assert.deepEqual(plain(env.Archive.works.map((w) => w.id)), oldest.map((w) => w.id), "both pages, in order, nothing twice");
+    assert.equal(env.Archive.isFiltered(), false);
+});
+
+for (const [sort, refreshes] of [["title", true], ["author", true], ["oldest", false], ["newest", false]]) {
+    test(`saving under the ${sort} order ${refreshes ? "re-reads" : "does not re-read"} the loaded list`, async () => {
+        const filter = sort === "newest" ? "" : `&sort=${sort}`;
+        let lists = 0;
+        const env = await editEnv({
+            [patchKey(5)]: () => NO_CONTENT,
+            [listUrl(0, filter)]: () => { lists++; return pageOf(0, 1, [item(5, [jpeg(50)])]); }
+        });
+        await env.Archive.setQuery({ sort });
+        const before = lists;
+        const session = env.Archive.editSession(5);
+        await session.load();
+        session.set("title", "换个标题");
+        const result = await session.save();
+        assert.equal(result.listed, true, "the save itself succeeded");
+        assert.equal(lists - before, refreshes ? 1 : 0);
+    });
+}

@@ -77,7 +77,7 @@ function setup({ list, query = "", script }) {
     const window = {
         addEventListener: (type, fn) => windowListeners.set(type, fn),
         GalleryApi: gallery,
-        CFilters: { clearAll: () => { calls.cleared++; } },
+        CFilters: { clearAll: () => { calls.cleared++; }, showNewest: () => { calls.newest = (calls.newest || 0) + 1; } },
         CEditor: { isConfirming: () => false }
     };
     let uploads = 0;
@@ -262,4 +262,22 @@ test("only external file drags import: internal drags are ignored, and over the 
     event("drop", ["Files"]);
     await settle(8);
     assert.equal(env.requests.filter((u) => u === "/api/illustrations/import").length, 1);
+});
+
+test("under another order a new work beyond the loaded pages is explained, not reported as filtered out", async () => {
+    let imported = false;
+    const firstPage = Array.from({ length: 30 }, (_, i) => item(i + 1));
+    const env = setup({
+        list: () => page(firstPage, imported ? 41 : 40),
+        script: async () => { imported = true; return ok(200); }
+    });
+    await env.Archive.setQuery({ sort: "oldest" });
+    env.Import.addFiles([pic("new.png")]);
+    await settle(8);
+    assert.match(env.ids["import-notice"].text, /新导入的 1 件不在已载入的这部分作品里/);
+    assert.ok(!/不符合/.test(env.ids["import-notice"].text));
+    const button = env.ids["import-notice"].children[0].children.find((c) => c.tagName === "BUTTON");
+    assert.equal(button.textContent, "查看最新归档");
+    button.click();
+    assert.equal(env.calls.newest, 1);
 });

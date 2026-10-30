@@ -3,15 +3,20 @@ package com.yuutara.illustrationarchive.dto;
 import java.util.List;
 
 public record IllustrationGalleryQuery(String q, Long authorId, Long tagId,
-        List<Long> authorIds, List<Long> tagIds) {
+        List<Long> authorIds, List<Long> tagIds, boolean untagged, IllustrationGallerySort sort) {
 
     public IllustrationGalleryQuery(String q, Long authorId, Long tagId) {
         this(q, authorId, tagId, authorId == null ? List.of() : List.of(authorId),
-                tagId == null ? List.of() : List.of(tagId));
+                tagId == null ? List.of() : List.of(tagId), false, null);
     }
 
     public static IllustrationGalleryQuery withIds(String q, List<Long> authorIds, List<Long> tagIds) {
-        return new IllustrationGalleryQuery(q, null, null, authorIds, tagIds);
+        return withIds(q, authorIds, tagIds, false, null);
+    }
+
+    public static IllustrationGalleryQuery withIds(String q, List<Long> authorIds, List<Long> tagIds,
+            boolean untagged, IllustrationGallerySort sort) {
+        return new IllustrationGalleryQuery(q, null, null, authorIds, tagIds, untagged, sort);
     }
 
 	public IllustrationGalleryQuery {
@@ -23,6 +28,7 @@ public record IllustrationGalleryQuery(String q, Long authorId, Long tagId,
         tagIds = normalizeIds(tagIds);
         authorId = authorIds.size() == 1 ? authorIds.get(0) : null;
         tagId = tagIds.size() == 1 ? tagIds.get(0) : null;
+        sort = sort == null ? IllustrationGallerySort.NEWEST : sort;
 	}
 
     private static List<Long> normalizeIds(List<Long> ids) {

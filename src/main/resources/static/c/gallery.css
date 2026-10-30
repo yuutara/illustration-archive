@@ -83,8 +83,6 @@ kbd { padding: 0 5px; border: 1px solid var(--line); border-radius: 4px; color: 
 .text-btn .caret { color: var(--faint); font-size: 12px; }
 .text-btn.has-value { color: var(--accent); font-weight: 600; }
 .sep { width: 1px; height: 18px; margin: 0 4px; background: var(--line); }
-.text-select select { height: 32px; padding: 0 6px; border: 0; border-radius: 8px; color: var(--ink-2); background: none; cursor: pointer; }
-.text-select select:hover { background: var(--paper-2); }
 .density { display: flex; padding: 2px; border-radius: 8px; background: var(--paper-2); }
 .density button { display: grid; place-items: center; width: 30px; height: 28px; padding: 0; border: 0; border-radius: 6px; color: var(--faint); background: none; }
 .density button[aria-pressed="true"] { color: var(--ink); background: var(--card); box-shadow: 0 1px 2px rgba(0, 0, 0, .08); }
