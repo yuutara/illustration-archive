@@ -4,7 +4,7 @@
  * 搜索与作者 / 标签筛选的界面在 c-filters.js，单件编辑在 c-editor.js；这里负责按当前查询结果铺墙、显示状态，
  * 看图器只在当前结果里前后翻。离开当前作品（关闭、切换、点作者 / 标签）都先经过编辑器的“离开”确认。
  * 本地导入在 c-import.js，单件删除的确认与结果在 c-delete.js：作品删除后这里关闭看图器、重排作品墙并安排焦点。
- * 批量整理尚未接入：入口保留但明确禁用，快捷键只提示“尚未接入”。
+ * 选择模式也在这里：点“选择”或 Ctrl / Shift + 点击进入，选好后在 c-batch.js 的面板里统一整理。批量只改作者和标签，不提供批量删除。
  */
 (function () {
     'use strict';
@@ -18,11 +18,10 @@
         return node;
     };
     const icon = (name) => `<svg class="icon" aria-hidden="true"><use href="#i-${name}"/></svg>`;
-    const NOT_YET = '批量整理尚未接入新版图库，请在旧图库中操作';
 
     const state = {
         density: 'roomy', results: A.works, viewer: null,
-        // 选择模式在本包中不可用；保留字段供 fx.js 读取
+        // selecting / selected 也由 fx.js 读取：选择模式下不牵引、不拖动浏览
         selecting: false, selected: new Set(), focusId: null, anchorId: null
     };
 
@@ -43,6 +42,10 @@
     const leaveEditor = async () => (await editor('requestLeave')) !== false;
     const importer = (name, ...args) => {
         const api = window.CImport;
+        return api && typeof api[name] === 'function' ? api[name](...args) : undefined;
+    };
+    const batch = (name, ...args) => {
+        const api = window.CBatch;
         return api && typeof api[name] === 'function' ? api[name](...args) : undefined;
     };
     const deleter = (name, ...args) => {
@@ -88,13 +91,20 @@
             fig.dataset.id = work.id;
             fig.innerHTML = `<div class="piece-media">
                     <button class="piece-open" type="button"><img alt="" loading="lazy" decoding="async" draggable="false"></button>
+                    <button class="piece-check" type="button" tabindex="-1" aria-pressed="false" aria-label="选择"></button>
                     <div class="piece-marks"></div>
                     <button class="piece-edit" type="button" title="编辑作品信息（E）">${icon('pen')}编辑</button>
                 </div>
                 <figcaption><span class="piece-title"></span><button class="piece-author" type="button"></button></figcaption>`;
-            fig.querySelector('.piece-open').addEventListener('click', () => {
+            fig.querySelector('.piece-open').addEventListener('click', (e) => {
                 state.focusId = work.id;
-                openViewer(work.id);
+                if (e.shiftKey && state.anchorId != null) selectRange(work.id);
+                else if (e.ctrlKey || e.metaKey || state.selecting) toggleSelect(work.id);
+                else openViewer(work.id);
+            });
+            fig.querySelector('.piece-check').addEventListener('click', (e) => {
+                if (e.shiftKey && state.anchorId != null) selectRange(work.id);
+                else toggleSelect(work.id);
             });
             // 卡片上的“编辑”：打开看图器并直接进入编辑，与看图器里的“编辑”、E 键同一流程
             fig.querySelector('.piece-edit').addEventListener('click', () => {
@@ -164,9 +174,76 @@
             columns[i].appendChild(pieceFor(work));
             heights[i] += colWidth * (p.height / p.width) + (roomy && hasCaption(work) ? 26 : 0) + gap;
         });
+        paintSelection();
         renderStatus();
         fx('playWall', before);
     }
+
+    /* ---------------- 选择模式 ---------------- */
+
+    function toggleSelect(id) {
+        if (state.selected.has(id)) state.selected.delete(id);
+        else state.selected.add(id);
+        state.anchorId = id;
+        state.focusId = id;
+        setSelecting(true);
+    }
+
+    // 从上一次点选的作品到这一件，按当前排序连续选中
+    function selectRange(id) {
+        const ids = state.results.map((w) => w.id);
+        const a = ids.indexOf(state.anchorId), b = ids.indexOf(id);
+        if (a < 0 || b < 0) { toggleSelect(id); return; }
+        state.selected.clear();
+        ids.slice(Math.min(a, b), Math.max(a, b) + 1).forEach((x) => state.selected.add(x));
+        state.focusId = id;
+        setSelecting(true);
+    }
+
+    function setSelecting(on) {
+        state.selecting = on;
+        if (!on) {
+            state.selected.clear();
+            state.anchorId = null;
+        }
+        paintSelection();
+    }
+
+    function paintSelection() {
+        document.body.classList.toggle('is-selecting', state.selecting);
+        pieces.forEach((fig, id) => {
+            const on = state.selected.has(id);
+            fig.classList.toggle('is-selected', on);
+            const check = fig.querySelector('.piece-check');
+            check.setAttribute('aria-pressed', String(on));
+            check.setAttribute('aria-label', on ? '取消选择' : '选择');
+        });
+        const n = state.selected.size;
+        const all = n > 0 && n === state.results.length;
+        $('batchbar').hidden = !state.selecting;
+        $('bb-count').textContent = n ? `已选 ${n} 件` : '点击作品进行选择';
+        $('bb-all').textContent = all ? '取消全选' : A.hasMore() ? '全选已载入' : '全选';
+        $('bb-edit').disabled = !n;
+        $('select-toggle').setAttribute('aria-pressed', String(state.selecting));
+    }
+
+    function selectAll() {
+        state.results.forEach((w) => state.selected.add(w.id));
+        setSelecting(true);
+    }
+
+    function openBatch() {
+        if (state.selected.size) batch('open', [...state.selected]);
+        else toast('先选择要整理的作品');
+    }
+
+    $('select-toggle').addEventListener('click', () => setSelecting(!state.selecting));
+    $('bb-done').addEventListener('click', () => setSelecting(false));
+    $('bb-all').addEventListener('click', () => {
+        if (state.selected.size === state.results.length) { state.selected.clear(); paintSelection(); }
+        else selectAll();
+    });
+    $('bb-edit').addEventListener('click', openBatch);
 
     // “全部”旁的数字只表示整个图库；筛选时的结果数显示在已选条件旁
     let libraryTotal = null;
@@ -246,7 +323,7 @@
     }).observe($('wall'));
 
     // 瀑布流按屏幕位置移动焦点：左右找相邻列中高度最接近的，上下在同一列内移动
-    function moveFocus(key) {
+    function moveFocus(key, extend = false) {
         const list = state.results.map((w) => pieces.get(w.id)).filter((f) => f && f.isConnected);
         if (!list.length) return;
         const cur = pieces.get(state.focusId);
@@ -271,7 +348,12 @@
             });
         }
         if (!target) return;
-        state.focusId = Number(target.dataset.id);
+        const id = Number(target.dataset.id);
+        if (extend) {
+            if (state.anchorId == null) state.anchorId = state.focusId ?? id;
+            selectRange(id);
+        }
+        state.focusId = id;
         target.querySelector('.piece-open').focus();
     }
 
@@ -293,7 +375,7 @@
      * 看图器是模态的：打开期间顶栏、筛选行和作品墙设为 inert，Tab / Shift+Tab 只在看图器里走，
      * 也点不到、输不进背景（不会在编辑时从背后改动搜索或筛选）。候选弹层、确认框、提示条都直接挂在 body 下，不受影响。
      */
-    const background = () => document.querySelectorAll('body > .masthead, body > .filterbar, body > .wall-wrap');
+    const background = () => document.querySelectorAll('body > .masthead, body > .filterbar, body > .wall-wrap, body > .batchbar');
     function setBackgroundInert(on) {
         background().forEach((node) => { node.inert = on; });
     }
@@ -665,6 +747,8 @@
             // 看图器开着时换查询只来自“点作者 / 标签”，那条路径已先经过编辑器的离开确认，这里直接关闭。
             closeViewer({ force: true });
             state.focusId = null;
+            // 选择只属于当前结果：换了条件，看不见的作品不能还留在选择里
+            setSelecting(false);
             const wall = $('wall');
             wall.classList.add('is-refreshing');
             wall.setAttribute('aria-busy', 'true');
@@ -678,6 +762,7 @@
             const v = state.viewer;
             const gone = v && event.removed.find((r) => r.id === v.id);
             if (gone) v.anchor = gone.index;
+            event.removed.forEach((r) => state.selected.delete(r.id));
             renderWall();
             updatePosition();
         } else if (event.type === 'updated') {
@@ -714,6 +799,7 @@
         const fig = pieces.get(id);
         const hadFocus = !!fig && fig.contains(document.activeElement);
         pieces.delete(id);
+        state.selected.delete(id);
         if (state.focusId === id) state.focusId = null;
         renderWall();
         if (onViewer) closeViewer({ force: true });
@@ -775,12 +861,6 @@
         state.viewer.fit ? fitImage() : (clampPan(), applyTransform(false));
     }).observe(canvas);
 
-    // 未接入的入口：按钮保持禁用；即使通过快捷键触发，也只说明尚未接入，不做任何假操作
-    document.querySelectorAll('[data-not-yet]').forEach((b) => {
-        b.disabled = true;
-        b.title = b.dataset.notYet || NOT_YET;
-    });
-
     /* ---------------- 键盘 ---------------- */
 
     document.addEventListener('keydown', (e) => {
@@ -804,8 +884,11 @@
             if (e.key === 'Escape') { e.preventDefault(); filters('closePicker', true); }
             return;
         }
+        if (batch('isOpen')) {
+            if (e.key === 'Escape') { e.preventDefault(); batch('close'); }
+            return;
+        }
         const ctrl = e.ctrlKey || e.metaKey;
-        const notYet = () => { e.preventDefault(); toast(NOT_YET); };
 
         const v = state.viewer;
         if (v) {
@@ -838,7 +921,7 @@
         if (e.key === '?') { openShortcuts(); return; }
         if (e.key === '/' && !ctrl) { e.preventDefault(); $('q').focus(); $('q').select(); return; }
         if (ctrl && e.key.toLowerCase() === 'o') { e.preventDefault(); importer('open', { pick: true }); return; }
-        if (ctrl && e.key.toLowerCase() === 'a') { notYet(); return; }
+        if (ctrl && e.key.toLowerCase() === 'a') { e.preventDefault(); selectAll(); return; }
         const active = document.activeElement;
         const onPiece = !active || active === document.body || active.classList.contains('piece-open');
         const activePiece = active && active.closest ? active.closest('.piece') : null;
@@ -848,16 +931,25 @@
         switch (e.key) {
             case 'ArrowLeft': case 'ArrowRight': case 'ArrowUp': case 'ArrowDown':
                 e.preventDefault();
-                moveFocus(e.key);
+                moveFocus(e.key, e.shiftKey);
                 break;
-            case 'Enter': if (focus != null) { e.preventDefault(); openViewer(focus); } break;
+            case 'Enter':
+                if (focus != null) {
+                    e.preventDefault();
+                    if (state.selecting) toggleSelect(focus);
+                    else openViewer(focus);
+                }
+                break;
+            case 'Escape': if (state.selecting) setSelecting(false); break;
             case 'e': case 'E':
-                if (focus != null) { e.preventDefault(); openViewer(focus, { edit: true }); }
+                if (state.selecting) { e.preventDefault(); openBatch(); }
+                else if (focus != null) { e.preventDefault(); openViewer(focus, { edit: true }); }
                 else toast('先用方向键或鼠标选中一件作品，再按 E 编辑');
                 break;
             // 只删键盘焦点所在的卡片：焦点不在卡片上（例如点过空白处）时不猜是哪一件
             case 'Delete':
-                if (activePiece && focus != null) { e.preventDefault(); requestDelete(focus); }
+                if (state.selecting) toast('批量整理不包含删除；打开作品后可以单件删除');
+                else if (activePiece && focus != null) { e.preventDefault(); requestDelete(focus); }
                 else toast('先用方向键或鼠标选中一件作品，再按 Delete 删除');
                 break;
             default: return;
@@ -883,6 +975,7 @@
         state, pieces, canvas, img, viewer, clampPan, applyTransform, fitImage, renderWall, renderStatus, toast, showChrome,
         prepareQueryChange, setBackgroundInert, openViewer,
         isViewerOpen: () => !!state.viewer,
+        endSelecting: () => setSelecting(false),
         markFresh: (ids) => ids.forEach((id) => freshIds.add(id)),
         // 筛选时列表总数不是整库数量：导入后由导入面板读一次整库数量，更新“全部”旁的数字
         setLibraryTotal: (n) => { libraryTotal = n; renderStatus(); }

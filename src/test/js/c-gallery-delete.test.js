@@ -109,6 +109,7 @@ const STATIC_IDS = ["masthead", "wall", "wall-status", "wall-status-text", "wall
     "viewer", "sv-canvas", "sv-img", "sv-notice", "sv-prev", "sv-next", "sv-back", "sv-zoom", "sv-info-toggle", "sv-edit-toggle",
     "sv-more", "sv-menu", "sv-original", "sv-source", "sv-fit", "sv-actual", "sv-delete", "sv-title", "sv-by", "sv-pages",
     "sv-num", "sv-pos", "sv-info",
+    "select-toggle", "batchbar", "bb-count", "bb-all", "bb-edit", "bb-done",
     "delete-confirm", "del-dialog", "del-title", "del-cover", "del-thumb", "del-name", "del-meta", "del-text", "del-draft",
     "del-status", "del-ok", "del-cancel"];
 
@@ -168,10 +169,10 @@ function setup(responses, { search = "" } = {}) {
     vm.runInContext(sources[1], context);
     window.GalleryApi.toast = (t) => toasts.push(t);
     vm.runInContext(sources[2], context);
-    const key = (target, k) => (doc.listeners.get("keydown") || []).forEach((fn) => fn({
-        key: k, target, ctrlKey: false, metaKey: false, preventDefault() {}, stopPropagation() {}
+    const key = (target, k, modifiers = {}) => (doc.listeners.get("keydown") || []).forEach((fn) => fn({
+        key: k, target, ctrlKey: false, metaKey: false, shiftKey: false, preventDefault() {}, stopPropagation() {}, ...modifiers
     }));
-    return { ids, requests, toasts, doc, key, Archive: window.Archive, Gallery: window.GalleryApi };
+    return { ids, requests, toasts, doc, key, window, Archive: window.Archive, Gallery: window.GalleryApi };
 }
 
 const item = (id) => ({ id, title: `Work ${id}`, author: null, coverAssetId: id * 10, coverMimeType: "image/png", assetCount: 1,
@@ -270,4 +271,102 @@ test("deleting from the viewer closes it and focuses the card that took the work
     assert.equal(env.ids["viewer"].hidden, true, "back in the gallery");
     assert.equal(env.Gallery.isViewerOpen(), false);
     assert.equal(env.doc.activeElement, cardButton(env, 2));
+});
+
+/* ---------------- 选择模式 ---------------- */
+
+const selected = (env) => [...env.Gallery.state.selected].sort((a, b) => a - b);
+const openSpy = (env) => {
+    const opened = [];
+    env.window.CBatch = { open: (ids) => opened.push(ids), isOpen: () => false, close() {} };
+    return opened;
+};
+
+test("in selection mode a click selects instead of opening the viewer, and the bar counts what is selected", async () => {
+    const env = setup(library([3, 2, 1]));
+    await settle();
+    assert.equal(env.ids.batchbar.hidden, true);
+    env.ids["select-toggle"].click();
+    assert.equal(env.ids.batchbar.hidden, false);
+    assert.equal(env.ids["bb-count"].textContent, "点击作品进行选择");
+    assert.equal(env.ids["bb-edit"].disabled, true);
+    cardButton(env, 2).click();
+    cardButton(env, 1).click();
+    assert.equal(env.ids.viewer.hidden, true);
+    assert.deepEqual(selected(env), [1, 2]);
+    assert.equal(env.ids["bb-count"].textContent, "已选 2 件");
+    assert.equal(env.ids["bb-edit"].disabled, false);
+    assert.ok(card(env, 2).classList.contains("is-selected"));
+    cardButton(env, 2).click();
+    assert.deepEqual(selected(env), [1]);
+    env.ids["bb-done"].click();
+    assert.equal(env.ids.batchbar.hidden, true);
+    assert.deepEqual(selected(env), []);
+    assert.ok(!card(env, 1).classList.contains("is-selected"));
+    cardButton(env, 1).click();
+    assert.equal(env.ids.viewer.hidden, false, "outside selection mode a click opens the viewer again");
+});
+
+test("Ctrl + click starts a selection and Shift + click extends it along the current order", async () => {
+    const env = setup(library([5, 4, 3, 2, 1]));
+    await settle();
+    cardButton(env, 4).dispatch("click", { ctrlKey: true });
+    assert.equal(env.ids.batchbar.hidden, false);
+    cardButton(env, 2).dispatch("click", { shiftKey: true });
+    assert.deepEqual(selected(env), [2, 3, 4]);
+    cardButton(env, 5).dispatch("click", { shiftKey: true });
+    assert.deepEqual(selected(env), [4, 5], "the range is measured from the same starting work");
+});
+
+test("the keyboard selects everything loaded, toggles with Enter, opens the panel with E and leaves with Esc", async () => {
+    const env = setup(library([3, 2, 1]));
+    const opened = openSpy(env);
+    await settle();
+    env.key(env.doc.body, "a", { ctrlKey: true });
+    assert.deepEqual(selected(env), [1, 2, 3]);
+    assert.equal(env.ids["bb-all"].textContent, "取消全选");
+    const button = cardButton(env, 2);
+    button.focus();
+    env.key(button, "Enter");
+    assert.deepEqual(selected(env), [1, 3]);
+    assert.equal(env.ids.viewer.hidden, true);
+    env.key(button, "e");
+    assert.deepEqual(opened.map((ids) => [...ids].sort()), [[1, 3]]);
+    env.key(button, "Escape");
+    assert.equal(env.ids.batchbar.hidden, true);
+    assert.deepEqual(selected(env), []);
+});
+
+test("Delete never removes a selection; it explains that deleting is one work at a time", async () => {
+    const env = setup(library([3, 2, 1]));
+    await settle();
+    env.key(env.doc.body, "a", { ctrlKey: true });
+    const button = cardButton(env, 2);
+    button.focus();
+    env.key(button, "Delete");
+    assert.equal(env.ids["delete-confirm"].hidden, true);
+    assert.match(env.ids.toast.textContent, /不包含删除/);
+    assert.ok(!env.requests.some((r) => r.startsWith("DELETE")));
+});
+
+test("changing the query ends selection mode: works out of sight cannot stay selected", async () => {
+    const env = setup(library([3, 2, 1], { match: (row) => row.id === 3 }));
+    await settle();
+    env.key(env.doc.body, "a", { ctrlKey: true });
+    await env.Archive.setQuery({ q: "keep" });
+    await settle();
+    assert.equal(env.ids.batchbar.hidden, true);
+    assert.deepEqual(selected(env), []);
+});
+
+test("a work that leaves the results drops out of the selection; the rest stay selected", async () => {
+    const responses = library([3, 2, 1]);
+    const env = setup(responses);
+    await settle();
+    env.key(env.doc.body, "a", { ctrlKey: true });
+    responses["/api/illustrations?page=0&size=30"] = () => ({ page: 0, size: 30, totalElements: 2, totalPages: 1, items: [item(3), item(1)] });
+    await env.Archive.refreshLoaded();
+    await settle();
+    assert.deepEqual(selected(env), [1, 3]);
+    assert.equal(env.ids["bb-count"].textContent, "已选 2 件");
 });

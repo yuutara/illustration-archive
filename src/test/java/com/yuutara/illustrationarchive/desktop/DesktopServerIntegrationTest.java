@@ -161,7 +161,7 @@ class DesktopServerIntegrationTest {
 	@Test
 	void cGalleryIsServedBehindTheLaunchSessionAndReadsAPagedMultiPageLibraryAcrossRestart() throws Exception {
 		DesktopServer.Running first = start();
-		List<String> pageFiles = List.of("/c/", "/c/archive-client.js", "/c/c-gallery.js", "/c/c-filters.js", "/c/c-editor.js", "/c/c-import.js", "/c/c-delete.js", "/c/fx.js", "/c/theme-mode.js",
+		List<String> pageFiles = List.of("/c/", "/c/archive-client.js", "/c/c-gallery.js", "/c/c-filters.js", "/c/c-editor.js", "/c/c-import.js", "/c/c-delete.js", "/c/c-batch.js", "/c/fx.js", "/c/theme-mode.js",
 				"/c/gallery.css", "/c/fx.css", "/c/theme-quiet.css", "/c/c.css");
 		for (String path : pageFiles) {
 			assertEquals(403, send(first, null, get(first, path)).statusCode(), path + " must need the launch session");
@@ -571,6 +571,76 @@ class DesktopServerIntegrationTest {
 		try (Stream<Path> files = Files.walk(media())) {
 			return files.filter(Files::isRegularFile).collect(java.util.stream.Collectors.toSet());
 		}
+	}
+
+	/**
+	 * The C gallery's batch panel over real HTTP, the launch session and the isolated H2 database. The rollback case
+	 * forces the tag insert to fail after the author update has run, so it proves the transaction spans the whole
+	 * request through Spring, which a hand-built service could not show.
+	 */
+	@Test
+	void cGalleryBatchUpdateAppliesToEverySelectedWorkOrToNone() throws Exception {
+		DesktopServer.Running running = start();
+		String cookie = openSession(running);
+		CGalleryTestLibrary.build(running, 24);
+		JdbcTemplate jdbc = jdbc(running);
+		List<Long> ids = jdbc.queryForList("SELECT id FROM illustration ORDER BY id LIMIT 3", Long.class);
+		long other = jdbc.queryForObject("SELECT MAX(id) FROM illustration", Long.class);
+		String idList = ids.toString();
+		long lumen = jdbc.queryForObject("SELECT id FROM author WHERE display_name = 'Lumen Kiln'", Long.class);
+		long sea = jdbc.queryForObject("SELECT id FROM tag WHERE name = '海'", Long.class);
+		jdbc.update("DELETE FROM illustration_tag WHERE illustration_id = ?", ids.get(0));
+		jdbc.update("INSERT INTO illustration_tag (illustration_id, tag_id) VALUES (?, ?)", ids.get(0), sea);
+		String otherAuthor = String.valueOf(jdbc.queryForObject("SELECT author_id FROM illustration WHERE id = ?", Long.class, other));
+
+		// No session: the launch guard still covers both endpoints
+		for (String path : List.of("/metadata", "/tags")) {
+			assertEquals(403, send(running, null, request(running, null, "/api/illustrations/batch" + path)
+					.header("Content-Type", "application/json")
+					.POST(HttpRequest.BodyPublishers.ofString("{\"ids\":" + idList + "}")).build()).statusCode());
+		}
+
+		HttpResponse<String> done = batch(running, cookie, "/metadata",
+				"{\"ids\":" + idList + ",\"authorId\":" + lumen + ",\"addTagIds\":[" + sea + "]}");
+		assertEquals(204, done.statusCode(), done.body());
+		assertEquals("", done.body());
+		for (long id : ids) {
+			var work = detail(running, cookie, id);
+			assertEquals(lumen, work.get("author").get("id").asLong());
+			assertEquals(1, names(work.get("tags"), "name").stream().filter("海"::equals).count());
+		}
+		assertEquals(otherAuthor, String.valueOf(jdbc.queryForObject("SELECT author_id FROM illustration WHERE id = ?", Long.class, other)));
+		var counts = mapper.readTree(batch(running, cookie, "/tags", "{\"ids\":" + idList + "}").body());
+		assertTrue(java.util.stream.StreamSupport.stream(counts.spliterator(), false)
+				.anyMatch(tag -> tag.get("id").asLong() == sea && tag.get("count").asLong() == 3));
+
+		// An explicit null clears the author; leaving it out keeps it
+		assertEquals(204, batch(running, cookie, "/metadata", "{\"ids\":" + idList + ",\"removeTagIds\":[" + sea + "]}").statusCode());
+		assertEquals(lumen, detail(running, cookie, ids.get(1)).get("author").get("id").asLong());
+		assertEquals(204, batch(running, cookie, "/metadata", "{\"ids\":" + idList + ",\"authorId\":null}").statusCode());
+		assertTrue(detail(running, cookie, ids.get(1)).get("author").isNull());
+
+		// A missing work, or nothing to change: refused, nothing applied
+		assertEquals(404, batch(running, cookie, "/metadata", "{\"ids\":[" + ids.get(0) + ",999999],\"authorId\":" + lumen + "}").statusCode());
+		assertTrue(detail(running, cookie, ids.get(0)).get("author").isNull());
+		assertEquals(400, batch(running, cookie, "/metadata", "{\"ids\":" + idList + "}").statusCode());
+		assertEquals(400, batch(running, cookie, "/metadata", "{\"ids\":[],\"authorId\":null}").statusCode());
+
+		// The tag insert fails after the author update already ran: the whole request rolls back
+		jdbc.update("INSERT INTO tag (name) VALUES ('批量回滚用')");
+		long blocked = jdbc.queryForObject("SELECT id FROM tag WHERE name = '批量回滚用'", Long.class);
+		jdbc.execute("ALTER TABLE illustration_tag ADD CONSTRAINT batch_rollback_probe CHECK (tag_id <> " + blocked + ")");
+		HttpResponse<String> failed = batch(running, cookie, "/metadata",
+				"{\"ids\":" + idList + ",\"authorId\":" + lumen + ",\"addTagIds\":[" + blocked + "]}");
+		assertTrue(failed.statusCode() >= 500, "status " + failed.statusCode());
+		assertEquals(0L, jdbc.queryForObject("SELECT COUNT(author_id) FROM illustration WHERE id IN ("
+				+ idList.substring(1, idList.length() - 1) + ")", Long.class), "the author update was rolled back");
+		jdbc.execute("ALTER TABLE illustration_tag DROP CONSTRAINT batch_rollback_probe");
+	}
+
+	private HttpResponse<String> batch(DesktopServer.Running running, String cookie, String path, String body) throws Exception {
+		return send(running, cookie, request(running, cookie, "/api/illustrations/batch" + path)
+				.header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body)).build());
 	}
 
 	private tools.jackson.databind.JsonNode importOne(DesktopServer.Running running, String cookie, String name, byte[] content)

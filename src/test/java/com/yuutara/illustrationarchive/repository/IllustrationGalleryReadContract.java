@@ -258,6 +258,47 @@ abstract class IllustrationGalleryReadContract {
 		assertPaged(sorted(null, List.of(2L, 3L), List.of(), true, IllustrationGallerySort.TITLE), 1, List.of(4L, 7L, 8L));
 	}
 
+	private List<Long> tagsOf(long id) {
+		return jdbc.queryForList("SELECT tag_id FROM illustration_tag WHERE illustration_id = ? ORDER BY tag_id", Long.class, id);
+	}
+
+	@Test
+	void batchWritesTouchOnlyTheGivenWorksAndAreSafeToRepeat() {
+		IllustrationBatchRepository batch = new IllustrationBatchRepository(jdbc);
+		work(jdbc, 31, null, null, null, T1);
+		work(jdbc, 32, null, null, null, T1);
+		work(jdbc, 33, null, 3L, null, T1);
+		jdbc.update("INSERT INTO illustration_tag (illustration_id, tag_id) VALUES (31, 1)");
+		try {
+			List<Long> two = List.of(31L, 32L);
+			assertEquals(List.of(31L, 32L, 33L), batch.findExistingIds(List.of(31L, 32L, 33L, 999L)).stream().sorted().toList());
+
+			// Adding keeps the link work 31 already has; repeating the same request changes nothing.
+			batch.addTags(two, List.of(1L, 2L));
+			batch.addTags(two, List.of(1L, 2L));
+			assertEquals(List.of(1L, 2L), tagsOf(31));
+			assertEquals(List.of(1L, 2L), tagsOf(32));
+			assertEquals(List.of(), tagsOf(33));
+
+			var counts = batch.countTags(List.of(31L, 32L, 33L));
+			assertEquals(java.util.Set.of(1L, 2L), new HashSet<>(counts.stream().map(c -> c.id()).toList()));
+			assertTrue(counts.stream().allMatch(c -> c.count() == 2));
+
+			batch.removeTags(two, List.of(1L));
+			batch.removeTags(two, List.of(1L));
+			assertEquals(List.of(2L), tagsOf(31));
+			assertEquals(List.of(2L), tagsOf(32));
+
+			batch.updateAuthor(two, 2L);
+			assertEquals(2L, jdbc.queryForObject("SELECT author_id FROM illustration WHERE id = 32", Long.class));
+			assertEquals(3L, jdbc.queryForObject("SELECT author_id FROM illustration WHERE id = 33", Long.class), "not selected");
+			batch.updateAuthor(two, null);
+			assertEquals(0L, jdbc.queryForObject("SELECT COUNT(author_id) FROM illustration WHERE id IN (31, 32)", Long.class));
+		} finally {
+			jdbc.update("DELETE FROM illustration WHERE id BETWEEN 31 AND 33");
+		}
+	}
+
 	private void assertPaged(IllustrationGalleryQuery query, int size, List<Long> expected) {
 		List<Long> seen = new ArrayList<>();
 		for (long offset = 0; offset < expected.size(); offset += size) {

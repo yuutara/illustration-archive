@@ -1044,3 +1044,52 @@ for (const [sort, refreshes] of [["title", true], ["author", true], ["oldest", f
         assert.equal(lists - before, refreshes ? 1 : 0);
     });
 }
+
+/* ---------------- 批量整理 ---------------- */
+
+const BATCH_URL = "POST /api/illustrations/batch/metadata";
+
+test("a batch save posts once, drops the cached details of those works and re-reads the list", async () => {
+    let saved = false;
+    const env = setup({ responses: {
+        [listUrl(0)]: () => pageOf(0, 2, [item(2, [jpeg(20)]), item(1, [jpeg(10)])]),
+        [BATCH_URL]: () => { saved = true; return NO_CONTENT; },
+        [detailUrl(1)]: () => detailOf(1),
+        [detailUrl(2)]: () => detailOf(2, { tags: saved ? [{ id: 4, name: "海" }] : [] })
+    } });
+    await env.Archive.setQuery({});
+    await env.Archive.loadDetail(2);
+    await env.Archive.loadDetail(1);
+    const lists = env.requests.filter((r) => r === listUrl(0)).length;
+
+    const result = await env.Archive.saveBatch([2], { addTagIds: [4], removeTagIds: [] });
+    assert.deepEqual(plain(result), { refreshError: null });
+    assert.equal(env.requests.filter((r) => r === BATCH_URL).length, 1);
+    assert.deepEqual(env.calls.find((c) => c.method === "POST").body, { ids: [2], addTagIds: [4], removeTagIds: [] });
+    assert.equal(env.requests.filter((r) => r === listUrl(0)).length, lists + 1);
+    assert.equal(env.Archive.get(2).detail, null, "the next read fetches the new tags");
+    assert.ok(env.Archive.get(1).detail, "works that were not selected keep theirs");
+});
+
+test("a refused batch changes nothing locally and explains that no work was changed", async () => {
+    const env = setup({ responses: {
+        [listUrl(0)]: pageOf(0, 1, [item(1, [jpeg(10)])]),
+        [detailUrl(1)]: detailOf(1),
+        [BATCH_URL]: 404
+    } });
+    await env.Archive.setQuery({});
+    await env.Archive.loadDetail(1);
+    const lists = env.requests.filter((r) => r === listUrl(0)).length;
+    await assert.rejects(env.Archive.saveBatch([1], { authorId: null }), /所选作品都没有改动/);
+    assert.equal(env.requests.filter((r) => r === listUrl(0)).length, lists, "no refresh after a failure");
+    assert.ok(env.Archive.get(1).detail);
+});
+
+test("a batch whose reply was lost is reported as unknown, not as failed", async () => {
+    const env = setup({ responses: {
+        [listUrl(0)]: pageOf(0, 1, [item(1, [jpeg(10)])]),
+        [BATCH_URL]: new TypeError("failed to fetch")
+    } });
+    await env.Archive.setQuery({});
+    await assert.rejects(env.Archive.saveBatch([1], { authorId: null }), /无法确认/);
+});

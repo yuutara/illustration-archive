@@ -1,7 +1,7 @@
 /* C 图库 · 页面专属样式：载入状态、未接入入口、看图器提示（配色来自 theme-quiet.css 的令牌） */
 
 /* 未接入的入口：保留位置、明显变淡，悬停显示原因 */
-button:disabled[data-not-yet], .piece-edit:disabled { cursor: not-allowed; opacity: .45; }
+.piece-edit:disabled { cursor: not-allowed; opacity: .45; }
 .piece-edit:disabled:hover { background: var(--gl-bg); }
 .scopes button:disabled { color: var(--faint); cursor: not-allowed; }
 .omnibox.is-disabled { opacity: .62; }
@@ -30,6 +30,35 @@ button:disabled[data-not-yet], .piece-edit:disabled { cursor: not-allowed; opaci
 .pk-status.is-error { color: var(--danger); }
 .pk-status .link { font-size: 12px; }
 .pk-input::-webkit-search-cancel-button { display: none; }
+
+/* 批量操作条：唯一的实色按钮是“整理…”，其余退后 */
+.bb-btn.bb-primary { position: relative; margin: 0 2px; color: var(--paper); background: var(--ink); }
+.bb-btn.bb-primary:hover:not(:disabled) { color: var(--paper); background: var(--ink); opacity: .86; }
+.bb-btn.bb-primary:disabled { color: var(--muted); background: var(--gl-fill-hover); opacity: 1; cursor: default; }
+.bb-count { min-width: 72px; color: var(--ink-2); }
+
+/* 批量整理面板 */
+.sheet-batch { gap: 16px; width: min(520px, 100%); }
+.sheet-batch .sheet-head { margin-bottom: 0; }
+.sheet-batch .sheet-foot { margin-top: 4px; }
+.batch-covers { display: flex; align-items: center; min-height: 48px; }
+.batch-covers img { width: 40px; height: 48px; border-radius: 6px; object-fit: cover; background: var(--paper-2); box-shadow: 0 0 0 2px var(--card); }
+.batch-covers img + img { margin-left: -10px; }
+.batch-more { margin-left: 10px; color: var(--muted); font-size: 13px; }
+.batch-note { color: var(--muted); font-size: 12px; }
+.batch-error { margin: 0; }
+.sheet-batch #batch-summary { min-width: 0; overflow: hidden; color: var(--ink-2); text-overflow: ellipsis; white-space: nowrap; }
+.sheet-batch .ed-tag { gap: 4px; }
+/* 没动的标签用中性色，只有要改动的才是群青：一眼看出这次会改什么 */
+html[data-look] .sheet-batch .ed-tag.is-kept { color: var(--ink-2); background: var(--paper-2); }
+html[data-look] .sheet-batch .ed-tag.is-removing { color: var(--muted); background: var(--paper-2); }
+.sheet-batch .is-kept .bt-action:not(:last-child) { color: var(--accent-text); }
+.sheet-batch .is-removing .bt-label { text-decoration: line-through; }
+.bt-count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.sheet-batch .ed-tag .bt-action { width: auto; min-width: 22px; padding: 0 5px; border-radius: 6px; font-size: 12px; }
+.sheet-batch .ed-tag { padding-right: 6px; }
+.bt-status { align-self: center; color: var(--muted); font-size: 13px; }
+.bt-status .link { margin-left: 6px; font-size: 13px; }
 
 /* 排序菜单：沿用弹层的玻璃与展开动效；只有当前项显示勾，其余不画圆点 */
 .pk-menu { width: 168px; padding: 6px; }

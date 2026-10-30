@@ -565,6 +565,63 @@
         return result;
     }
 
+    const BATCH_MAX = 500;
+
+    // 所选作品上已有的标签及各自的件数；用 POST 只是因为 id 列表可能太长，放不进地址
+    async function batchTagCounts(ids) {
+        let response;
+        try {
+            response = await fetch('/api/illustrations/batch/tags', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ ids })
+            });
+        } catch (e) {
+            throw new RequestError(0, '无法连接到本地图库服务');
+        }
+        if (!response.ok) throw new RequestError(response.status, `服务返回 ${response.status}`);
+        return response.json();
+    }
+
+    async function batchFailure(response) {
+        let message = '';
+        try {
+            const body = await response.json();
+            if (body && typeof body.message === 'string') message = body.message;
+        } catch (e) { /* 没有可读的错误说明 */ }
+        if (response.status === 403) return '本机访问会话已失效，请从控制窗口重新打开图库';
+        if (response.status === 404) return '有作品已不存在，可能已在别处删除。所选作品都没有改动，请重新选择';
+        if (response.status === 400) return '内容不符合要求' + (message ? '：' + message : '');
+        return `服务没有保存这次修改（${response.status}），所选作品都没有改动。所选作者或标签可能已在别处被删除`;
+    }
+
+    /*
+     * 批量保存：change 里 authorId 不出现表示不改作者，为 null 表示清空。服务端在一个事务里完成，失败时什么都没变；
+     * 连接中断时结果未知，重试是安全的（添加、移除、改作者重复执行结果相同）。
+     * 成功后作废这些作品的详情，再按服务端结果重读列表：作品可能移出筛选结果，也可能换位置。
+     */
+    async function saveBatch(ids, change) {
+        let response;
+        try {
+            response = await fetch('/api/illustrations/batch/metadata', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ ids, ...change })
+            });
+        } catch (e) {
+            throw new RequestError(0, '连接中断，无法确认这次修改是否已保存。可以直接重试，重复应用不会出错');
+        }
+        if (!response.ok) throw new RequestError(response.status, await batchFailure(response));
+        ids.forEach((id) => {
+            const work = getWork(id);
+            if (work) work.detail = null;
+        });
+        const refreshed = await refreshLoaded();
+        return { refreshError: refreshed.error || null };
+    }
+
     /*
      * 一次编辑的状态：loading（读详情）→ ready（可编辑）→ saving → saved；读详情失败为 error。
      * 只有 ready 时能改草稿和保存，保存中再次提交直接忽略；保存失败回到 ready，草稿原样保留并记下原因。
@@ -945,6 +1002,9 @@
         isDeleting: (id) => deletions.has(id),
         libraryCount,
         untaggedCount,
+        BATCH_MAX,
+        batchTagCounts,
+        saveBatch,
         IMPORT_MAX_BYTES,
         hasMore,
         isLoading: () => loading != null,
