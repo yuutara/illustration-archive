@@ -121,7 +121,8 @@
             work.pages.forEach((page, i) => {
                 const img = new Image();
                 img.alt = '';
-                img.decoding = 'async';
+                // 同步解码：异步时这张牌第一次露出来是空的，下一帧才出现，看起来就是闪一下
+                img.decoding = 'sync';
                 img.draggable = false;
                 img.src = page.src;
                 img.dataset.page = String(i);
@@ -724,7 +725,7 @@
     const pageOf = new Map();
     const orderOf = new Map();   // 身后的排列方向：1 依次是后面的页，-1 依次是前面的页
     const decks = new Map();
-    const SWIPE_COMMIT = 0.28, SWIPE_FLICK = 0.5, BLEND_MS = 200;
+    const SWIPE_COMMIT = 0.28, SWIPE_FLICK = 0.5, BLEND_MS = 200, FRONT_WAIT_MS = 120;
     // 换牌时用悬停展开后的叠卡位置：拖动时指针就在卡上，落定后与 CSS 的悬停状态一致，不会抖一下
     const SLOTS = [{ x: 0, y: 0, r: 0 }, { x: 2, y: -8, r: 1.2 }, { x: 3, y: -14, r: 2.4 }];
     const mod = (a, n) => ((a % n) + n) % n;
@@ -767,7 +768,7 @@
         d = {
             fig, work, n, w, A: w + 24, imgs: [...fig.querySelectorAll('.fx-layers img')], mark: fig.querySelector('.piece-marks .mark'),
             cur: mod(pageOf.get(work.id) || 0, n), dir, step: dir, side: dir > 0 ? -1 : 1, u: 0, base: 0,
-            held: false, flight: null, blend: null, last: null, frame: 0, guard: 0
+            held: false, locked: false, flight: null, blend: null, last: null, frame: 0, guard: 0, settling: null
         };
         fig.classList.add('fx-decking');
         decks.set(fig, d);
@@ -788,6 +789,7 @@
                 p = out
                     ? { x: ax * t, y: 0, rot: ar * t, depth: 0, z: 60, lift: Math.sin(Math.PI * u) }
                     : { x: ax + (bottom.x - ax) * t, y: bottom.y * t, rot: ar + (bottom.rot - ar) * t, depth: bottom.depth * t, z: 0, lift: 0 };
+                p.top = true;
                 p.y -= 8 * Math.sin(Math.PI * u);
                 p.scale = 1 + 0.03 * Math.sin(2 * Math.PI * u);   // 抽出时略微抬起放大，绕回底部时略微缩小，读出前后
             } else {
@@ -808,7 +810,8 @@
             else {
                 const mixed = new Map();
                 poses.forEach((p, img) => {
-                    const f = d.blend.from.get(img) || p;
+                    // 只换底下的牌时，手里的顶牌仍然 1:1 跟手
+                    const f = (d.blend.under && p.top ? null : d.blend.from.get(img)) || p;
                     const mix = (key) => p[key] + (f[key] - p[key]) * b;
                     mixed.set(img, { x: mix('x'), y: mix('y'), rot: mix('rot'), depth: mix('depth'), scale: mix('scale'), lift: mix('lift'), z: p.z });
                 });
@@ -828,9 +831,25 @@
         if (d.mark) d.mark.textContent = `${mod(d.u >= 0.5 ? d.cur + d.step : d.cur, d.n) + 1} / ${d.n}`;
     }
 
+    // 落定：正面的图片换好之前牌堆继续盖着，否则会先露出上一页或空一帧。等待有上限，图片再慢也不会卡住；
+    // 等待期间再次按下时，holdDeck 接着用这叠牌，不拆了重建
     function settleDeck(d) {
         cancelAnimationFrame(d.frame);
         clearTimeout(d.guard);
+        const front = d.fig.querySelector('.piece-open img');
+        const src = d.work.pages[d.cur].src;
+        if (!front || front.getAttribute('src') === src) { clearDeck(d); return; }
+        const mine = d.settling = {};
+        front.src = src;
+        Promise.race([front.decode().catch(() => { }), new Promise((done) => setTimeout(done, FRONT_WAIT_MS))]).then(() => {
+            if (d.settling === mine && decks.get(d.fig) === d) clearDeck(d);
+        });
+    }
+
+    function clearDeck(d) {
+        cancelAnimationFrame(d.frame);
+        clearTimeout(d.guard);
+        d.settling = null;
         d.imgs.forEach((img) => { img.style.zIndex = img.style.transform = img.style.filter = img.style.boxShadow = ''; });
         d.fig.classList.remove('fx-decking');
         decks.delete(d.fig);
@@ -879,6 +898,7 @@
     // 新顶牌接手，各张从此刻的位置并过去（连续快速滑动时一下一页）
     function holdDeck(fig) {
         const d = deckFor(fig);
+        d.settling = null;
         if (d.flight && d.flight.to === 1) {
             landFlight(d);
             d.side = d.step > 0 ? -1 : 1;
@@ -887,16 +907,30 @@
         d.flight = null;
         clearTimeout(d.guard);
         d.held = true;
+        d.locked = d.u > 0;   // 接住飞回来的牌时，方向已经定了
         d.base = d.side * d.u * 2 * d.A;
         if (d.blend) runDeck(d);
         return d;
     }
 
-    // 拖动：顶牌 1:1 跟手，快到顶点时加阻力，按住时不会越过顶点把牌塞回去；越过原点就换到另一侧、换一组待露出的页
+    // 定方向：底下要露出的牌在这一刻换成新方向的那一组，它们滑到新位置，不瞬移
+    function chooseSide(d, side) {
+        d.locked = true;
+        if (side === d.side) return;
+        const from = d.last || posesOf(d);
+        d.blend = { from, t0: performance.now(), under: !d.blend };
+        d.side = side;
+        d.step = -side;
+        runDeck(d);
+    }
+
+    // 拖动：顶牌 1:1 跟手，快到顶点时加阻力，按住时不会越过顶点把牌塞回去。
+    // 一次按住只走一个方向：来回晃过原点时顶牌停在原位，底下的牌不跟着换组；要往回翻就松手再滑一次
     function dragDeck(d, dx) {
-        const raw = d.base + dx, lim = d.A * 0.8, a = Math.abs(raw);
+        const raw = d.locked && (d.base + dx) * d.side < 0 ? 0 : d.base + dx;
+        const lim = d.A * 0.8, a = Math.abs(raw);
         const x = Math.sign(raw) * (a <= lim ? a : lim + rubber(a - lim, d.A * 0.18));
-        if (x !== 0) { d.side = Math.sign(x); d.step = -d.side; }
+        if (x !== 0 && !d.locked) chooseSide(d, Math.sign(x));
         d.u = Math.abs(x) / (2 * d.A);
         d.x = x;
         renderDeck(d, performance.now());
@@ -925,7 +959,7 @@
         d.flight = null;
         d.blend = null;
         d.u = 0;
-        settleDeck(d);
+        clearDeck(d);
     }
 
     function snapDecks() { [...decks.values()].forEach(finishDeck); }

@@ -20,8 +20,9 @@ import java.util.Optional;
 
 /**
  * Starts the app: the splash image and a hidden window while the server comes up, then the window appears. This
- * thread runs the window's event loop, and closing the window ends it: the Spring context closes, so requests drain,
- * the connection pool closes (and with it the H2 file), and the port is released before the process ends.
+ * thread runs the window's event loop, and quitting ends it, whether that comes from the window, the tray or Windows
+ * ending the session: the tray icon and WebView2 go first, then the Spring context closes, so requests drain, the
+ * connection pool closes (and with it the H2 file), and the port is released before the process ends.
  */
 public final class DesktopLauncher {
 
@@ -101,8 +102,10 @@ public final class DesktopLauncher {
 
 	private void run() {
 		DesktopSplash.status("正在准备图库…", SERVER_STAGE_CAP);
-		window = DesktopWindow.open(display, home, DesktopSettings.savedProxy(home), this::openInDefaultBrowser, this::stop)
-				.orElse(null);
+		// Windows asks this before a sign-out or shutdown; a window in the tray would otherwise die mid-run.
+		display.addListener(SWT.Close, event -> stop());
+		window = DesktopWindow.open(display, home, DesktopSettings.savedProxy(home), this::openInDefaultBrowser,
+				this::closeAction, this::stop).orElse(null);
 		if (window == null) {
 			DesktopSplash.close();
 			controls = new DesktopControls(display, home, this::openInBrowser, this::stop);
@@ -169,7 +172,15 @@ public final class DesktopLauncher {
 		}
 	}
 
+	/** Only asked once the window has appeared and put its tray icon up, which is after the server started. */
+	private CloseAction closeAction() {
+		return running.context().getBean(DesktopSettings.class).closeAction();
+	}
+
 	private void stop() {
+		if (!stopping && window != null) {
+			window.saveState();
+		}
 		stopping = true;
 		display.wake();
 	}

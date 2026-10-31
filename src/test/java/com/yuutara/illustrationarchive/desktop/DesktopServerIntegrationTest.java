@@ -721,6 +721,10 @@ class DesktopServerIntegrationTest {
 		HttpResponse<String> script = browser.send(HttpRequest.newBuilder(running.baseUri().resolve("/c/c-x.js")).GET().build(),
 				HttpResponse.BodyHandlers.ofString());
 		assertEquals("no-cache", script.headers().firstValue("Cache-Control").orElseThrow(), "an update must reach the window's profile");
+		assertTrue(script.headers().firstValue("Last-Modified").isEmpty(), "the packaged jar's timestamp never changes between versions");
+		HttpResponse<String> revalidated = browser.send(HttpRequest.newBuilder(running.baseUri().resolve("/c/c-x.js"))
+				.header("If-Modified-Since", "Fri, 01 Jan 2100 00:00:00 GMT").GET().build(), HttpResponse.BodyHandlers.ofString());
+		assertEquals(200, revalidated.statusCode(), "a page cached by an earlier version must be replaced");
 		HttpResponse<String> old = browser.send(HttpRequest.newBuilder(running.baseUri().resolve("/")).GET().build(),
 				HttpResponse.BodyHandlers.ofString());
 		assertEquals(200, old.statusCode());

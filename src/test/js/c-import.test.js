@@ -118,8 +118,10 @@ test("picking files imports them one by one; afterwards the wall is re-read, new
     env.ids["import-open"].click();
     assert.equal(env.ids["import-sheet"].hidden, false);
     assert.deepEqual(env.calls.inert, [true], "the gallery behind the sheet is made inert");
+    assert.equal(env.ids["dropzone"].classList.contains("is-compact"), false, "an empty sheet shows the full drop area");
     env.ids["import-input"].files = [pic("a.png"), pic("b.png")];
     env.ids["import-input"].dispatch("change");
+    assert.equal(env.ids["dropzone"].classList.contains("is-compact"), true, "the list takes over once files are in");
     assert.match(env.ids["import-summary"].textContent, /正在导入 1 \/ 2/);
     assert.equal(env.ids["import-close"].disabled, true);
     assert.equal(env.Import.close(), false, "cannot close mid-import");
@@ -136,6 +138,7 @@ test("picking files imports them one by one; afterwards the wall is re-read, new
     assert.equal(env.ids["import-sheet"].hidden, true, "opening a work closes the sheet");
     assert.deepEqual(env.calls.opened, [100]);
     assert.deepEqual(env.calls.inert, [true, false]);
+    assert.equal(env.ids["dropzone"].classList.contains("is-compact"), false, "the next import starts from the full drop area");
 });
 
 test("under a filter the query is kept; new works that do not match are explained, with a way to clear the conditions", async () => {

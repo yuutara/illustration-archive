@@ -247,6 +247,7 @@
         $('x-confirm-text').textContent = `每次同步最多读取 ${state.scanBudget} 条点赞，按 X 官方价目约 ${M.costEstimate(state.scanBudget)}，从你的 X 开发者额度中扣除。`
             + '只有点“同步”时才会读取，不会在后台自动进行。实际费用以 X 开发者控制台为准。';
         const sheet = $('x-confirm');
+        const returnFocus = document.activeElement;
         sheet.hidden = false;
         $('x-confirm-cancel').focus();
         return new Promise((resolve) => {
@@ -255,6 +256,7 @@
                 $('x-confirm-ok').onclick = null;
                 $('x-confirm-cancel').onclick = null;
                 if (ok) { try { localStorage.setItem(COST_NOTICE_KEY, '1'); } catch (e) { /* 下次再提示一次 */ } }
+                if (returnFocus && returnFocus.isConnected) returnFocus.focus();
                 resolve(ok);
             };
             $('x-confirm-ok').onclick = () => done(true);
@@ -443,6 +445,14 @@
         if (state.selected.size && e.key.toLowerCase() === 'a' && !e.ctrlKey) archive([...state.selected]);
         else if (state.selected.size && e.key.toLowerCase() === 's' && !e.ctrlKey) skip([...state.selected]);
         else if (e.key === 'Escape' && state.selected.size) { state.selected.clear(); syncSelection(); }
+    });
+
+    // 费用确认和图库的确认框一样：点背景算取消，Tab 只在两个按钮之间切换
+    $('x-confirm').addEventListener('mousedown', (e) => { if (e.target === $('x-confirm')) $('x-confirm-cancel').click(); });
+    $('x-confirm').addEventListener('keydown', (e) => {
+        if (e.key !== 'Tab') return;
+        e.preventDefault();
+        (document.activeElement === $('x-confirm-ok') ? $('x-confirm-cancel') : $('x-confirm-ok')).focus();
     });
 
     $('x-sync').addEventListener('click', sync);

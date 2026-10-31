@@ -14,7 +14,9 @@
     <link rel="stylesheet" href="app.css">
     <script src="theme-mode.js"></script>
     <script src="/ui-capabilities.js"></script>
+    <script>if (window.UiCapabilities && UiCapabilities.desktop) document.documentElement.classList.add('is-desktop');</script>
     <script src="shell.js" defer></script>
+    <script src="c-close.js" defer></script>
     <script src="c-x-model.js" defer></script>
     <script src="c-settings.js" defer></script>
 </head>
@@ -22,7 +24,7 @@
 <header class="masthead masthead-page">
     <div class="mast-start">
         <a class="wordmark" href="/c/">插画档案</a>
-        <nav class="mast-nav" aria-label="主导航" hidden>
+        <nav class="mast-nav" aria-label="主导航">
             <a href="/c/">图库</a>
             <a href="/c/x.html">X 收藏<sup id="nav-inbox"></sup></a>
             <a href="/c/settings.html" aria-current="page">设置</a>
@@ -83,9 +85,21 @@
         </label>
         <p class="set-error" id="proxy-error" role="alert" hidden></p>
         <div class="set-actions">
-            <button class="btn" id="proxy-save" type="button">保存</button>
+            <button class="btn btn-ink" id="proxy-save" type="button">保存</button>
         </div>
         <p class="set-note">连接 X 和 Gemini 时使用。留空时跟随 Windows 代理设置，应用不会更改系统代理。修改后，X 收藏里的图片需要重新打开应用才会走新的代理。</p>
+    </section>
+
+    <!-- 只有应用窗口才有托盘；回退到浏览器时没有这一项 -->
+    <section class="set-section" id="window" hidden>
+        <h2 id="close-heading">关闭窗口时</h2>
+        <div class="set-choices" role="radiogroup" aria-labelledby="close-heading">
+            <label class="set-choice"><input type="radio" name="close-action" value="ASK">每次询问</label>
+            <label class="set-choice"><input type="radio" name="close-action" value="TRAY">最小化到托盘</label>
+            <label class="set-choice"><input type="radio" name="close-action" value="EXIT">退出应用</label>
+        </div>
+        <p class="set-error" id="close-error" role="alert" hidden></p>
+        <p class="set-note">留在托盘时应用继续运行，图标在任务栏右侧，可能收在 ^ 里。点图标回到窗口，右键图标可以退出。</p>
     </section>
 
     <section class="set-section" id="data">
@@ -100,9 +114,6 @@
     <section class="set-section">
         <h2>关于</h2>
         <p>版本 <span id="version"></span></p>
-        <div class="set-actions">
-            <a class="link" href="/">打开旧版界面</a>
-        </div>
     </section>
 </main>
 

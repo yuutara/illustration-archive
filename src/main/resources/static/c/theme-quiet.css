@@ -11,6 +11,14 @@
  * 颜色：界面只有黑白灰，唯一的色相是群青，只给焦点、选中、已选条件和链接；红色只给删除。
  * 字：只用无衬线，字号 12 / 13 / 14 / 16 / 20，字重 400 / 600，数字等宽。
  * 圆角：作品 8、控件 8、浮层 12、对话框 16；胶囊只给玻璃控件。
+ *
+ * 对话框和编辑面板是同一种玻璃（--sheet-bg + --gl-blur-l），浅色和深色的通透程度一致。可读性由玻璃里的
+ * 小字颜色（--sheet-muted）保证，不靠把玻璃加厚；c-dialog-style.test.js 按最坏的背景核对对比度。遮罩不做模糊：外层一旦有 backdrop-filter 或 opacity，
+ * 里面的玻璃就取不到页面，所以遮罩的淡入淡出走背景色。对话框里的面只有一种：
+ *   凹面（--well）  半透明，所以在浅色、深色、玻璃、页面上都自然。输入框、拖放区、作品摘要、状态说明都用它
+ *   虚线（--dash）  表示“东西可以放到这里”：拖放区、添加标签
+ *   群青（--accent-wash + --focus-ring）  拖入、输入焦点这类“正在起作用”的状态
+ *   红（--danger-wash）  只给错误说明
  */
 
 /* ===================== 浅色 ===================== */
@@ -56,6 +64,18 @@ html[data-look="quiet"] {
     --gl-field: rgba(255, 255, 255, .7);
     --gl-field-bg: rgba(0, 0, 0, .045);
     --gl-field-bg-hover: rgba(0, 0, 0, .065);
+    --well: rgba(0, 0, 0, .035);
+    --well-hover: rgba(0, 0, 0, .06);
+    --well-edge: inset 0 0 0 1px rgba(0, 0, 0, .05);
+    --dash: rgba(0, 0, 0, .2);
+    --scrim: rgba(0, 0, 0, .3);
+    --sheet-bg: rgba(255, 255, 255, .78);
+    --sheet-muted: #52524e;
+    --hover-edge: #84847e;
+    --sheet-shadow: var(--gl-inset), var(--gl-line), var(--gl-drop-panel);
+    --focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+    --accent-wash: color-mix(in srgb, var(--accent) 9%, transparent);
+    --danger-wash: color-mix(in srgb, var(--danger) 10%, transparent);
 }
 
 /* ===================== 深色 ===================== */
@@ -97,14 +117,26 @@ html[data-look="quiet"][data-mode="dark"] {
     --gl-field: rgba(255, 255, 255, .05);
     --gl-field-bg: rgba(255, 255, 255, .06);
     --gl-field-bg-hover: rgba(255, 255, 255, .09);
+    --well: rgba(255, 255, 255, .04);
+    --well-hover: rgba(255, 255, 255, .065);
+    --well-edge: inset 0 0 0 1px rgba(255, 255, 255, .06), inset 0 1px 0 rgba(255, 255, 255, .03);
+    --dash: rgba(255, 255, 255, .2);
+    --scrim: rgba(0, 0, 0, .42);
+    --sheet-bg: rgba(28, 28, 28, .82);
+    --sheet-muted: #a8a8a1;
+    --hover-edge: #7f7f78;
+    --sheet-shadow: var(--gl-inset), var(--gl-line), var(--gl-drop-panel);
+    --focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+    --accent-wash: color-mix(in srgb, var(--accent) 9%, transparent);
+    --danger-wash: color-mix(in srgb, var(--danger) 10%, transparent);
 }
 
 /* ===================== 骨架 ===================== */
 html[data-look="quiet"] body { background: var(--paper); font-variant-numeric: tabular-nums; }
 html[data-look="quiet"] :focus-visible { outline-color: var(--accent); }
 html[data-look="quiet"] :is(.btn, .text-btn, .density, .fchip) { border-radius: 8px; }
-html[data-look="quiet"] .btn { border-color: var(--line); background: var(--card); box-shadow: none; }
-html[data-look="quiet"] .btn:hover:not(:disabled) { border-color: var(--faint); }
+html[data-look="quiet"] .btn { border-color: var(--line); color: var(--ink); background: var(--card); box-shadow: none; }
+html[data-look="quiet"] .btn:hover:not(:disabled) { border-color: var(--hover-edge); }
 html[data-look="quiet"] .btn-ink,
 html[data-look="quiet"].fx-press .btn-ink:not(:disabled) { border-color: var(--ink); color: var(--paper); background: var(--ink); background-image: none; box-shadow: none; }
 html[data-look="quiet"] .btn-ink:hover:not(:disabled) { border-color: var(--ink); opacity: .86; }
@@ -213,21 +245,29 @@ html[data-look="quiet"].fx-popover.fx-mat-glass .sv-menu a[aria-disabled="true"]
 html[data-look="quiet"].fx-popover.fx-mat-glass .sv-menu kbd { border-color: var(--gl-sep-strong); color: var(--muted); }
 
 /* ===================== 信息栏、编辑、对话框 ===================== */
+html[data-look="quiet"] :is(.sheet, .sv-editor) { --muted: var(--sheet-muted); --faint: var(--sheet-muted); }
 html[data-look="quiet"] .sv-info { color: var(--ink); background: var(--gd-bg-panel); -webkit-backdrop-filter: var(--gd-blur); backdrop-filter: var(--gd-blur); box-shadow: -1px 0 0 var(--gl-sep); }
 html[data-look="quiet"] .info-tags button { border: 0; border-radius: 8px; background: var(--gl-fill-hover); }
-html[data-look="quiet"] .sv-editor { background: var(--card); box-shadow: -1px 0 0 var(--line), -24px 0 48px -12px rgba(0, 0, 0, .16); }
+html[data-look="quiet"] .sv-editor { background: var(--sheet-bg); -webkit-backdrop-filter: var(--gl-blur-l); backdrop-filter: var(--gl-blur-l); box-shadow: -1px 0 0 var(--line), -24px 0 48px -12px rgba(0, 0, 0, .16); }
 html[data-look="quiet"][data-mode="dark"] .sv-editor { box-shadow: -1px 0 0 var(--line), -24px 0 48px -12px rgba(0, 0, 0, .6); }
-html[data-look="quiet"] :is(.ed-field input, .ed-field textarea, .ed-picker) { border-color: transparent; border-radius: 8px; background: var(--paper); }
-html[data-look="quiet"] .ed-picker:hover { border-color: var(--line); }
-html[data-look="quiet"] :is(.ed-field input, .ed-field textarea):focus { border-color: var(--accent); background: var(--card); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+html[data-look="quiet"] :is(.ed-field input, .ed-field textarea, .ed-picker, .set-field input) { border-color: transparent; border-radius: 8px; background: var(--well); box-shadow: var(--well-edge); }
+html[data-look="quiet"] .ed-picker:hover { border-color: transparent; background: var(--well-hover); }
+html[data-look="quiet"] :is(.ed-field input, .ed-field textarea, .set-field input):focus { border-color: var(--accent); background: var(--card); box-shadow: var(--focus-ring); }
 html[data-look="quiet"] :is(.ed-tag, .ed-tag-add) { border-radius: 8px; }
-html[data-look="quiet"] .ed-dirty { border-radius: 6px; color: var(--ink-2); background: var(--paper-2); }
-html[data-look="quiet"] .sheet { border-radius: 16px; background: var(--card); box-shadow: 0 0 0 1px var(--line), 0 30px 70px -24px rgba(0, 0, 0, .3); }
-html[data-look="quiet"][data-mode="dark"] .sheet { box-shadow: 0 0 0 1px var(--line), 0 30px 70px -20px rgba(0, 0, 0, .8); }
-html[data-look="quiet"] .sheet-backdrop { background: rgba(0, 0, 0, .3); }
-html[data-look="quiet"][data-mode="dark"] .sheet-backdrop { background: rgba(0, 0, 0, .55); }
-html[data-look="quiet"] .dropzone { border-color: var(--line); background: var(--paper); }
-html[data-look="quiet"] .dropzone.is-over, html[data-look="quiet"] .drag-hint .dropzone { border-color: var(--accent); background: var(--accent-soft); }
+html[data-look="quiet"] .ed-tag-add { border-color: var(--dash); }
+html[data-look="quiet"] .ed-dirty { border-radius: 8px; color: var(--ink-2); background: var(--well); }
+html[data-look="quiet"] .sheet { border-radius: 16px; background: var(--sheet-bg); -webkit-backdrop-filter: var(--gl-blur-l); backdrop-filter: var(--gl-blur-l); box-shadow: var(--sheet-shadow); }
+html[data-look="quiet"] .sheet-backdrop { background: var(--scrim); transition: background-color .2s ease-out, display .2s allow-discrete; }
+@starting-style { html[data-look="quiet"] .sheet-backdrop { background-color: transparent; } }
+html[data-look="quiet"] .sheet-backdrop[hidden] { opacity: 1; background-color: transparent; transition-duration: .14s; }
+html[data-look="quiet"] .sheet kbd { border-color: var(--gl-sep-strong); color: var(--muted); background: none; }
+html[data-look="quiet"] :is(.icon-btn, .ed-clear, .omni-clear):hover { background: var(--gl-fill-hover); }
+html[data-look="quiet"] .dropzone { border-color: var(--dash); background: var(--well); }
+html[data-look="quiet"] .dropzone:is(:hover, :has(:focus-visible)) { border-color: var(--hover-edge); }
+html[data-look="quiet"] :is(.dropzone.is-over, .drag-hint .dropzone) { border-style: solid; border-color: var(--accent); background: var(--accent-wash); box-shadow: var(--focus-ring); }
+@media (prefers-reduced-transparency: reduce) {
+    html[data-look="quiet"] :is(.sheet, .sv-editor) { background: var(--card); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
 
 /* 紧凑密度的悬停说明压在图片上：文字始终是白色，压过上面悬停与作者名的配色 */
 html[data-look="quiet"].fx-wall .compact .piece :is(.piece-title, .piece-author, .piece-author:hover) { color: #fff; }

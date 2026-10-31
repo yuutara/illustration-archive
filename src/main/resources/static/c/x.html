@@ -16,7 +16,9 @@
     <link rel="stylesheet" href="app.css">
     <script src="theme-mode.js"></script>
     <script src="/ui-capabilities.js"></script>
+    <script>if (window.UiCapabilities && UiCapabilities.desktop) document.documentElement.classList.add('is-desktop');</script>
     <script src="shell.js" defer></script>
+    <script src="c-close.js" defer></script>
     <script src="c-x-model.js" defer></script>
     <script src="c-x.js" defer></script>
 </head>
@@ -24,7 +26,7 @@
 <header class="masthead masthead-page">
     <div class="mast-start">
         <a class="wordmark" href="/c/">插画档案</a>
-        <nav class="mast-nav" aria-label="主导航" hidden>
+        <nav class="mast-nav" aria-label="主导航">
             <a href="/c/">图库</a>
             <a href="/c/x.html" aria-current="page">X 收藏<sup id="nav-inbox"></sup></a>
             <a href="/c/settings.html">设置</a>

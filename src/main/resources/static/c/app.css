@@ -27,22 +27,22 @@
 .x-loading { color: var(--muted); font-size: 14px; }
 /* 按行排列：整理时从左到右读，和键盘顺序一致 */
 .x-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); align-items: start; gap: 16px 10px; }
-.x-card { position: relative; border-radius: 6px; cursor: pointer; outline-offset: 2px; }
-.x-frame { position: relative; overflow: hidden; border-radius: 6px; background: var(--paper-2); }
+.x-card { position: relative; border-radius: 8px; cursor: pointer; outline-offset: 2px; }
+.x-frame { position: relative; overflow: hidden; border-radius: 8px; background: var(--paper-2); }
 .x-frame img, .x-frame video { display: block; width: 100%; height: 100%; object-fit: cover; }
 .x-frame .piece-marks { position: absolute; top: 8px; left: 8px; display: flex; gap: 4px; }
 /* 图片读不到时：不留破图，占位和卡片同大小 */
 .x-unavailable { display: grid; place-content: center; justify-items: center; gap: 8px; padding: 12px; color: var(--muted); font-size: 12px; text-align: center; }
 .x-frame .x-unavailable { position: absolute; inset: 0; background: var(--paper-2); }
 .x-stage .x-unavailable { font-size: 14px; }
-.x-retry { height: 28px; padding: 0 10px; border: 0; border-radius: 6px; color: var(--ink); background: var(--gl-fill-hover); font-size: 12px; cursor: pointer; }
+.x-retry { height: 28px; padding: 0 10px; border: 0; border-radius: 8px; color: var(--ink); background: var(--gl-fill-hover); font-size: 12px; cursor: pointer; }
 .x-retry:hover { color: var(--accent-text); }
 .x-unavailable .link { font-size: 12px; }
 .x-check { position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; border: 2px solid rgba(255, 255, 255, .9); border-radius: 50%; background: rgba(0, 0, 0, .18); opacity: 0; transition: opacity .12s; }
 .x-card:hover .x-check, .x-card:focus-visible .x-check, .x-card.is-selected .x-check { opacity: 1; }
 .x-card.is-selected .x-check { border-color: var(--accent); background: var(--accent) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3'%3E%3Cpath d='m5 12 5 5 9-10'/%3E%3C/svg%3E") center / 14px no-repeat; }
 .x-card.is-selected .x-frame { box-shadow: 0 0 0 2px var(--accent); }
-.x-open { position: absolute; right: 8px; bottom: 8px; height: 28px; padding: 0 10px; border: 0; border-radius: 6px; color: var(--ink); background: var(--gl-bg-hover); font-size: 13px; opacity: 0; transition: opacity .12s; cursor: pointer; }
+.x-open { position: absolute; right: 8px; bottom: 8px; height: 28px; padding: 0 10px; border: 0; border-radius: 8px; color: var(--ink); background: var(--gl-bg-hover); font-size: 13px; opacity: 0; transition: opacity .12s; cursor: pointer; }
 .x-card:hover .x-open, .x-open:focus-visible { opacity: 1; }
 .x-meta { padding: 6px 2px 2px; }
 .x-meta p { margin: 0; }
@@ -52,6 +52,10 @@
 /* 图库的批量条由动效层换材质；这里不加载动效层，直接用同一套玻璃令牌 */
 .batchbar { color: var(--ink); background: var(--gl-bg-panel); box-shadow: var(--gl-line), var(--gl-drop-panel); backdrop-filter: var(--gl-blur-l); }
 .bb-btn:hover:not(:disabled) { background: var(--gl-fill-hover); }
+.toast { color: var(--ink); background: var(--gl-bg-panel); box-shadow: var(--gl-inset), var(--gl-line), var(--gl-drop-panel); backdrop-filter: var(--gl-blur-l); }
+@media (prefers-reduced-transparency: reduce) {
+    .batchbar, .toast { background: var(--card); backdrop-filter: none; }
+}
 #x-bar:not([hidden]) ~ .toast { bottom: 84px; }
 .x-pager { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 24px; color: var(--muted); font-size: 13px; }
 
@@ -60,7 +64,7 @@
 .x-preview[hidden] { display: none; }
 .x-stage { position: relative; display: grid; place-items: center; min-width: 0; min-height: 0; padding: 24px; overflow: hidden; background: var(--paper-2); }
 .x-stage img, .x-stage video { max-width: 100%; max-height: calc(100vh - 48px); object-fit: contain; }
-.x-stage-count { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); padding: 2px 8px; border-radius: 6px; color: var(--ink); background: var(--gl-bg-hover); font-size: 12px; }
+.x-stage-count { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); padding: 2px 8px; border-radius: 8px; color: var(--ink); background: var(--gl-bg-hover); font-size: 12px; }
 .x-side { display: flex; flex-direction: column; gap: 10px; min-height: 0; padding: 20px; border-left: 1px solid var(--line); overflow: auto; }
 .x-side p { margin: 0; }
 .x-side-author { color: var(--ink); font-size: 16px; font-weight: 600; }
@@ -82,13 +86,16 @@
 .set-section ol { margin: 8px 0 12px; padding-left: 20px; color: var(--ink-2); font-size: 14px; line-height: 1.8; }
 .set-section a { color: var(--accent-text); }
 .set-section code { padding: 1px 5px; border-radius: 4px; color: var(--ink); background: var(--paper-2); font: 13px/1.5 Consolas, monospace; }
-.set-field { display: grid; gap: 4px; margin: 0 0 10px; color: var(--muted); font-size: 13px; }
-.set-field input { height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); background: var(--card, var(--paper)); font: 14px/1 var(--sans); }
-.set-field input:focus { border-color: var(--accent); outline: none; }
+.set-field { display: grid; gap: 6px; margin: 0 0 10px; color: var(--muted); font-size: 13px; }
+.set-field input { height: 40px; padding: 0 11px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: var(--card, var(--paper)); font: 14px/1 var(--sans); }
+.set-field input:focus { outline: none; }
 .set-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 8px 0 12px; }
 .set-actions:empty { display: none; }
 .set-path { overflow-wrap: anywhere; font: 13px/1.5 Consolas, monospace; }
 #x-setup[hidden] { display: none; }
+.set-choices { display: grid; gap: 2px; margin: 0 0 8px; }
+.set-choice { display: flex; align-items: center; gap: 10px; min-height: 32px; color: var(--ink-2); font-size: 14px; cursor: pointer; }
+.set-choice input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
 
 /* ---------------- 看图器 · AI 分析 ---------------- */
 
@@ -100,7 +107,7 @@
 .ai-texts { margin: 4px 0 0; font-size: 13px; line-height: 1.5; }
 .ai-texts dt { margin-top: 8px; color: var(--muted); }
 .ai-texts dd { margin: 0; color: var(--ink); }
-.ai-tag { padding: 2px 8px; border-radius: 6px; color: var(--ink-2); background: var(--paper-2); font-size: 12px; }
+.ai-tag { padding: 2px 8px; border-radius: 8px; color: var(--ink-2); background: var(--paper-2); font-size: 12px; }
 
 @media (max-width: 760px) {
     .app-page { padding: 12px 16px 96px; }

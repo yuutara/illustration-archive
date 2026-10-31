@@ -142,6 +142,25 @@ class DesktopShellTest {
 	}
 
 	@Test
+	void anUnknownSavedCloseChoiceFallsBackToAsking() {
+		assertEquals(CloseAction.TRAY, CloseAction.stored("tray"));
+		assertEquals(CloseAction.EXIT, CloseAction.stored("exit"));
+		assertEquals(CloseAction.ASK, CloseAction.stored("ask"));
+		assertEquals(CloseAction.ASK, CloseAction.stored(null));
+		assertEquals(CloseAction.ASK, CloseAction.stored("minimize"), "a future or damaged value only costs the question");
+	}
+
+	@Test
+	void theTrayUsesTheSizeWindowsDrawsAndNeverScalesAnIconUp() {
+		assertEquals(16, DesktopTray.iconSize(16));
+		assertEquals(20, DesktopTray.iconSize(20), "125 %");
+		assertEquals(24, DesktopTray.iconSize(24), "150 %");
+		assertEquals(32, DesktopTray.iconSize(32), "200 %");
+		assertEquals(30, DesktopTray.iconSize(28), "between sizes it picks the next larger one");
+		assertEquals(256, DesktopTray.iconSize(512));
+	}
+
+	@Test
 	void aManualProxyNeverAppliesToLoopback() {
 		DesktopProxySelector selector = DesktopProxySelector.installed();
 		try {

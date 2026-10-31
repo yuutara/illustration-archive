@@ -25,6 +25,7 @@ public class DesktopSettings {
 	private static final Pattern PROXY = Pattern.compile("([A-Za-z0-9.-]+):(\\d{1,5})");
 	private static final String X_CLIENT_ID = "x.client-id";
 	private static final String PROXY_ADDRESS = "proxy.address";
+	private static final String CLOSE_ACTION = "window.close-action";
 
 	private final Path file;
 	private final Properties values = new Properties();
@@ -72,6 +73,15 @@ public class DesktopSettings {
 		values.setProperty(PROXY_ADDRESS, address);
 		write();
 		proxySelector.useManual(parsed);
+	}
+
+	public synchronized CloseAction closeAction() {
+		return CloseAction.stored(values.getProperty(CLOSE_ACTION));
+	}
+
+	public synchronized void saveCloseAction(CloseAction action) {
+		values.setProperty(CLOSE_ACTION, action.stored());
+		write();
 	}
 
 	private static InetSocketAddress proxyAddress(String address) {

@@ -242,23 +242,29 @@ kbd { padding: 0 5px; border: 1px solid var(--line); border-radius: 4px; color: 
 
 /* ---------- 导入与对话框 ---------- */
 .sheet-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 24px; background: rgba(36, 33, 29, .32); }
-.sheet { display: flex; flex-direction: column; width: min(620px, 100%); max-height: calc(100vh - 48px); padding: 24px 28px; border-radius: 12px; background: var(--paper); box-shadow: 0 30px 80px rgba(36, 33, 29, .25); }
+.sheet { display: flex; flex-direction: column; width: min(620px, 100%); max-height: calc(100vh - 48px); padding: 24px; overflow: auto; overscroll-behavior: contain; border-radius: 12px; background: var(--paper); box-shadow: 0 30px 80px rgba(36, 33, 29, .25); }
 .sheet-small { width: min(420px, 100%); }
 .sheet h2 { margin: 0; font: 600 16px/1.4 var(--display); }
 .sheet-small p { margin: 10px 0 0; color: var(--muted); }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-.dropzone { display: grid; place-items: center; gap: 2px; min-height: 170px; padding: 24px; border: 1.5px dashed var(--faint); border-radius: 12px; color: var(--muted); background: var(--card); text-align: center; transition: border-color .15s, background .15s; }
+.dropzone { display: grid; place-items: center; align-content: center; gap: 2px; min-height: 196px; padding: 24px; border: 1px dashed var(--faint); border-radius: 12px; color: var(--muted); background: var(--card); text-align: center; transition: border-color .15s, background-color .15s, box-shadow .15s; }
 .dropzone p { margin: 0; }
-.dz-title { color: var(--ink); font: 600 16px/1.5 var(--display); }
+.dz-icon { display: grid; place-items: center; width: 40px; height: 40px; margin-bottom: 8px; border-radius: 12px; color: var(--muted); background: var(--gl-fill-hover); transition: transform .39s var(--fx-snappy), color .15s, background-color .15s; }
+.dz-icon .icon { width: 20px; height: 20px; }
+.dz-title { color: var(--ink); font: 600 14px/1.5 var(--sans); }
+.dz-hint { font-size: 13px; }
+.dropzone .btn { margin-top: 12px; }
 .dropzone.is-over { border-color: var(--accent); background: var(--accent-soft); }
-.dropzone.is-compact { min-height: 64px; }
-.dropzone.is-compact .dz-title { display: none; }
+.dropzone.is-over .dz-icon { color: var(--accent-text); background: var(--accent-wash); transform: translateY(-2px); }
+.dropzone.is-compact { grid-template-columns: minmax(0, 1fr) auto; justify-items: start; column-gap: 16px; min-height: 0; padding: 12px 12px 12px 16px; text-align: left; }
+.dropzone.is-compact :is(.dz-icon, .dz-title) { display: none; }
+.dropzone.is-compact .btn { margin-top: 0; }
 .import-list { display: grid; gap: 2px; max-height: 220px; margin: 14px 0 0; padding: 0; overflow: auto; list-style: none; }
 .import-list:empty { display: none; }
-.import-list li { display: grid; grid-template-columns: 40px 1fr auto; align-items: center; gap: 12px; padding: 6px 4px; border-bottom: 1px solid var(--paper-2); }
-.import-list .thumb { width: 40px; height: 40px; border-radius: 4px; background: var(--paper-2); object-fit: cover; }
+.import-list li { display: grid; grid-template-columns: 40px 1fr auto; align-items: center; gap: 12px; padding: 6px 4px; border-bottom: 1px solid var(--gl-sep); }
+.import-list .thumb { width: 40px; height: 40px; border-radius: 8px; background: var(--well); object-fit: cover; }
 .import-list .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.import-list small { display: block; color: var(--faint); }
+.import-list small { display: block; color: var(--muted); font-size: 12px; }
 .st { font-size: 13px; white-space: nowrap; }
 .st-pending { color: var(--faint); }
 .st-success { color: var(--accent); }
@@ -293,7 +299,7 @@ body.is-selecting .wall-wrap { padding-bottom: 110px; }
 .help-btn { font-weight: 600; }
 .shortcut-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; overflow: auto; }
 .shortcut-columns dl { display: grid; grid-template-columns: auto 1fr; align-content: start; gap: 8px 16px; margin: 0; }
-.shortcut-columns .sc-group { grid-column: 1 / -1; color: var(--faint); font-size: 12px; letter-spacing: .08em; }
+.shortcut-columns .sc-group { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
 .shortcut-columns dt { color: var(--muted); font-size: 13px; white-space: nowrap; }
 .shortcut-columns dd { margin: 0; }
 .shortcut-columns kbd + kbd { margin-left: 3px; }

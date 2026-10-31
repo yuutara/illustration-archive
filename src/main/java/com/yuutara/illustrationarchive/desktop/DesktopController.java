@@ -49,13 +49,17 @@ public class DesktopController {
 			int scanBudget) {
 	}
 
-	public record SettingsView(String dataDirectory, String version, String proxy, boolean geminiKeySaved) {
+	public record SettingsView(String dataDirectory, String version, String proxy, boolean geminiKeySaved,
+			CloseAction closeAction) {
 	}
 
 	public record ClientIdRequest(String clientId) {
 	}
 
 	public record ProxyRequest(String address) {
+	}
+
+	public record CloseActionRequest(CloseAction action) {
 	}
 
 	public record KeyRequest(String apiKey) {
@@ -105,7 +109,16 @@ public class DesktopController {
 	public SettingsView settings() {
 		String version = DesktopController.class.getPackage().getImplementationVersion();
 		return new SettingsView(home.toString(), version == null ? "开发版" : version, settings.proxy(),
-				!geminiKeys.apiKey().isBlank());
+				!geminiKeys.apiKey().isBlank(), settings.closeAction());
+	}
+
+	@PutMapping("/api/desktop/settings/close-action")
+	public ResponseEntity<Void> saveCloseAction(@RequestBody CloseActionRequest request) {
+		if (request.action() == null) {
+			throw new IllegalArgumentException("Close action is required.");
+		}
+		settings.saveCloseAction(request.action());
+		return ResponseEntity.noContent().build();
 	}
 
 	@PutMapping("/api/desktop/settings/proxy")

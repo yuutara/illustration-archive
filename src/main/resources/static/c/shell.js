@@ -1,6 +1,7 @@
 /*
  * 应用外壳：三个页面共用的顶部导航。
- * 桌面版显示“图库 / X 收藏 / 设置”和待处理数量；原 MySQL 运行方式没有这些接口，保留“旧图库”入口。
+ * 桌面版的 <html> 带 is-desktop（<head> 里同步加上，导航不闪）：“图库 / X 收藏 / 设置”是唯一的导航，
+ * 应用名已在窗口标题栏，不再重复；原 MySQL 运行方式只有这一页，保留应用名和“旧图库”。
  * 在应用窗口（WebView2）里，window.iaDesktop 是通往窗口的桥：这里把网页该有、桌面软件不该有的行为收掉。
  * 没有 WebView2 时应用跑在浏览器里，这些保持浏览器原样。
  */
@@ -8,12 +9,8 @@
     'use strict';
 
     const desktop = !!(window.UiCapabilities && window.UiCapabilities.desktop);
-    const nav = document.querySelector('.mast-nav');
-    const legacy = document.getElementById('legacy-link');
     const LAUNCH_KEY = 'ia-launched';
 
-    if (nav) nav.hidden = !desktop;
-    if (legacy) legacy.hidden = desktop;
     if (!desktop) return;
 
     async function refreshInbox() {

@@ -1,4 +1,4 @@
-/* 设置：X 账号、AI 密钥、代理与数据位置。密钥一旦保存就不再从服务端读回。 */
+/* 设置：X 账号、AI 密钥、代理、关闭窗口的方式与数据位置。密钥一旦保存就不再从服务端读回。 */
 (function () {
     'use strict';
 
@@ -151,6 +151,25 @@
         }
     }
 
+    const closeChoices = () => [...document.querySelectorAll('input[name="close-action"]')];
+    let closeAction = 'ASK';
+
+    function renderCloseAction() {
+        closeChoices().forEach((choice) => { choice.checked = choice.value === closeAction; });
+    }
+
+    async function saveCloseAction(action) {
+        showError('close-error', '');
+        try {
+            await send('/api/desktop/settings/close-action', 'PUT', { action });
+            closeAction = action;
+            toast('已保存');
+        } catch (e) {
+            showError('close-error', `没有保存：${e.message}`);
+        }
+        renderCloseAction();
+    }
+
     async function loadSettings() {
         try {
             const settings = await send('/api/desktop/settings', 'GET');
@@ -158,6 +177,9 @@
             $('version').textContent = settings.version;
             $('proxy').value = settings.proxy;
             renderKey(settings.geminiKeySaved);
+            closeAction = settings.closeAction;
+            renderCloseAction();
+            $('window').hidden = !window.iaDesktop;
         } catch (e) {
             toast(`设置载入失败：${e.message}`);
         }
@@ -166,6 +188,7 @@
     $('ai-save').addEventListener('click', saveKey);
     $('ai-clear').addEventListener('click', clearKey);
     $('proxy-save').addEventListener('click', saveProxy);
+    closeChoices().forEach((choice) => choice.addEventListener('change', () => saveCloseAction(choice.value)));
     $('data-open').addEventListener('click', async () => {
         try {
             const result = await send('/api/desktop/open-data-folder', 'POST');

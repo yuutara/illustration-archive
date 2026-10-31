@@ -15,7 +15,9 @@
     <link rel="stylesheet" href="c.css">
     <script src="theme-mode.js"></script>
     <script src="/ui-capabilities.js"></script>
+    <script>if (window.UiCapabilities && UiCapabilities.desktop) document.documentElement.classList.add('is-desktop');</script>
     <script src="shell.js" defer></script>
+    <script src="c-close.js" defer></script>
     <script src="archive-client.js" defer></script>
     <script src="c-gallery.js" defer></script>
     <script src="c-filters.js" defer></script>
@@ -30,7 +32,7 @@
 <header class="masthead" id="masthead">
     <div class="mast-start">
         <a class="wordmark" href="/c/">插画档案</a>
-        <nav class="mast-nav" aria-label="主导航" hidden>
+        <nav class="mast-nav" aria-label="主导航">
             <a href="/c/" aria-current="page">图库</a>
             <a href="/c/x.html">X 收藏<sup id="nav-inbox"></sup></a>
             <a href="/c/settings.html">设置</a>
@@ -203,8 +205,10 @@
             <button class="icon-btn" id="import-close" type="button" aria-label="关闭"><svg class="icon"><use href="#i-close"/></svg></button>
         </header>
         <div class="dropzone" id="dropzone">
+            <span class="dz-icon" aria-hidden="true"><svg class="icon"><use href="#i-import"/></svg></span>
             <p class="dz-title">把图片拖到这里</p>
-            <p>或 <button class="link" id="import-pick" type="button">从电脑中选择</button>　·　JPEG / PNG / GIF，可多选，单个不超过 50 MB</p>
+            <p class="dz-hint">JPEG、PNG、GIF，可多选，单个不超过 50 MB</p>
+            <button class="btn" id="import-pick" type="button">从电脑中选择</button>
         </div>
         <div class="import-bar" id="import-bar" hidden><span></span></div>
         <ul class="import-list" id="import-list" aria-label="导入进度"></ul>

@@ -282,6 +282,27 @@ class DesktopXIntegrationTest {
 	}
 
 	@Test
+	void theCloseChoiceIsRememberedAcrossRestartsAndCanBeChangedBack() throws Exception {
+		DesktopServer.Running running = start();
+		String cookie = sessionCookie(running);
+		assertEquals("ASK", json(send(running, cookie, "GET", "/api/desktop/settings", null)).path("closeAction").asText(),
+				"a first close must not hide the app without saying so");
+
+		assertEquals(204, send(running, cookie, "PUT", "/api/desktop/settings/close-action", "{\"action\":\"TRAY\"}").statusCode());
+		assertEquals("TRAY", json(send(running, cookie, "GET", "/api/desktop/settings", null)).path("closeAction").asText());
+		DesktopSettings restarted = new DesktopSettings(running.context().getEnvironment().getProperty(DesktopServer.HOME_PROPERTY));
+		assertEquals(CloseAction.TRAY, restarted.closeAction());
+
+		assertEquals(400, send(running, cookie, "PUT", "/api/desktop/settings/close-action", "{\"action\":\"LATER\"}").statusCode());
+		assertEquals(400, send(running, cookie, "PUT", "/api/desktop/settings/close-action", "{}").statusCode());
+		assertEquals("TRAY", json(send(running, cookie, "GET", "/api/desktop/settings", null)).path("closeAction").asText());
+
+		assertEquals(204, send(running, cookie, "PUT", "/api/desktop/settings/close-action", "{\"action\":\"ASK\"}").statusCode());
+		assertEquals("ASK", json(send(running, cookie, "GET", "/api/desktop/settings", null)).path("closeAction").asText());
+		assertEquals(403, send(running, "ia_desktop_session=wrong", "PUT", "/api/desktop/settings/close-action", "{\"action\":\"EXIT\"}").statusCode());
+	}
+
+	@Test
 	void classDataTrainingVisitsEveryPageAndLeavesNothingBehind() throws Exception {
 		DesktopClassDataTraining.run();
 		try (var files = Files.list(Path.of(System.getProperty("java.io.tmpdir")))) {

@@ -900,7 +900,8 @@
         // 删除确认框开着：按键都归它（焦点意外落到页面上时也不触发快捷键）
         if (deleter('isOpen')) return;
         if (!$('shortcuts').hidden) {
-            if (e.key === 'Escape' || e.key === '?') { e.preventDefault(); $('shortcuts').hidden = true; }
+            if (e.key === 'Escape' || e.key === '?') { e.preventDefault(); closeShortcuts(); }
+            else if (e.key === 'Tab') e.preventDefault(); // 里面只有“关闭”一个按钮，焦点不跑到背后的页面
             return;
         }
         // 放弃修改的确认框、编辑面板、导入面板里的按键由它们自己处理，不触发图库快捷键
@@ -989,13 +990,19 @@
         }
     });
 
+    let shortcutsReturnFocus = null;
+    function closeShortcuts() {
+        $('shortcuts').hidden = true;
+        if (shortcutsReturnFocus && shortcutsReturnFocus.isConnected) shortcutsReturnFocus.focus();
+    }
     function openShortcuts() {
+        shortcutsReturnFocus = document.activeElement;
         $('shortcuts').hidden = false;
         $('shortcuts-close').focus();
     }
     $('help-open').addEventListener('click', openShortcuts);
-    $('shortcuts-close').addEventListener('click', () => { $('shortcuts').hidden = true; });
-    $('shortcuts').addEventListener('mousedown', (e) => { if (e.target === $('shortcuts')) $('shortcuts').hidden = true; });
+    $('shortcuts-close').addEventListener('click', closeShortcuts);
+    $('shortcuts').addEventListener('mousedown', (e) => { if (e.target === $('shortcuts')) closeShortcuts(); });
 
     // 供 fx.js 读取看图器状态、复用平移约束
     /*

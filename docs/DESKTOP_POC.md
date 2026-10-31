@@ -25,7 +25,7 @@ IllustrationArchive.exe (jpackage 启动器 + 自带 Java 21 运行时)
                  └─ 写入会话 Cookie 后跳转到新版 C 图库 /c/（2026-10-28 起；此前为旧图库 /）
 ```
 
-应用窗口和回退时的“打开图库”都走这个会话入口，所以都默认进入 `/c/`；旧图库仍在 `/`，C 图库顶栏的“旧图库”可以进入，二者共用同一个会话与访问保护。普通 MySQL 运行方式不加载这个过滤器，不受影响。
+应用窗口和回退时的“打开图库”都走这个会话入口，所以都默认进入 `/c/`；旧图库仍在 `/`，二者共用同一个会话与访问保护；2026-10-31 起桌面版不再提供进入旧图库的入口。普通 MySQL 运行方式不加载这个过滤器，不受影响。
 
 `<home>` 默认 `%LOCALAPPDATA%\IllustrationArchive`，可用环境变量 `ILLUSTRATION_ARCHIVE_DESKTOP_HOME` 或系统属性 `illustration-archive.desktop.home` 覆盖。日志在 `<home>\logs\desktop.log`。
 
@@ -40,7 +40,7 @@ IllustrationArchive.exe (jpackage 启动器 + 自带 Java 21 运行时)
   - 校验 Host 必须是 `127.0.0.1:<port>` / `localhost:<port>`，防 DNS rebinding；
   - 非安全方法若带 Origin 必须同源，防同机其他端口（浏览器视为同站）的写请求；
   - 上一次启动的 Cookie 在重启后失效。
-- **退出释放**：关闭窗口 → `context.close()`：Tomcat 优雅停机（最长 15 秒，等待进行中的导入）→ Hikari 关闭连接池 → H2 在最后一个连接关闭时关库（`DB_CLOSE_ON_EXIT=FALSE`，不依赖 H2 自己的关闭钩子）→ 释放单实例锁 → `System.exit`。
+- **退出释放**：退出（询问框、托盘菜单或 Windows 结束会话，见[系统托盘](#系统托盘与弹窗收尾2026-10-31)）→ 托盘图标与 WebView2 随 `display.dispose()` 释放 → `context.close()`：Tomcat 优雅停机（最长 15 秒，等待进行中的导入）→ Hikari 关闭连接池 → H2 在最后一个连接关闭时关库（`DB_CLOSE_ON_EXIT=FALSE`，不依赖 H2 自己的关闭钩子）→ 释放单实例锁 → `System.exit`。
 - **事务与文件补偿**：沿用现有服务逻辑，未改动。H2 在另一事务持有同 SHA-256 未提交行时，会在唯一索引上等待并在对方提交后报重复键，行为与 MySQL InnoDB 一致（已由测试验证）。
 
 ## 构建与运行
@@ -487,6 +487,53 @@ Codex 只读 Review 指出两点，均只改 `DesktopServer` 的桌面启动参�
 此前另有 4 轮测量，round4 出现过两次 5.8–6.1 s，日志和之后 6 轮都没有再现，原因未查明。
 
 未验证：切页、弹层退场、X 收藏与主题切换的实际动效；深色主题下的启动观感；真实图库。
+
+## 系统托盘与弹窗收尾（2026-10-31）
+
+### 关闭与托盘
+
+- **选择**：`CloseAction`（ASK / TRAY / EXIT）存在 `settings.properties` 的 `window.close-action`，默认 ASK，读不懂的值也按 ASK。设置页“关闭窗口时”经 `PUT /api/desktop/settings/close-action` 修改。
+- **询问**：`DesktopWindow` 执行 `CClose.ask()`，页面（`c-close.js`）先回 `asking`，选定后回 `tray` 或 `exit`；勾选“记住”时先保存再执行，保存失败照常关闭，下次再问。600 ms 内没有回应（旧图库、页面卡死）时用系统提示框，关闭按钮始终有反应。窗口最小化时先恢复，询问才看得见。
+- **隐藏**：`shell.setVisible(false)` 不够。SWT 从不把 WebView2 设为不可见，隐藏后页面仍是 `visible`、180 fps。控制器没有公开接口，只能反射取 `Edge.controller` 调 `put_IsVisible`；失败时记录堆栈，功能照常。
+- **恢复**：托盘左键、菜单“打开插画档案”、再次打开程序都走 `activate()`，先恢复页面再显示窗口；最大化状态保留。
+- **退出**：询问框、托盘菜单走同一个 `DesktopLauncher.stop()`；Windows 注销或关机时 SWT 发 Display 的 `SWT.Close`，也接到这里，否则留在托盘的应用会被直接杀掉。进托盘时也保存窗口状态。
+- **退出提醒**：询问框只提醒退出才会丢的内容：正在导入、编辑面板有未保存修改。记住“退出”后不再提醒。
+
+### 导航与弹窗
+
+- `<head>` 同步给 `<html>` 加 `is-desktop`，CSS 决定显示什么，导航不闪。桌面版只留“图库 / X 收藏 / 设置”，MySQL 方式保持应用名与“旧图库”。设置页去掉“打开旧版界面”：旧界面没有新版之外的功能，在应用窗口里也是死路。
+- 弹窗：宽度只有 420 / 520 / 620，内边距 24，始终不透明，放不下时在内部滚动（960×600 下实测全部放得下）。玻璃只留给提示条和批量条，两者在 `prefers-reduced-transparency` 下回退实色。
+- 费用确认：点背景取消、Tab 限制在两个按钮之间、归还焦点。快捷键：Tab 不跑到背后、归还焦点。编辑面板错误条与内边距对齐；设置页输入框与编辑面板同为 40 高、圆角 8；X 收藏残留的 6 圆角改为 8。
+
+### 验证
+
+| 项目 | 结果 |
+| --- | --- |
+| JS | `node --test` 全部 285/285，含新增 `c-close.test.js`、`c-settings.test.js` |
+| Java（JDK 21） | `DesktopShellTest` 11、`DesktopXIntegrationTest` 11、`DesktopServerIntegrationTest` 14，共 36/36；未跑全量 |
+| 打包程序（隔离图库，Explorer 启动） | 询问框显示；记住托盘后再关闭直接隐藏；`visibilityState` 为 hidden、rAF 停止；托盘左键与菜单恢复；再次打开恢复并到前台；最大化保持；最小化时先恢复再询问；旧图库上出现系统提示框，选“是”进托盘 |
+| 退出 | 从询问框和隐藏状态退出，进程在等待循环的首次检查时已消失，WebView2 无残留，`entry.txt` 删除，实例锁可打开，`window.properties` 已写入 |
+| 设置页（真实窗口） | “关闭窗口时”可见，切换后写入 `settings.properties` |
+| ego-browser | 各弹窗在 960×600 与大窗口下的显示，Tab 与焦点归还 |
+
+**未实测**：点击托盘菜单的“退出”（代码上与询问框的退出是同一个 `stop()`，图标移除由 `display.dispose()` 完成），Windows 注销 / 关机，Explorer 重启后图标恢复（SWT 处理），物理 Alt+F4，125% 以外缩放下的托盘图标。
+
+调试技巧：设 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=<端口>` 再启动，可以用 CDP 读页面状态，不用操作桌面。
+
+## 对话框内部视觉统一（2026-10-31）
+
+- **token**（`theme-quiet.css`，浅深各一份）：`--well` / `--well-hover` / `--well-edge` 是对话框里唯一的面，半透明，所以放在卡片和页面上都自然；`--dash` 表示可以放东西；`--accent-wash`、`--focus-ring` 表示正在起作用；`--danger-wash` 只给错误；`--scrim`、`--sheet-shadow` 给遮罩和对话框。
+- **导入**：拖放区分成 `.dz-icon`、`.dz-title`、`.dz-hint` 和 `.btn`。悬停或按钮有键盘焦点时加深虚线；拖入时实线群青加焦点环，图标上浮 2 px；有文件后 `is-compact` 收成一行，说明在左、按钮在右。空状态隐藏没有内容的页脚。`#dropzone`、`#import-pick` 不变，导入逻辑未动。拖放区本身不可点击，这是原有行为，所以悬停不改光标和底色。
+- **同类分叉**：输入框、作者选择、作品摘要、导入提示、编辑状态、关闭选项、设置页输入框改用凹面；添加标签改用 `--dash`；错误条统一为 `--danger-wash`；图标按钮悬停统一；对话框内 `kbd` 与小字不再用过淡的 `--faint`；缩略图圆角改为 8；设置页两个“保存”都是主按钮。`.btn` 显式用 `--ink`，不再继承外层的灰色。
+- **玻璃**：对话框和编辑面板用 `--sheet-bg` 加 `--gl-blur-l`，遮罩只压暗。遮罩不能有 `backdrop-filter`，淡入淡出也不能用 `opacity`，否则里面的玻璃取不到页面，所以改走背景色。浅色 78%、深色 82% 不透明，通透程度一致；可读性不靠加厚玻璃，而由玻璃内的 `--sheet-muted` 保证，它在最坏背景上对比度不低于 4.5，由 `c-dialog-style.test.js` 计算核对。`--hover-edge` 让悬停边框不随小字加深。`prefers-reduced-transparency` 下回退到实色 `--card`。
+- **验证**：JS 全量 290/290，新增 `c-dialog-style.test.js`，`c-import.test.js` 补 `is-compact` 进出；ego-browser 隔离图库上看过浅深色的导入空状态、拖入态（加状态类模拟）、列表态，以及快捷键、编辑、删除、设置。**物理拖放的实际手感未验证**。
+
+## 多图滑动与升级缓存修复（2026-10-31）
+
+- **升级后仍是旧页面**：`build-desktop.ps1` 把 jar 时间固定为常量（CDS 归档要校验它），Spring 把这个时间作为静态资源的 `Last-Modified`，WebView2 带 `If-Modified-Since` 校验时总得到 304。设 `spring.web.resources.cache.use-last-modified=false` 后没有校验依据，每次完整返回；本机回环上的代价可以忽略。旧缓存在下一次请求时被替换。`DesktopServerIntegrationTest` 校验没有 `Last-Modified`，且带 `If-Modified-Since` 仍返回 200。
+- **多图闪烁**有三个来源：拖过原点就换方向，底下露出的牌在下一页和上一页之间来回换；落定时立刻露出 `.piece-open img`，新图还没解码，先显示上一页；叠卡用 `decoding=async`，第一次露出是空的。
+- **处理**：一次按住只定一个方向（`chooseSide`），回到原点后顶牌停住，要反向就松手再滑；定方向时底牌用已有的 200 ms 衔接滑过去，顶牌继续跟手；`settleDeck` 先换图并等 `decode()`，最多 120 ms，等待期间再次按下时继续用这叠牌；`clearDeck` 是同步收尾，给打开看图器等必须马上结束的路径；叠卡改 `decoding=sync`。
+- **验证**：ego-browser 隔离图库上用真实鼠标事件逐帧记录（ego 限帧，帧数偏少）。一次按住来回晃 12 个位置，底牌全程 1 张不变；7 次交替快滑落在预期页码；错页帧与空白帧均为 0。改动前没有测基线，手感以用户在真实图库上的验收为准。`DesktopServerIntegrationTest` 14、`DesktopShellTest` 11 通过。旧缓存的隔离配置上启动新包：新导航、新导入框、`c-close.js` 都已生效。
 
 ## 已知问题与后续候选
 

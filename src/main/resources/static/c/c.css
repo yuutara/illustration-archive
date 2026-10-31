@@ -37,12 +37,27 @@
 .bb-btn.bb-primary:disabled { color: var(--muted); background: var(--gl-fill-hover); opacity: 1; cursor: default; }
 .bb-count { min-width: 72px; color: var(--ink-2); }
 
+/* 对话框只有三种宽度：确认 420、整理 520、导入与快捷键 620。不透明，保证文字可读；内容放不下时在内部滚动 */
+
+/* 关闭窗口：两个选项本身就是按钮，一次点击完成 */
+.close-sheet { z-index: 125; }
+.close-options { display: grid; gap: 8px; margin-top: 16px; }
+.close-option { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 2px 12px; padding: 12px 14px; border: 0; border-radius: 12px; color: var(--ink); background: var(--well); box-shadow: var(--well-edge); text-align: left; transition: transform .39s var(--fx-snappy), background-color .12s; }
+.close-option:hover { background: var(--well-hover); }
+.close-option:active { transform: scale(.99); transition-duration: .08s; }
+.close-option .icon { margin-top: 2px; color: var(--muted); }
+.close-option b { font: 600 14px/1.5 var(--sans); }
+.close-option small { grid-column: 2; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.sheet-small .close-warning { margin: 12px 0 0; padding: 10px 12px; border-radius: 8px; color: var(--danger); background: var(--danger-wash); font-size: 13px; }
+.close-remember { display: flex; align-items: center; gap: 8px; margin-right: auto; color: var(--muted); font-size: 13px; cursor: pointer; }
+.close-remember input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+
 /* 批量整理面板 */
 .sheet-batch { gap: 16px; width: min(520px, 100%); }
 .sheet-batch .sheet-head { margin-bottom: 0; }
 .sheet-batch .sheet-foot { margin-top: 4px; }
 .batch-covers { display: flex; align-items: center; min-height: 48px; }
-.batch-covers img { width: 40px; height: 48px; border-radius: 6px; object-fit: cover; background: var(--paper-2); box-shadow: 0 0 0 2px var(--card); }
+.batch-covers img { width: 40px; height: 48px; border-radius: 8px; object-fit: cover; background: var(--paper-2); box-shadow: 0 0 0 2px var(--card); }
 .batch-covers img + img { margin-left: -10px; }
 .batch-more { margin-left: 10px; color: var(--muted); font-size: 13px; }
 .batch-note { color: var(--muted); font-size: 12px; }
@@ -50,8 +65,8 @@
 .sheet-batch #batch-summary { min-width: 0; overflow: hidden; color: var(--ink-2); text-overflow: ellipsis; white-space: nowrap; }
 .sheet-batch .ed-tag { gap: 4px; }
 /* 没动的标签用中性色，只有要改动的才是群青：一眼看出这次会改什么 */
-html[data-look] .sheet-batch .ed-tag.is-kept { color: var(--ink-2); background: var(--paper-2); }
-html[data-look] .sheet-batch .ed-tag.is-removing { color: var(--muted); background: var(--paper-2); }
+html[data-look] .sheet-batch .ed-tag.is-kept { color: var(--ink-2); background: var(--well); }
+html[data-look] .sheet-batch .ed-tag.is-removing { color: var(--muted); background: var(--well); }
 .sheet-batch .is-kept .bt-action:not(:last-child) { color: var(--accent-text); }
 .sheet-batch .is-removing .bt-label { text-decoration: line-through; }
 .bt-count { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -100,6 +115,7 @@ html[data-look] .sheet-batch .ed-tag.is-removing { color: var(--muted); backgrou
 .piece.is-broken .piece-open img { opacity: .9; }
 
 /* 导入面板：逐项状态 + 细进度条；“图库中已存在”用中性的琥珀色，不当作错误 */
+.sheet-import .sheet-foot:has(> #import-summary:empty):not(:has(> .btn:not([hidden]))) { display: none; }
 .sheet-import .import-list { max-height: min(46vh, 360px); }
 .sheet-import .import-list li { grid-template-columns: 40px minmax(0, 1fr) auto auto; }
 .import-list li > div { min-width: 0; }
@@ -110,14 +126,13 @@ html[data-look] .sheet-batch .ed-tag.is-removing { color: var(--muted); backgrou
 .st-unknown { color: var(--danger); font-weight: 600; }
 .import-list li.is-uploading .thumb { animation: c-pulse 1.1s ease-in-out infinite alternate; }
 @keyframes c-pulse { from { opacity: 1; } to { opacity: .45; } }
-.import-bar { height: 3px; margin: 14px 0 0; border-radius: 2px; background: var(--paper-2); overflow: hidden; }
+.import-bar { height: 3px; margin: 14px 0 0; border-radius: 2px; background: var(--gl-fill-hover); overflow: hidden; }
 .import-bar span { display: block; height: 100%; width: 0; border-radius: inherit; background: var(--accent); transition: width .25s ease; }
-.import-notice { margin-top: 12px; padding: 10px 12px; border-radius: 8px; color: var(--ink-2); background: var(--paper-2); font-size: 13px; }
+.import-notice { margin-top: 12px; padding: 10px 12px; border-radius: 8px; color: var(--ink-2); background: var(--well); box-shadow: var(--well-edge); font-size: 13px; }
 .import-notice p { margin: 0; }
 .import-notice p + p { margin-top: 6px; }
 .import-notice .link { font-size: 13px; }
 #import-close:disabled { cursor: not-allowed; opacity: .4; }
-.dropzone .link { font: inherit; }
 
 /* 看图器打开时焦点先落在它自身（只为接住键盘），不画焦点框；里面的按钮、输入框照常显示焦点提示 */
 .viewer:focus { outline: none; }
@@ -126,7 +141,7 @@ html[data-look] .sheet-batch .ed-tag.is-removing { color: var(--muted); backgrou
 .sv-editor { z-index: 4; }
 .ed-fields { display: flex; flex-direction: column; gap: 18px; min-width: 0; margin: 0; padding: 0; border: 0; }
 .ed-fields:disabled { opacity: .55; }
-.ed-status { margin: 0; padding: 10px 12px; border-radius: 8px; color: var(--muted); background: var(--paper-2); font-size: 13px; }
+.ed-status { margin: 0; padding: 10px 12px; border-radius: 8px; color: var(--muted); background: var(--well); box-shadow: var(--well-edge); font-size: 13px; }
 .ed-status.is-loading::before { content: ""; display: inline-block; width: 11px; height: 11px; margin-right: 8px; border: 1.5px solid var(--line); border-top-color: var(--accent); border-radius: 50%; vertical-align: -1px; animation: c-spin .8s linear infinite; }
 .ed-status.is-error { color: var(--danger); }
 .ed-status .link { font-size: 13px; }
@@ -134,17 +149,16 @@ html[data-look] .sheet-batch .ed-tag.is-removing { color: var(--muted); backgrou
 .ed-author-row .ed-picker { flex: 1; min-width: 0; }
 .ed-picker > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ed-clear { flex: none; height: 40px; padding: 0 10px; border: 0; border-radius: 8px; color: var(--muted); background: none; font-size: 13px; }
-.ed-clear:hover { color: var(--ink); background: var(--paper-2); }
-.ed-error { margin: 0 28px; padding: 10px 12px; border-radius: 8px; color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); font-size: 13px; }
+.ed-clear:hover { color: var(--ink); }
+.ed-error { margin: 0 24px; padding: 10px 12px; border-radius: 8px; color: var(--danger); background: var(--danger-wash); font-size: 13px; }
 .ed-actions .btn:disabled { cursor: not-allowed; opacity: .5; }
 
 /*
  * 单件删除的确认框：先让人认出是哪一件（封面、名称、图片数），再说清后果。
- * 封面的阴影画在图片自身上，所在的容器都不裁切（没有 overflow），阴影不会被截掉；多图作品在封面后面叠两张纸。
+ * 封面的阴影画在图片自身上，落在对话框的内边距之内，不会被截掉；多图作品在封面后面叠两张纸。
  */
-.sheet-delete { width: min(440px, 100%); }
 .sheet-delete:focus { outline: none; }
-.del-work { display: flex; align-items: center; gap: 16px; margin-top: 16px; padding: 14px 16px; border-radius: 12px; background: var(--paper-2); }
+.del-work { display: flex; align-items: center; gap: 16px; margin-top: 16px; padding: 14px 16px; border-radius: 12px; background: var(--well); box-shadow: var(--well-edge); }
 .del-cover { position: relative; isolation: isolate; flex: none; width: 64px; height: 64px; }
 .del-cover img { display: block; width: 100%; height: 100%; border-radius: 8px; object-fit: cover; background: var(--paper); box-shadow: var(--art-shadow, 0 2px 8px rgba(0, 0, 0, .15)); }
 .del-cover.is-stack::before, .del-cover.is-stack::after {
@@ -165,8 +179,8 @@ html[data-look] .sheet-batch .ed-tag.is-removing { color: var(--muted); backgrou
 .sheet-small .del-text { margin-top: 16px; color: var(--ink-2, var(--ink)); }
 .sheet-small .del-draft { margin-top: 8px; color: var(--accent-text, var(--accent)); font-size: 13px; }
 .sheet-small .del-status { margin-top: 14px; padding: 10px 12px; border-radius: 8px; font-size: 13px; }
-.del-status.is-error { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
-.del-status.is-unknown { color: var(--ink); background: var(--paper-2); box-shadow: inset 0 0 0 1px var(--line); }
+.del-status.is-error { color: var(--danger); background: var(--danger-wash); }
+.del-status.is-unknown { color: var(--ink); background: var(--well); box-shadow: var(--well-edge); }
 #delete-confirm[aria-busy="true"] .btn:disabled { cursor: progress; }
 #delete-confirm .btn:disabled { opacity: .6; }
 #delete-confirm[aria-busy="true"] #del-ok::before {
@@ -212,11 +226,12 @@ html[data-mode="dark"] .masthead.is-scrolled { box-shadow: 0 1px 0 var(--line); 
 .sheet-note { margin: 16px 0 0; color: var(--muted); font-size: 13px; }
 .sheet-note a { color: var(--accent-text, var(--accent)); }
 
-/* 顶部导航：桌面版的三个页面共用 */
+/* 顶部导航：桌面版的三个页面共用。应用名已在窗口标题栏，这里只留导航，文字与页面内容左对齐 */
 .mast-start { display: flex; align-items: center; gap: 20px; min-width: 0; }
-.mast-nav { display: flex; align-items: center; gap: 4px; }
-.mast-nav[hidden] { display: none; }
-.mast-nav a { padding: 6px 10px; border-radius: 6px; color: var(--muted); font-size: 14px; text-decoration: none; white-space: nowrap; }
+.mast-nav { display: none; align-items: center; gap: 4px; margin-left: -10px; }
+.is-desktop .mast-nav { display: flex; }
+.is-desktop :is(.wordmark, #legacy-link) { display: none; }
+.mast-nav a { padding: 6px 10px; border-radius: 8px; color: var(--muted); font-size: 14px; text-decoration: none; white-space: nowrap; }
 .mast-nav a:hover { color: var(--ink); background: var(--paper-2); }
 .mast-nav a[aria-current="page"] { color: var(--ink); font-weight: 600; }
 .mast-nav sup { margin-left: 3px; color: var(--accent-text); font-size: 11px; font-weight: 400; }

@@ -41,7 +41,6 @@
 /* ============ 基础反馈：图库由 fx.css 的按压反馈负责，这里给没有动效层的页面 ============ */
 .mast-nav a { transition: color .12s, background-color .12s; }
 .set-field input { transition: border-color .12s, box-shadow .12s; }
-.set-field input:focus { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
 html:not(.fx-on) :is(.btn, .icon-btn, .bb-btn, .x-open, .x-retry) { transition: transform .39s var(--fx-snappy), opacity .15s, background-color .15s, color .15s, border-color .15s, box-shadow .2s; }
 html:not(.fx-on) :is(.btn, .icon-btn, .bb-btn, .x-open, .x-retry):active:not(:disabled) { transform: scale(.97); transition-duration: .08s; transition-timing-function: ease-out; }
 
