@@ -8,6 +8,7 @@
 
     const api = window.GalleryApi;
     if (!api) return;
+    const Deck = window.DeckModel;
     const root = document.documentElement;
     const $ = (id) => document.getElementById(id);
 
@@ -21,7 +22,7 @@
         ['bar', '批量操作条', '从底部弹起；计数跳动；悬停高亮在按钮间滑动'],
         ['popover', '浮层与提示', '从触发按钮的位置展开；亚克力材质；对话框加烟雾遮罩'],
         ['wall', '作品墙', '筛选、换密度时作品滑到新位置；主色占位后渐显；悬停投影取作品色'],
-        ['stack', '多页叠卡与滑动换页', '多图作品是一叠循环的牌，角标显示当前页；左右拖动都把顶牌抽出压到底：向左露出后一页，向右露出前一页'],
+        ['stack', '多页叠卡与滑动换页', '多图作品是一叠循环的牌，角标显示当前页；按住左右拖动连续翻看，向左是后一页，向右是前一页，松手时落定'],
         ['tether', '卡片牵引', '按住卡片侧向短拉：卡片离开原位、倾斜抬起，越远越费力，松手平稳归位'],
         ['drag', '拖动浏览', '按住空白处或纵向拖动：图库 1:1 跟手滚动，松手顺势滑一段'],
         ['viewer', '看图器', '从缩略图放大进入、缩回退出；翻页滑入；工具栏成为浮动胶囊'],
@@ -612,7 +613,7 @@
     const wallWrap = document.querySelector('.wall-wrap');
     const SLOP = 6;
     const PULL_X = 140, PULL_Y = 50, RUBBER = 0.55;
-    const LAYER_BASE = { 1: { x: 1, y: -5, r: .8 }, 2: { x: 2, y: -9, r: 1.6 } };
+    const LAYER_BASE = { 1: { x: 2, y: -2, r: 1.2 }, 2: { x: -2, y: -2, r: -1.2 } };
     const ZERO = { ox: 0, oy: 0, rot: 0, lift: 0, s: 0 };
     const pulls = new Map();
     let gesture = null;
@@ -713,112 +714,55 @@
 
     /* ---------------- 多图作品：双向循环牌堆 ---------------- */
     /*
-     * 每件多图作品是一叠牌。“翻到哪一页”和“牌怎么动”分开处理：
-     *   · 出牌动画：无论向左还是向右，手下动的始终是按下时的顶牌。它跟手滑到牌堆外，松手过线后绕回压到牌堆最底。
-     *   · 目标页：由拖动方向决定。向左拖，顶牌下面依次排后一页、再后一页（1→2→3→1）；
-     *     向右拖，下面依次排前一页、再前一页（1→3→2→1）。按方向把待露出的页面摆到顶牌正下方，随顶牌离开逐渐升起。
-     * 拖动途中越过原点反向，同一张顶牌跟到另一侧，下面的待露出页面随之换成另一方向的顺序。
-     * 进度 u：0 为顶牌在原位，0.5 为整张牌刚好离开牌堆（此时切换层级，看不到穿插），1 为压到最底。
-     * 没过线就把 u 收回 0，原顶牌归位。静止时身后露出的两张沿用上一次翻牌的方向。
+     * 每件多图作品是一叠牌，几何在 c-deck-model.js：所有牌的样子只由一个连续位置 t 决定。
+     * 这里只管 t 怎么变：
+     *   · 拖动中：t 完全跟手。来回拖就是把同一段动画正着放、倒着放，不需要松手，也没有方向状态。
+     *   · 松手后：按位置和速度选一个整页，让 t 滑过去。滑动途中再次按住，就从当前的 t 接着拖。
      * 只轮换卡片的浏览状态，作品原始页序不变；点开看图器从当前顶牌所在页进入。
      */
     const pageOf = new Map();
-    const orderOf = new Map();   // 身后的排列方向：1 依次是后面的页，-1 依次是前面的页
     const decks = new Map();
-    const SWIPE_COMMIT = 0.28, SWIPE_FLICK = 0.5, BLEND_MS = 200, FRONT_WAIT_MS = 120;
-    // 换牌时用悬停展开后的叠卡位置：拖动时指针就在卡上，落定后与 CSS 的悬停状态一致，不会抖一下
-    const SLOTS = [{ x: 0, y: 0, r: 0 }, { x: 2, y: -8, r: 1.2 }, { x: 3, y: -14, r: 2.4 }];
+    const SWIPE_COMMIT = 0.28, SWIPE_FLICK = 0.5, FRONT_WAIT_MS = 120;
     const mod = (a, n) => ((a % n) + n) % n;
     const workOfFig = (fig) => window.Archive.get(Number(fig.dataset.id));
-    // 第几张（0 为顶牌）：按排列方向从当前页数过去
-    const depthOf = (page, cur, dir, n) => mod((page - cur) * dir, n);
 
-    // 静止时：正面由图片按钮显示，身后最多两张按 data-depth 摆好（位置由 CSS 给出，悬停时微微展开），其余隐藏
+    // 静止时：正面由图片按钮显示，身后露出的两张按 data-depth 摆好（位置由 CSS 给出，悬停时微微展开），其余隐藏
     function applyPage(fig, work) {
         const n = work.pages.length;
         if (n < 2) return;
         const cur = has('stack') ? mod(pageOf.get(work.id) || 0, n) : 0;
-        const dir = has('stack') ? orderOf.get(work.id) || 1 : 1;
         const front = fig.querySelector('.piece-open img');
         if (front && front.getAttribute('src') !== work.pages[cur].src) front.src = work.pages[cur].src;
         const mark = fig.querySelector('.piece-marks .mark');
         if (mark) mark.textContent = has('stack') ? `${cur + 1} / ${n}` : `${n} 页`;
         fig.querySelectorAll('.fx-layers img').forEach((img) => {
-            const k = depthOf(Number(img.dataset.page), cur, dir, n);
-            if (k === 1 || k === 2) img.dataset.depth = String(k);
+            const depth = Deck.restingDepth(Deck.offset(Number(img.dataset.page), cur, n), n);
+            if (depth) img.dataset.depth = String(depth);
             else delete img.dataset.depth;
         });
     }
 
     function startPage(id) { return has('stack') ? pageOf.get(id) || 0 : 0; }
 
-    // 叠卡位置在相邻两层之间线性过渡；第 3 层及更深的都藏在第 2 层正下方
-    function slotAt(r) {
-        const a = Math.min(2, Math.floor(r)), b = Math.min(2, a + 1), t = Math.min(2, r) - a;
-        const p = SLOTS[a], q = SLOTS[b];
-        return { x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t, rot: p.r + (q.r - p.r) * t, depth: Math.min(2, r) };
-    }
-
     function deckFor(fig) {
         let d = decks.get(fig);
         if (d) return d;
         const work = workOfFig(fig), n = work.pages.length;
         const w = fig.querySelector('.fx-card').getBoundingClientRect().width;
-        const dir = orderOf.get(work.id) || 1;
+        const page = mod(pageOf.get(work.id) || 0, n);
         d = {
-            fig, work, n, w, A: w + 24, imgs: [...fig.querySelectorAll('.fx-layers img')], mark: fig.querySelector('.piece-marks .mark'),
-            cur: mod(pageOf.get(work.id) || 0, n), dir, step: dir, side: dir > 0 ? -1 : 1, u: 0, base: 0,
-            held: false, locked: false, flight: null, blend: null, last: null, frame: 0, guard: 0, settling: null
+            fig, work, n, w, span: Deck.pixelsPerPage(w), imgs: [...fig.querySelectorAll('.fx-layers img')],
+            mark: fig.querySelector('.piece-marks .mark'),
+            t: page, t0: page, aim: page, held: false, flight: null, frame: 0, guard: 0, settling: null
         };
         fig.classList.add('fx-decking');
         decks.set(fig, d);
         return d;
     }
 
-    // 每张牌此刻应在的位置：顶牌沿出牌轨迹走，其余按 r = k - u 连续上升
-    function posesOf(d) {
-        const { n, A, u, side, step } = d;
-        const bottom = slotAt(n - 1);
-        const poses = new Map();
+    function renderDeck(d) {
         d.imgs.forEach((img) => {
-            const k = depthOf(Number(img.dataset.page), d.cur, step, n);
-            let p;
-            if (k === 0) {
-                const out = u <= 0.5, t = out ? u / 0.5 : (u - 0.5) / 0.5;
-                const ax = side * A, ar = (ax / d.w) * 7;
-                p = out
-                    ? { x: ax * t, y: 0, rot: ar * t, depth: 0, z: 60, lift: Math.sin(Math.PI * u) }
-                    : { x: ax + (bottom.x - ax) * t, y: bottom.y * t, rot: ar + (bottom.rot - ar) * t, depth: bottom.depth * t, z: 0, lift: 0 };
-                p.top = true;
-                p.y -= 8 * Math.sin(Math.PI * u);
-                p.scale = 1 + 0.03 * Math.sin(2 * Math.PI * u);   // 抽出时略微抬起放大，绕回底部时略微缩小，读出前后
-            } else {
-                const r = k - u;
-                p = { ...slotAt(r), z: 40 - Math.round(r * 10), lift: 0, scale: 1 };
-            }
-            poses.set(img, p);
-        });
-        return poses;
-    }
-
-    function renderDeck(d, now) {
-        let poses = posesOf(d);
-        // 衔接：上一次翻牌被打断时，各张从当时的位置在 0.2 秒内并到新位置，而不是瞬移
-        if (d.blend) {
-            const t = Math.min(1, (now - d.blend.t0) / BLEND_MS), b = Math.pow(1 - t, 3);
-            if (t >= 1) d.blend = null;
-            else {
-                const mixed = new Map();
-                poses.forEach((p, img) => {
-                    // 只换底下的牌时，手里的顶牌仍然 1:1 跟手
-                    const f = (d.blend.under && p.top ? null : d.blend.from.get(img)) || p;
-                    const mix = (key) => p[key] + (f[key] - p[key]) * b;
-                    mixed.set(img, { x: mix('x'), y: mix('y'), rot: mix('rot'), depth: mix('depth'), scale: mix('scale'), lift: mix('lift'), z: p.z });
-                });
-                poses = mixed;
-            }
-        }
-        poses.forEach((p, img) => {
+            const p = Deck.poseOf(Deck.offset(Number(img.dataset.page), d.t, d.n), d.n, d.w);
             img.style.zIndex = String(p.z);
             img.style.transform = `translate(${p.x.toFixed(2)}px, ${p.y.toFixed(2)}px) rotate(${p.rot.toFixed(2)}deg) scale(${p.scale.toFixed(4)})`;
             img.style.filter = p.depth > 0.01 ? `brightness(${(1 - 0.03 * p.depth).toFixed(3)})` : '';
@@ -826,9 +770,8 @@
                 ? `0 ${(4 + 18 * p.lift).toFixed(1)}px ${(10 + 30 * p.lift).toFixed(1)}px -10px color-mix(in srgb, var(--fx-tone, #24211d) 75%, transparent), 0 1px 3px rgba(36, 33, 29, .2)`
                 : '';
         });
-        d.last = poses;
-        // 角标在顶牌离开牌堆（u 过 0.5）的那一刻换成露出来的那一页
-        if (d.mark) d.mark.textContent = `${mod(d.u >= 0.5 ? d.cur + d.step : d.cur, d.n) + 1} / ${d.n}`;
+        // 角标跟着最前面的那张走，和两张牌交换前后是同一刻
+        if (d.mark) d.mark.textContent = `${Deck.pageAt(d.t, d.n) + 1} / ${d.n}`;
     }
 
     // 落定：正面的图片换好之前牌堆继续盖着，否则会先露出上一页或空一帧。等待有上限，图片再慢也不会卡住；
@@ -837,7 +780,7 @@
         cancelAnimationFrame(d.frame);
         clearTimeout(d.guard);
         const front = d.fig.querySelector('.piece-open img');
-        const src = d.work.pages[d.cur].src;
+        const src = d.work.pages[Deck.pageAt(d.t, d.n)].src;
         if (!front || front.getAttribute('src') === src) { clearDeck(d); return; }
         const mine = d.settling = {};
         front.src = src;
@@ -854,111 +797,73 @@
         d.fig.classList.remove('fx-decking');
         decks.delete(d.fig);
         lower(d.fig);
-        pageOf.set(d.work.id, d.cur);
-        orderOf.set(d.work.id, d.dir);
+        pageOf.set(d.work.id, Deck.pageAt(d.t, d.n));
         applyPage(d.fig, d.work);
     }
 
-    // 翻牌完成：顶牌已压到最底，露出来的那页成为新的顶牌；身后的排列沿用这次的方向
-    function landFlight(d) {
-        d.cur = mod(d.cur + d.step, d.n);
-        d.dir = d.step;
-        d.u = 0;
-        d.flight = null;
-    }
-
-    function runDeck(d) {
+    function flyDeck(d, to) {
         cancelAnimationFrame(d.frame);
+        clearTimeout(d.guard);
+        // 动画途中点开看图器，也从即将停下的那一页进入
+        pageOf.set(d.work.id, mod(to, d.n));
+        if (d.t === to) { settleDeck(d); return; }
+        const f = d.flight = { from: d.t, to, t0: performance.now(), dur: 200 + 300 * Math.min(1, Math.abs(to - d.t)) };
         const step = (now) => {
-            if (decks.get(d.fig) !== d) return;
-            const f = d.flight;
-            if (f) {
-                const t = Math.min(1, (now - f.t0) / f.dur);
-                d.u = f.from + (f.to - f.from) * (1 - Math.pow(1 - t, 3));
-                if (t >= 1) { if (f.to === 1) landFlight(d); else { d.u = 0; d.flight = null; } }
+            if (decks.get(d.fig) !== d || d.flight !== f) return;
+            const k = Math.min(1, Math.max(0, now - f.t0) / f.dur);
+            d.t = f.from + (f.to - f.from) * (1 - Math.pow(1 - k, 3));
+            if (k < 1) {
+                renderDeck(d);
+                d.frame = requestAnimationFrame(step);
+                return;
             }
-            renderDeck(d, now);
-            if (d.flight || d.blend) d.frame = requestAnimationFrame(step);
-            else if (!d.held) settleDeck(d);
+            d.t = f.to;
+            d.flight = null;
+            renderDeck(d);
+            settleDeck(d);
         };
         d.frame = requestAnimationFrame(step);
-    }
-
-    function flyDeck(d, to) {
-        d.flight = { from: d.u, to, t0: performance.now(), dur: 200 + 300 * Math.abs(to - d.u) };
-        // 动画途中点开看图器，也从即将停下的那一页进入
-        pageOf.set(d.work.id, to === 1 ? mod(d.cur + d.step, d.n) : d.cur);
-        runDeck(d);
         // 页面在后台时动画帧会暂停：到时直接落定，不让牌停在半空
-        clearTimeout(d.guard);
-        d.guard = setTimeout(() => { if (decks.get(d.fig) === d && !d.held) finishDeck(d); }, d.flight.dur + 600);
+        d.guard = setTimeout(() => { if (decks.get(d.fig) === d && d.flight === f) finishDeck(d); }, f.dur + 600);
     }
 
-    // 按下：若上一张正在飞回原位，接着拖这张牌；若上一张正在翻走，就算它已经翻完，
-    // 新顶牌接手，各张从此刻的位置并过去（连续快速滑动时一下一页）
+    // 按住：动画就停在此刻的位置，之后的拖动从这里接着算
     function holdDeck(fig) {
         const d = deckFor(fig);
-        d.settling = null;
-        if (d.flight && d.flight.to === 1) {
-            landFlight(d);
-            d.side = d.step > 0 ? -1 : 1;
-            if (d.last) d.blend = { from: d.last, t0: performance.now() };
-        }
-        d.flight = null;
+        cancelAnimationFrame(d.frame);
         clearTimeout(d.guard);
+        d.settling = null;
+        d.aim = d.flight ? d.flight.to : Math.round(d.t);
+        d.flight = null;
+        d.t0 = d.t;
         d.held = true;
-        d.locked = d.u > 0;   // 接住飞回来的牌时，方向已经定了
-        d.base = d.side * d.u * 2 * d.A;
-        if (d.blend) runDeck(d);
+        renderDeck(d);
         return d;
     }
 
-    // 定方向：底下要露出的牌在这一刻换成新方向的那一组，它们滑到新位置，不瞬移
-    function chooseSide(d, side) {
-        d.locked = true;
-        if (side === d.side) return;
-        const from = d.last || posesOf(d);
-        d.blend = { from, t0: performance.now(), under: !d.blend };
-        d.side = side;
-        d.step = -side;
-        runDeck(d);
-    }
-
-    // 拖动：顶牌 1:1 跟手，快到顶点时加阻力，按住时不会越过顶点把牌塞回去。
-    // 一次按住只走一个方向：来回晃过原点时顶牌停在原位，底下的牌不跟着换组；要往回翻就松手再滑一次
+    // 拖动：t 完全跟手。向左拖走向后一页，向右拖走向前一页，越过起点不需要任何切换
     function dragDeck(d, dx) {
-        const raw = d.locked && (d.base + dx) * d.side < 0 ? 0 : d.base + dx;
-        const lim = d.A * 0.8, a = Math.abs(raw);
-        const x = Math.sign(raw) * (a <= lim ? a : lim + rubber(a - lim, d.A * 0.18));
-        if (x !== 0 && !d.locked) chooseSide(d, Math.sign(x));
-        d.u = Math.abs(x) / (2 * d.A);
-        d.x = x;
-        renderDeck(d, performance.now());
+        d.t = d.t0 - dx / d.span;
+        renderDeck(d);
     }
 
-    // 拉过 28% 卡宽（至少 56px）或顺着方向快速甩动，就把顶牌送到最底；否则原顶牌归位
+    // 松手：只在这时决定翻页还是归位。拉过 28% 卡宽（至少 56px）或快速甩动算翻页
     function releaseDeck(d, samples, cancelled) {
         d.held = false;
-        const x = d.side * d.u * 2 * d.A;
-        let commit = false;
-        if (!cancelled && d.u > 0) {
-            const now = performance.now();
-            const recent = samples.filter((p) => now - p.t < 80);
-            const v = recent.length > 1 ? (recent[recent.length - 1].x - recent[0].x) / Math.max(1, recent[recent.length - 1].t - recent[0].t) : 0;
-            const far = Math.abs(x) > Math.max(56, d.w * SWIPE_COMMIT);   // 窄卡片也至少拉 56px，避免轻轻一碰就换牌
-            const flick = Math.abs(v) > SWIPE_FLICK && Math.abs(x) > 16 && Math.sign(v) === Math.sign(x);
-            commit = far || flick;
-        }
-        if (d.u === 0 && !d.blend) { settleDeck(d); return; }
-        flyDeck(d, commit ? 1 : 0);
+        const now = performance.now();
+        const recent = samples.filter((p) => now - p.t < 80);
+        const vx = recent.length > 1 ? (recent[recent.length - 1].x - recent[0].x) / Math.max(1, recent[recent.length - 1].t - recent[0].t) : 0;
+        flyDeck(d, cancelled ? d.aim : Deck.restingPage({
+            t: d.t, t0: d.t0, aim: d.aim, velocity: -vx / d.span,
+            commit: Math.max(56, d.w * SWIPE_COMMIT) / d.span,
+            flick: SWIPE_FLICK / d.span, flickDistance: 16 / d.span
+        }));
     }
 
     function finishDeck(d) {
         d.held = false;
-        if (d.flight && d.flight.to === 1) landFlight(d);
+        d.t = d.flight ? d.flight.to : Math.round(d.t);
         d.flight = null;
-        d.blend = null;
-        d.u = 0;
         clearDeck(d);
     }
 
@@ -1036,6 +941,11 @@
         }
         const pages = card ? workOfFig(fig).pages.length : 0;
         gesture = { id: e.pointerId, x0: e.clientX, y0: e.clientY, s0: scrollY, mode: null, fig: card ? fig : null, card, pages, base, pivot, samples: [] };
+        // 牌还在动时按下就是抓住它：立刻停在此刻的位置，不等手移动
+        if (card && decks.has(fig) && !reduced()) {
+            gesture.mode = 'swipe';
+            beginGesture(gesture, e);
+        }
     });
 
     function beginGesture(g, e) {
@@ -1098,7 +1008,6 @@
                 const w = workOfFig(g.fig), n = w.pages.length;
                 const dir = g.dx < 0 ? 1 : -1;
                 pageOf.set(w.id, mod((pageOf.get(w.id) || 0) + dir, n));
-                orderOf.set(w.id, dir);
                 applyPage(g.fig, w);
             }
         } else if (g.mode === 'scroll' && !cancelled && !reduced()) fling(g.samples);

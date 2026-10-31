@@ -195,7 +195,7 @@
 }
 .piece.fx-pulled .piece-edit, .piece.fx-pulled .piece-check { opacity: 0 !important; }
 
-/* ============ 多页叠卡：身后露出实际的第 2、3 页 ============ */
+/* ============ 多页叠卡：身后露出实际的上一页和下一页 ============ */
 .fx-layers { display: none; }
 .fx-stack .fx-layers { display: block; position: absolute; inset: 0; z-index: -1; pointer-events: none; }
 .fx-layers img {
@@ -210,12 +210,13 @@
     /* 绕中心转：列间距只有 10px，后层向两侧各露出一点，不压到相邻列的说明 */
     transform-origin: 50% 50%;
 }
-/* 每页一张：静止时只露出顶牌之后的两张，其余藏起来（仍保持解码，换牌时不闪） */
+/* 每页一张：下一页从右边、上一页从左边露出一点，换方向不用换底牌；其余藏起来（仍保持解码，换牌时不闪） */
 .fx-layers img:not([data-depth]) { visibility: hidden; }
-.fx-layers img[data-depth="1"] { z-index: 2; transform: translate(1px, -5px) rotate(.8deg); filter: brightness(.97); }
-.fx-layers img[data-depth="2"] { z-index: 1; transform: translate(2px, -9px) rotate(1.6deg); filter: brightness(.94); }
-/* 换牌途中：整叠由脚本逐帧摆放；图片按钮变透明、只保留点击区域，顶牌由牌堆里同一页的那张来画 */
-.piece.fx-decking .fx-layers img { visibility: visible; transition: none; }
+.fx-layers img[data-depth="1"] { z-index: 2; transform: translate(2px, -2px) rotate(1.2deg); filter: brightness(.97); }
+.fx-layers img[data-depth="2"] { z-index: 1; transform: translate(-2px, -2px) rotate(-1.2deg); filter: brightness(.97); }
+/* 换牌途中：整叠由脚本逐帧摆放；图片按钮变透明、只保留点击区域，顶牌由牌堆里同一页的那张来画。
+   优先级要高过下面悬停用的过渡，否则每一帧都被再平滑一遍，牌追不上手 */
+html:not(.fx-reduce).fx-stack .piece.fx-decking .fx-layers img { visibility: visible; transition: none; }
 .piece.fx-decking .piece-open { background: transparent !important; box-shadow: none !important; transform: none !important; }
 .piece.fx-decking .piece-open img { visibility: hidden; }
 /* 鼠标操作时不给作品按钮画焦点框（换牌时它只是个空槽位）；键盘导航时 fx-pointing 被移除，焦点框照常出现 */
@@ -224,8 +225,8 @@
 /* 悬停时后层微微展开，提示“这是一叠” —— 静态的终点，不会持续晃动 */
 @media (prefers-reduced-motion: no-preference) {
     html:not(.fx-reduce).fx-stack .fx-layers img { transition: transform .45s var(--fx-gentle); }
-    html:not(.fx-reduce).fx-stack body:not(.is-selecting) .piece:hover:not(.fx-pulled, .fx-decking) .fx-layers img[data-depth="1"] { transform: translate(2px, -8px) rotate(1.2deg); }
-    html:not(.fx-reduce).fx-stack body:not(.is-selecting) .piece:hover:not(.fx-pulled, .fx-decking) .fx-layers img[data-depth="2"] { transform: translate(3px, -14px) rotate(2.4deg); }
+    html:not(.fx-reduce).fx-stack body:not(.is-selecting) .piece:hover:not(.fx-pulled, .fx-decking) .fx-layers img[data-depth="1"] { transform: translate(3px, -3px) rotate(1.8deg); }
+    html:not(.fx-reduce).fx-stack body:not(.is-selecting) .piece:hover:not(.fx-pulled, .fx-decking) .fx-layers img[data-depth="2"] { transform: translate(-3px, -3px) rotate(-1.8deg); }
 }
 .fx-stack .piece.fx-pulled .fx-layers img { transition: none; }
 
