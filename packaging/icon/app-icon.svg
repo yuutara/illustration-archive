@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-  <!-- 群青底板上的牌堆：取自图库的循环牌堆。前面的画是一道深色波浪，朱红印章同时是太阳 -->
-  <rect x="12" y="12" width="232" height="232" rx="54" fill="#3550d4"/>
-  <rect x="58" y="62" width="112" height="154" rx="14" fill="#2638a8" transform="rotate(-12 114 139)"/>
-  <rect x="72" y="52" width="112" height="154" rx="14" fill="#9dacf2" transform="rotate(-5 128 129)"/>
-  <rect x="86" y="44" width="116" height="164" rx="14" fill="#1a2469"/>
-  <path d="M100 44h88a14 14 0 0 1 14 14v70c-64 46-90-12-116 18V58a14 14 0 0 1 14-14Z" fill="#f7f4ec"/>
-  <rect x="150" y="70" width="28" height="28" rx="6" fill="#d8442f"/>
-</svg>

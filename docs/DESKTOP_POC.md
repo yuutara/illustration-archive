@@ -56,7 +56,7 @@ IllustrationArchive.exe (jpackage 启动器 + 自带 Java 21 运行时)
 
 脚本不执行 `mvn clean`（运行中的本地实例可能占用 `target\` 下的文件），只删除 `target\classes` 和旧 jar；测试需单独运行。`dist` 里的应用正在运行时，脚本会拒绝覆盖，可用 `-OutputDir` 输出到别的目录。
 
-图标与启动图的源文件在 `packaging\icon\`（`app-icon.svg`、`app-icon-small.svg`、`splash.html`），生成结果 `app.ico`、`splash*.png` 一并提交，正常构建不需要重新生成。改了源文件后运行 `node scripts\build-icons.mjs`（用本机 Edge 渲染，只读本地文件），并把 `app-icon.svg` 同步到 `src\main\resources\static\c\`。
+图标与启动图的源文件在 `packaging\icon\`：`app-icon.png` 是 1024 px 母版，用于 24 px 及以上；`app-icon-small.svg` 是手绘小图，用于 16–20 px 和网页标签图标；另有 `splash.html`。生成结果 `app.ico`、`splash*.png` 和 `src\main\resources\desktop\icon-*.png` 一并提交，正常构建不需要重新生成。改了源文件后运行 `node scripts\build-icons.mjs`（用本机 Edge 渲染，只读本地文件），它也会把小图同步到 `src\main\resources\static\c\app-icon.svg`。
 
 ## 自动化测试
 
@@ -470,7 +470,7 @@ Codex 只读 Review 指出两点，均只改 `DesktopServer` 的桌面启动参�
 - **启动图**：换成不随主题变化的深墨卡片，因为启动图在任何代码运行前显示，读不到用户的深浅色。PNG 四周留 24 px 透明边放投影，右侧是压暗的牌堆。
 - **启动进度**：`DesktopSplash` 改由守护线程绘制，字体加载不再占主线程。细线只朝当前阶段移动（服务启动趋近 70%，页面加载趋近 92%），到不了头；窗口出现时结束。
 - **首屏就绪**：`load` 事件早于作品数据，所以 `c-gallery.js` 在第一批结果（含空图库和失败）之后调用 `AppShell.ready()`，经 `iaDesktop('ready', '')` 通知窗口。页面没发信号时，加载完成后最多再等 700 ms。作品区只在本次启动的第一屏淡入一次。没有做窗口整体淡入：WebView2 在分层窗口半透明时的渲染未经验证。
-- **图标尺寸**：ICO 与窗口图标补 30、36 等尺寸（100% / 125% / 150% / 200% 缩放的任务栏是 24 / 30 / 36 / 48 px），小图稿用到 36 px。图案未换，方向草案和生图提示词在 `prototypes/brand/index.html`。
+- **图标**：ICO 与窗口图标补 30、36 等尺寸（100% / 125% / 150% / 200% 缩放的任务栏是 24 / 30 / 36 / 48 px）。图案由用户从生成稿中选定：蓝色卡片叠留白装裱的作品，下角一枚朱砂印。原图抠图边缘有残渣，已重做透明边后作为母版；16–20 px 单独手绘。
 - **共用动效**：新增 `c/motion.css`，三个页面都加载，放切页与主题过渡、弹层进出场、基础反馈、X 收藏动效和系统“减少动效”规则。弹簧曲线也从 `fx.css` 移到这里，图库特有的动效仍在 `fx.css`。
 - **退场**：`hidden` 用 `transition-behavior: allow-discrete` 过渡，退场不用改脚本，时长写在 `[hidden]` 状态上。
 - **主题切换**：`startViewTransition` 的回调下一帧才执行，所以 `CTheme.get()` 读单独记录的当前模式，页面代码不要直接读 `data-mode`。
