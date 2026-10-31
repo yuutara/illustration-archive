@@ -165,7 +165,7 @@ class DesktopServerIntegrationTest {
 		DesktopServer.Running first = start();
 		List<String> pageFiles = List.of("/c/", "/c/x.html", "/c/settings.html", "/c/archive-client.js", "/c/c-gallery.js", "/c/c-filters.js", "/c/c-editor.js", "/c/c-import.js", "/c/c-delete.js", "/c/c-batch.js", "/c/fx.js", "/c/theme-mode.js",
 				"/c/shell.js", "/c/c-ai.js", "/c/c-x-model.js", "/c/c-x.js", "/c/c-settings.js",
-				"/c/gallery.css", "/c/fx.css", "/c/theme-quiet.css", "/c/c.css", "/c/app.css");
+				"/c/gallery.css", "/c/motion.css", "/c/fx.css", "/c/theme-quiet.css", "/c/c.css", "/c/app.css");
 		for (String path : pageFiles) {
 			assertEquals(403, send(first, null, get(first, path)).statusCode(), path + " must need the launch session");
 		}

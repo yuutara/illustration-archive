@@ -3,15 +3,29 @@
 <meta charset="UTF-8">
 <style>
     html, body { margin: 0; background: transparent; }
-    .splash { box-sizing: border-box; position: relative; width: 460px; height: 280px; border: 1px solid #e0e0dd; border-radius: 14px; background: #f6f6f5; font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif; }
-    .mark { position: absolute; left: 40px; top: 44px; width: 72px; height: 72px; }
-    h1 { position: absolute; left: 40px; top: 136px; margin: 0; color: #1b1b1a; font-size: 24px; font-weight: 600; letter-spacing: .08em; }
-    p { position: absolute; left: 41px; top: 176px; margin: 0; color: #8a8a86; font: 12px "Segoe UI", sans-serif; letter-spacing: .06em; }
+    /* 不随主题变化：启动图在任何代码运行之前就显示，读不到用户的深浅色选择，深墨卡片在两种主题下都不刺眼 */
+    :root { --card: #141416; --ink: #ededeb; --muted: #8e8e88; --rail: rgba(255, 255, 255, .1); }
+    /* 四周 24 px 透明边留给投影 */
+    .splash { position: absolute; left: 24px; top: 24px; width: 460px; height: 280px; overflow: hidden; border-radius: 14px; background: var(--card); box-shadow: 0 0 0 1px rgba(255, 255, 255, .07), 0 12px 24px -6px rgba(0, 0, 0, .5); font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif; }
+    .deck { position: absolute; inset: 0; }
+    .mark { position: absolute; left: 36px; top: 36px; width: 56px; height: 56px; }
+    h1 { position: absolute; left: 36px; top: 108px; margin: 0; color: var(--ink); font-size: 26px; font-weight: 600; letter-spacing: .08em; }
+    p { position: absolute; left: 37px; top: 150px; margin: 0; color: var(--muted); font: 12px "Segoe UI", sans-serif; letter-spacing: .06em; }
+    /* 进度轨道；进度和状态文字由 DesktopSplash 按这里的位置写在上面，改位置要同步那边 */
+    .rail { position: absolute; left: 36px; right: 36px; bottom: 26px; height: 2px; border-radius: 1px; background: var(--rail); }
 </style>
-<!-- 启动图：底部 36 px 留给 DesktopSplash 写当前阶段 -->
 <div class="splash">
+    <!-- 图标里的牌堆放大后压暗，从右侧出血 -->
+    <svg class="deck" viewBox="0 0 460 280" aria-hidden="true">
+        <rect x="266" y="62" width="190" height="300" rx="14" fill="#191a26" transform="rotate(-12 361 212)"/>
+        <rect x="296" y="46" width="190" height="300" rx="14" fill="#1c1f33" transform="rotate(-5 391 196)"/>
+        <rect x="330" y="36" width="190" height="300" rx="14" fill="#20264a"/>
+        <path d="M344 36h176v116c-62 40-122-24-190 16V50a14 14 0 0 1 14-14Z" fill="#2a3266"/>
+        <rect x="408" y="66" width="24" height="24" rx="5" fill="#a03a2b"/>
+    </svg>
     <img class="mark" src="app-icon.svg" alt="">
     <h1>插画档案</h1>
     <p>Illustration Archive</p>
+    <div class="rail"></div>
 </div>
 </html>

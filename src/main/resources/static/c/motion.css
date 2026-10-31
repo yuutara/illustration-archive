@@ -1,0 +1,79 @@
+/*
+ * 三个页面共用的动效。图库特有的（牌堆、牵引、看图器飞入）在 fx.css，这里只放切页、弹层进出和基础反馈。
+ * 原则：每个状态从上一个状态接过来；日常操作在 160 ms 内结束，不让人等动画；不用粒子、水波纹、切页滑动。
+ *
+ * 弹簧曲线由阻尼弹簧数值积分后采样成 linear()：
+ *   snappy  k=420 c=38，约 390ms，几乎不回弹 —— 日常操作
+ *   bouncy  k=300 c=21，约 650ms，回弹约 9% —— 只给勾选、操作条弹起等关键时刻
+ *   gentle  k=170 c=24，约 570ms，无回弹    —— 大面积移动（作品重排、面板展开）
+ */
+:root {
+    --fx-snappy: linear(0, 0.028, 0.088, 0.157, 0.242, 0.329, 0.414, 0.488, 0.562, 0.629, 0.688, 0.735, 0.781, 0.82, 0.853, 0.878, 0.901, 0.921, 0.937, 0.949, 0.96, 0.969, 0.976, 0.981, 0.985, 0.989, 0.992, 0.994, 0.996, 0.997, 0.998, 0.999, 0.999, 0.999, 1, 1, 1);
+    --fx-bouncy: linear(0, 0.05, 0.161, 0.304, 0.459, 0.608, 0.741, 0.854, 0.942, 1.007, 1.051, 1.077, 1.088, 1.089, 1.082, 1.071, 1.057, 1.043, 1.03, 1.019, 1.01, 1.003, 0.998, 0.994, 0.993, 0.992, 0.992, 0.993, 0.994, 0.995, 0.997, 0.998, 0.999, 0.999, 1, 1, 1);
+    --fx-gentle: linear(0, 0.023, 0.074, 0.142, 0.219, 0.295, 0.376, 0.453, 0.525, 0.591, 0.651, 0.704, 0.751, 0.792, 0.825, 0.856, 0.882, 0.903, 0.922, 0.937, 0.95, 0.96, 0.969, 0.975, 0.981, 0.985, 0.989, 0.992, 0.994, 0.996, 0.997, 0.998, 0.999, 0.999, 1, 1, 1);
+}
+
+/* ============ 切页与主题：淡入淡出，标题和导航留在原地 ============ */
+@view-transition { navigation: auto; }
+.mast-start { view-transition-name: mast-start; }
+/* 过渡期间点击穿过截图，不吞掉操作 */
+::view-transition { pointer-events: none; }
+::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation-duration: .16s; animation-timing-function: ease-out; }
+
+/* ============ 弹层：进出都有过渡 ============ */
+/* hidden 的 display: none 也能过渡（allow-discrete），所以退场不用改脚本；退场的时长写在 [hidden] 状态上 */
+.sheet-backdrop { transition: opacity .2s ease-out, display .2s allow-discrete; }
+@starting-style { .sheet-backdrop { opacity: 0; } }
+.sheet { transition: transform .45s var(--fx-snappy), opacity .18s ease-out; }
+@starting-style { .sheet { transform: translateY(12px) scale(.97); opacity: 0; } }
+.toast { transition: transform .65s var(--fx-bouncy), opacity .2s, bottom .39s var(--fx-snappy), display .2s allow-discrete; }
+@starting-style { .toast { transform: translate(-50%, 16px) scale(.94); opacity: 0; } }
+
+:is(.sheet-backdrop, .toast)[hidden] { opacity: 0; pointer-events: none; transition-duration: .14s; transition-timing-function: ease-out; }
+.sheet-backdrop[hidden] .sheet { transform: translateY(4px) scale(.99); opacity: 0; transition-duration: .14s; transition-timing-function: ease-out; }
+.toast[hidden] { transform: translate(-50%, 6px); }
+
+/* ============ 载入提示：本地接口通常几十毫秒就回来，慢的时候才出现 ============ */
+@keyframes ia-appear { from { opacity: 0; } }
+.x-loading, .wall-status.is-loading #wall-status-text { animation: ia-appear .2s ease-out .2s backwards; }
+:is(.set-error, .set-ok, .x-result) { animation: ia-appear .16s ease-out; }
+
+/* ============ 基础反馈：图库由 fx.css 的按压反馈负责，这里给没有动效层的页面 ============ */
+.mast-nav a { transition: color .12s, background-color .12s; }
+.set-field input { transition: border-color .12s, box-shadow .12s; }
+.set-field input:focus { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent); }
+html:not(.fx-on) :is(.btn, .icon-btn, .bb-btn, .x-open, .x-retry) { transition: transform .39s var(--fx-snappy), opacity .15s, background-color .15s, color .15s, border-color .15s, box-shadow .2s; }
+html:not(.fx-on) :is(.btn, .icon-btn, .bb-btn, .x-open, .x-retry):active:not(:disabled) { transform: scale(.97); transition-duration: .08s; transition-timing-function: ease-out; }
+
+/* ============ X 收藏 ============ */
+.x-frame { transition: transform .39s var(--fx-snappy), box-shadow .2s ease; }
+.x-frame img { opacity: 0; transition: opacity .25s ease-out; }
+.x-frame img.is-loaded { opacity: 1; }
+.x-card:hover .x-frame { transform: translateY(-2px); box-shadow: var(--art-shadow-hover); }
+.x-card:active .x-frame { transform: translateY(-1px) scale(.99); transition-duration: .08s; transition-timing-function: ease-out; }
+
+/* 批量条从底部升起 */
+#x-bar { transition: transform .39s var(--fx-snappy), opacity .16s ease-out, display .16s allow-discrete; }
+@starting-style { #x-bar { transform: translate(-50%, 16px); opacity: 0; } }
+#x-bar[hidden] { transform: translate(-50%, 8px); opacity: 0; pointer-events: none; transition-duration: .14s; transition-timing-function: ease-out; }
+
+/* 预览：打开时舞台微微放大到位。逐件整理时只淡入新图，A / S 不用等 */
+.x-preview { transition: opacity .16s ease-out, display .16s allow-discrete; }
+@starting-style { .x-preview { opacity: 0; } }
+.x-preview[hidden] { opacity: 0; pointer-events: none; transition-duration: .14s; }
+.x-stage { transition: transform .3s var(--fx-snappy); }
+@starting-style { .x-stage { transform: scale(.985); } }
+.x-stage > :is(img, video) { animation: ia-media-in .12s ease-out; }
+@keyframes ia-media-in { from { opacity: .35; } }
+
+/* ============ 减少动效 ============ */
+/* 位移、缩放、回弹全部取消，只保留不超过 120ms 的淡入淡出，状态变化仍然可见 */
+@media (prefers-reduced-motion: reduce) {
+    @view-transition { navigation: none; }
+    *, *::before, *::after {
+        transition-property: opacity, color, background-color, border-color, box-shadow !important;
+        transition-duration: 120ms !important;
+        transition-delay: 0s !important;
+        animation: none !important;
+    }
+}

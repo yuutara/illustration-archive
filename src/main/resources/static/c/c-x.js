@@ -16,6 +16,7 @@
 
     const PAGE_SIZE = 40;
     const COST_NOTICE_KEY = 'ia-x-sync-cost-seen';
+    const PREVIEW_CLOSE_MILLIS = 160;
 
     const state = {
         page: 0, totalPages: 0, total: 0, items: [],
@@ -80,6 +81,7 @@
         image.decoding = 'async';
         image.loading = controls ? 'eager' : 'lazy';
         image.draggable = false;
+        image.addEventListener('load', () => image.classList.add('is-loaded'));
         image.addEventListener('error', () => showUnavailable(item, image));
         image.src = mediaUrl(item, media, controls ? PREVIEW_SIZE : LIST_SIZE);
         return image;
@@ -378,9 +380,12 @@
 
     function closePreview() {
         state.preview = null;
-        $('x-stage').replaceChildren();
+        const stage = $('x-stage');
+        stage.querySelectorAll('video').forEach((video) => video.pause());
         $('x-preview').hidden = true;
         document.body.classList.remove('is-locked');
+        // 退场结束后再清空，淡出时看到的还是这件作品
+        setTimeout(() => { if (!state.preview) stage.replaceChildren(); }, PREVIEW_CLOSE_MILLIS);
     }
 
     // 归档或跳过后列表已刷新，同一序号上就是下一件；这一件还在，说明没处理成功，留下来显示原因

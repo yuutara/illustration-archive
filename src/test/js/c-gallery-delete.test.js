@@ -142,7 +142,7 @@ function setup(responses, { search = "" } = {}) {
     const requests = [];
     const toasts = [];
     const timer = (fn, ms) => { const t = setTimeout(fn, ms); t.unref?.(); return t; };
-    const window = { addEventListener() {}, scrollY: 0, scrollTo() {}, innerWidth: 1400, innerHeight: 900, CTheme: { set() {} } };
+    const window = { addEventListener() {}, scrollY: 0, scrollTo() {}, innerWidth: 1400, innerHeight: 900, CTheme: { get: () => "light", set() {} } };
     const context = {
         window, document: doc, console, URLSearchParams, AbortController, Image: FakeImage, Element,
         location: { search },

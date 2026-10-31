@@ -109,6 +109,19 @@ class DesktopShellTest {
 	}
 
 	@Test
+	void theSplashLineMovesForwardAndStopsShortOfItsStage() {
+		double progress = 0;
+		for (int frame = 0; frame < 2_000; frame++) {
+			double next = DesktopSplash.advance(progress, 0.7, 66);
+			assertTrue(next >= progress && next <= 0.7, "frame " + frame);
+			progress = next;
+		}
+		assertTrue(progress > 0.69, "a slow stage still gets close to its cap");
+		assertEquals(0.5, DesktopSplash.advance(0.5, 0.3, 66), "a later stage never moves the line back");
+		assertTrue(DesktopSplash.advance(0.69, 0.92, 66) > 0.69, "the next stage picks up from where the line is");
+	}
+
+	@Test
 	void theLauncherReadsTheManualProxyBeforeSpringStarts() throws IOException {
 		assertEquals("", DesktopSettings.savedProxy(base));
 		Files.createDirectories(base.resolve("config"));

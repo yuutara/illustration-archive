@@ -31,6 +31,8 @@ public final class DesktopLauncher {
 	private static final String APP_ID = "IllustrationArchive";
 	private static final int ACTIVATE_TIMEOUT_MILLIS = 2_000;
 	private static final int REVEAL_ANYWAY_MILLIS = 15_000;
+	private static final double SERVER_STAGE_CAP = 0.7;
+	private static final double PAGE_STAGE_CAP = 0.92;
 
 	private final Path home;
 	private final FileLock instanceLock;
@@ -98,7 +100,7 @@ public final class DesktopLauncher {
 	}
 
 	private void run() {
-		DesktopSplash.status("正在读取图库…");
+		DesktopSplash.status("正在准备图库…", SERVER_STAGE_CAP);
 		window = DesktopWindow.open(display, home, DesktopSettings.savedProxy(home), this::openInDefaultBrowser, this::stop)
 				.orElse(null);
 		if (window == null) {
@@ -144,7 +146,7 @@ public final class DesktopLauncher {
 
 	private void show(DesktopServer.Running started) {
 		if (window != null) {
-			DesktopSplash.status("正在打开窗口…");
+			DesktopSplash.status("正在载入作品…", PAGE_STAGE_CAP);
 			window.load(started.sessionUri());
 			display.timerExec(REVEAL_ANYWAY_MILLIS, window::reveal);
 		} else {

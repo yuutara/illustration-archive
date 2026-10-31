@@ -21,12 +21,19 @@
         root.dataset.mode = mode;
     }
 
-    apply(read());
+    // startViewTransition 的回调要到下一帧才执行，所以当前模式单独记着：切换后立刻读取也要拿到新值
+    let current = read();
+    apply(current);
 
     window.CTheme = {
-        get: () => root.dataset.mode,
+        get: () => current,
         set(mode) {
-            apply(mode);
+            current = mode;
+            if (document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                document.startViewTransition(() => apply(mode));
+            } else {
+                apply(mode);
+            }
             try { localStorage.setItem(KEY, mode); } catch (e) { /* 同上 */ }
             if (window.iaDesktop) window.iaDesktop('theme', mode); // 应用窗口的标题栏跟着变
         }

@@ -11,13 +11,15 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const ICON_DIR = join(ROOT, 'packaging/icon');
 const WINDOW_ICON_DIR = join(ROOT, 'src/main/resources/desktop');
 const EDGE = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
-const ICON_SIZES = [16, 20, 24, 32, 40, 48, 64, 128, 256];
+// 24, 30, 36 and 48 are the taskbar at 100%, 125%, 150% and 200% display scale; Windows blurs anything it has to resize.
+const ICON_SIZES = [16, 20, 24, 30, 32, 36, 40, 48, 64, 72, 96, 128, 256];
 // What the window itself shows in its title bar and on the taskbar; DesktopWindow loads these.
-const WINDOW_ICON_SIZES = [16, 24, 32, 48, 64, 256];
-const SMALL_ARTWORK_UP_TO = 24;
+const WINDOW_ICON_SIZES = [16, 20, 24, 30, 32, 36, 40, 48, 64, 256];
+const SMALL_ARTWORK_UP_TO = 36;
 // The java launcher picks splash@125pct.png and so on by the display's scale.
 const SPLASH_SCALES = [[1, 'splash.png'], [1.25, 'splash@125pct.png'], [1.5, 'splash@150pct.png'], [2, 'splash@200pct.png']];
-const SPLASH_SIZE = { width: 460, height: 280 };
+// The 460 x 280 card plus 24 px of transparent margin for its shadow.
+const SPLASH_SIZE = { width: 508, height: 328 };
 
 const profile = await mkdtemp(join(tmpdir(), 'ia-icons-'));
 const edge = spawn(EDGE, ['--headless=new', `--user-data-dir=${profile}`, '--remote-debugging-port=0', '--no-first-run', 'about:blank'], { stdio: 'ignore' });

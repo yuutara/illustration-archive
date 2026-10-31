@@ -11,13 +11,13 @@ class Element {
     closest(selector) { return this.found[selector] || null; }
 }
 
-function shell({ host = true, selection = "" } = {}) {
+function shell({ host = true, selection = "", wall = null, stored = {}, reduced = false } = {}) {
     const calls = [];
     const listeners = {};
     const posted = [];
     const original = { style: {} };
     const document = {
-        querySelector: () => null,
+        querySelector: (selector) => (selector === ".wall-wrap" ? wall : null),
         getElementById: (id) => (id === "sv-original" ? original : null),
         addEventListener: (type, listener) => { listeners[type] = listener; }
     };
@@ -29,15 +29,22 @@ function shell({ host = true, selection = "" } = {}) {
     if (host) window.iaDesktop = (action, value) => calls.push([action, value]);
     vm.runInNewContext(source, {
         window, document, Element, location: { origin: "http://127.0.0.1:47391" },
-        fetch: async (url, options) => { posted.push([url, options]); return { ok: false }; }
+        fetch: async (url, options) => { posted.push([url, options]); return { ok: false }; },
+        matchMedia: () => ({ matches: reduced }),
+        sessionStorage: { getItem: (key) => stored[key] ?? null, setItem: (key, value) => { stored[key] = value; } }
     });
     const fire = (type, event) => {
         let prevented = false;
         listeners[type]({ ...event, preventDefault: () => { prevented = true; } });
         return prevented;
     };
-    return { calls, fire, original, posted };
+    return { calls, fire, original, posted, appShell: window.AppShell };
 }
+
+const wall = () => {
+    const played = [];
+    return { played, animate: (frames, options) => played.push(options) };
+};
 
 const link = (href, attributes = {}) => {
     const url = new URL(href);
@@ -81,4 +88,36 @@ test("the window learns the theme, and the tab-only link is gone", () => {
     const { calls, original } = shell();
     assert.deepEqual(calls[0], ["theme", "dark"]);
     assert.equal(original.style.display, "none");
+});
+
+test("the window hears once that the first screen is ready", () => {
+    const { calls, appShell } = shell();
+    appShell.ready();
+    appShell.ready();
+    assert.equal(calls.filter(([action]) => action === "ready").length, 1);
+});
+
+test("the works settle in once per launch, not on every page change", () => {
+    const stored = {};
+    const first = wall();
+    shell({ wall: first, stored }).appShell.ready();
+    assert.equal(first.played.length, 1);
+
+    const later = wall();
+    shell({ wall: later, stored }).appShell.ready();
+    assert.equal(later.played.length, 0);
+});
+
+test("reduced motion skips the settling but still reveals the window", () => {
+    const works = wall();
+    const { calls, appShell } = shell({ wall: works, reduced: true });
+    appShell.ready();
+    assert.equal(works.played.length, 0);
+    assert.equal(calls.filter(([action]) => action === "ready").length, 1);
+});
+
+test("in a plain browser there is no window to tell", () => {
+    const works = wall();
+    shell({ host: false, wall: works }).appShell.ready();
+    assert.equal(works.played.length, 0);
 });

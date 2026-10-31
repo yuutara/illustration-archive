@@ -1,15 +1,9 @@
 /*
  * 原型 B · 动效与材质实验层
  * 所有规则都挂在 <html> 的 fx-* 类上，由 fx.js 按实验面板开关；切回“原版”时一条也不生效。
- * 弹簧曲线由阻尼弹簧数值积分后采样成 linear()：
- *   snappy  k=420 c=38，约 390ms，几乎不回弹 —— 日常操作
- *   bouncy  k=300 c=21，约 650ms，回弹约 9% —— 只给勾选、操作条弹起等关键时刻
- *   gentle  k=170 c=24，约 570ms，无回弹    —— 大面积移动（作品重排、面板展开）
+ * 弹簧曲线和三个页面共用的进出场在 motion.css。
  */
 :root {
-    --fx-snappy: linear(0, 0.028, 0.088, 0.157, 0.242, 0.329, 0.414, 0.488, 0.562, 0.629, 0.688, 0.735, 0.781, 0.82, 0.853, 0.878, 0.901, 0.921, 0.937, 0.949, 0.96, 0.969, 0.976, 0.981, 0.985, 0.989, 0.992, 0.994, 0.996, 0.997, 0.998, 0.999, 0.999, 0.999, 1, 1, 1);
-    --fx-bouncy: linear(0, 0.05, 0.161, 0.304, 0.459, 0.608, 0.741, 0.854, 0.942, 1.007, 1.051, 1.077, 1.088, 1.089, 1.082, 1.071, 1.057, 1.043, 1.03, 1.019, 1.01, 1.003, 0.998, 0.994, 0.993, 0.992, 0.992, 0.993, 0.994, 0.995, 0.997, 0.998, 0.999, 0.999, 1, 1, 1);
-    --fx-gentle: linear(0, 0.023, 0.074, 0.142, 0.219, 0.295, 0.376, 0.453, 0.525, 0.591, 0.651, 0.704, 0.751, 0.792, 0.825, 0.856, 0.882, 0.903, 0.922, 0.937, 0.95, 0.96, 0.969, 0.975, 0.981, 0.985, 0.989, 0.992, 0.994, 0.996, 0.997, 0.998, 0.999, 0.999, 1, 1, 1);
     /* Fluent Acrylic 的颗粒：极淡的分形噪点，让半透明表面有“材质”而不是一层塑料 */
     --fx-noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .14 0 0 0 0 .13 0 0 0 0 .11 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
     --fx-noise-light: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .05 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
@@ -126,14 +120,6 @@
 .fx-popover :is(.pk-item, .sg-item, .sv-menu a, .sv-menu button) { transition: background-color .12s, transform .39s var(--fx-snappy); }
 .fx-popover .pk-check { transition: background-color .15s, border-color .15s, transform .5s var(--fx-bouncy); }
 .fx-popover .pk-item.is-selected .pk-check { transform: scale(1.06); }
-
-.fx-popover .sheet-backdrop { background: rgba(36, 33, 29, .36); transition: opacity .2s ease-out; }
-@starting-style { .fx-popover .sheet-backdrop { opacity: 0; } }
-.fx-popover .sheet { transition: transform .45s var(--fx-snappy), opacity .18s ease-out; }
-@starting-style { .fx-popover .sheet { transform: translateY(12px) scale(.97); opacity: 0; } }
-
-.fx-popover .toast { transition: transform .65s var(--fx-bouncy), opacity .2s, bottom .39s var(--fx-snappy); }
-@starting-style { .fx-popover .toast { transform: translate(-50%, 16px) scale(.94); opacity: 0; } }
 
 /* ============ 作品墙 ============ */
 /* 占位底色取作品主色，图片解码后渐显 —— 不再是一片灰块闪成图 */
@@ -263,7 +249,7 @@ body.fx-dragging .piece-open { transform: none !important; }
 .fx-viewer .viewer:not(.chrome-on) .sv-top { transform: translateY(-8px); }
 .fx-viewer .viewer:not(.chrome-on) .sv-caption { transform: translateY(8px); }
 .fx-viewer .sv-info { transition: transform .55s var(--fx-gentle), opacity .2s; }
-@starting-style { .fx-viewer .sv-info { transform: translateY(48px); opacity: 0; } }
+@starting-style { .fx-viewer .sv-info { transform: translateX(48px); opacity: 0; } }
 .fx-viewer .sv-editor { transition: transform .55s var(--fx-gentle), opacity .2s; }
 @starting-style { .fx-viewer .sv-editor { transform: translateX(48px); opacity: 0; } }
 
@@ -502,16 +488,7 @@ body.fx-dragging .piece-open { transform: none !important; }
 .fx-viewer.fx-mat-glass .sv-btn-strong:hover { color: #1d1a16; background: #fff; }
 .fx-viewer.fx-mat-glass .sv-btn-strong:active { box-shadow: var(--gl-press), 0 1px 3px rgba(0, 0, 0, .3); }
 
-/* ============ 系统“减少动效”与实验面板里的模拟开关 ============ */
-/* 位移、缩放、回弹全部取消，只保留不超过 120ms 的淡入淡出，状态变化仍然可见 */
-@media (prefers-reduced-motion: reduce) {
-    html.fx-on *, html.fx-on *::before, html.fx-on *::after {
-        transition-property: opacity, color, background-color, border-color, box-shadow !important;
-        transition-duration: 120ms !important;
-        transition-delay: 0s !important;
-        animation: none !important;
-    }
-}
+/* ============ 实验面板里的“减少动效”模拟开关（系统设置的规则在 motion.css） ============ */
 html.fx-reduce *, html.fx-reduce *::before, html.fx-reduce *::after {
     transition-property: opacity, color, background-color, border-color, box-shadow !important;
     transition-duration: 120ms !important;

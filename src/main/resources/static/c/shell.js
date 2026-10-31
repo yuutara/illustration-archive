@@ -10,6 +10,7 @@
     const desktop = !!(window.UiCapabilities && window.UiCapabilities.desktop);
     const nav = document.querySelector('.mast-nav');
     const legacy = document.getElementById('legacy-link');
+    const LAUNCH_KEY = 'ia-launched';
 
     if (nav) nav.hidden = !desktop;
     if (legacy) legacy.hidden = desktop;
@@ -70,6 +71,29 @@
         if (window.CTheme) window.iaDesktop('theme', window.CTheme.get());
     }
 
-    window.AppShell = { refreshInbox };
+    // sessionStorage 随窗口结束，所以这里判断的是“这次启动的第一屏”，之后切页不再重复
+    function firstScreenOfLaunch() {
+        try {
+            if (sessionStorage.getItem(LAUNCH_KEY)) return false;
+            sessionStorage.setItem(LAUNCH_KEY, '1');
+            return true;
+        } catch (e) { return false; /* 读不到存储就不做这个过渡 */ }
+    }
+
+    let announced = false;
+    // 首屏作品已上墙：窗口这时才显现。顶栏不动，作品区淡入，接在启动图之后
+    function ready() {
+        if (announced || !window.iaDesktop) return;
+        announced = true;
+        window.iaDesktop('ready', '');
+        const content = document.querySelector('.wall-wrap');
+        if (!content || !firstScreenOfLaunch() || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+        content.animate(
+            [{ opacity: 0, translate: '0 8px' }, { opacity: 1, translate: '0 0' }],
+            { duration: 280, delay: 60, easing: 'cubic-bezier(.2, 0, 0, 1)', fill: 'backwards' }
+        );
+    }
+
+    window.AppShell = { refreshInbox, ready };
     refreshInbox();
 })();

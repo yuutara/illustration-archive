@@ -66,14 +66,14 @@
     /* ---------------- 深浅色 ---------------- */
 
     function syncThemeButton() {
-        const dark = document.documentElement.dataset.mode === 'dark';
+        const dark = window.CTheme.get() === 'dark';
         const b = $('theme-toggle');
         b.setAttribute('aria-pressed', String(dark));
         b.title = dark ? '切换到浅色' : '切换到深色';
         b.querySelector('use').setAttribute('href', dark ? '#i-sun' : '#i-moon');
     }
     $('theme-toggle').addEventListener('click', () => {
-        window.CTheme.set(document.documentElement.dataset.mode === 'dark' ? 'light' : 'dark');
+        window.CTheme.set(window.CTheme.get() === 'dark' ? 'light' : 'dark');
         syncThemeButton();
     });
     syncThemeButton();
@@ -816,6 +816,8 @@
             renderCaption();
             if (state.viewer.info) renderInfo();
         }
+        // 第一页有结果（也可能是空图库或失败）：应用窗口可以显现了
+        if ((event.type === 'append' || event.type === 'error') && window.AppShell) window.AppShell.ready();
     });
 
     /*

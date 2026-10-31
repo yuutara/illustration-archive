@@ -32,17 +32,21 @@ import java.util.stream.IntStream;
  * folder and, unless Settings names a proxy, follows the Windows proxy settings by itself, so nothing here touches
  * the network.
  *
- * <p>The shell opens fully transparent and appears once the first page has loaded, which avoids a white flash. The
- * splash image covers that time.
+ * <p>The shell opens fully transparent and appears once the page reports its first screen, or shortly after the load
+ * if it never does, which avoids a white flash and an empty wall. The splash image covers that time.
  */
 final class DesktopWindow {
 
 	private static final String TITLE = "插画档案";
 	private static final String DATA_DIR_PROPERTY = "org.eclipse.swt.browser.EdgeDataDir";
 	private static final String BROWSER_ARGS_PROPERTY = "org.eclipse.swt.browser.EdgeArgs";
-	private static final int[] ICON_SIZES = {16, 24, 32, 48, 64, 256};
-	/** Gives the page a moment to paint between the load finishing and the window appearing. */
-	private static final int REVEAL_DELAY_MILLIS = 80;
+	private static final int[] ICON_SIZES = {16, 20, 24, 30, 32, 36, 40, 48, 64, 256};
+	/** The load event comes before the works do, so the page says when its first screen is ready; this is how long it gets. */
+	private static final int FIRST_SCREEN_WAIT_MILLIS = 700;
+	/** Gives the page a moment to paint between saying it is ready and the window appearing. */
+	private static final int PAINT_DELAY_MILLIS = 50;
+	/** The splash stays a moment behind the window so nothing blinks between the two. */
+	private static final int SPLASH_OVERLAP_MILLIS = 60;
 	private static final int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
 	private static final int DWMWA_CAPTION_COLOR = 35;
 
@@ -145,7 +149,7 @@ final class DesktopWindow {
 		browser.addProgressListener(new ProgressAdapter() {
 			@Override
 			public void completed(ProgressEvent event) {
-				display.timerExec(REVEAL_DELAY_MILLIS, DesktopWindow.this::reveal);
+				display.timerExec(FIRST_SCREEN_WAIT_MILLIS, DesktopWindow.this::reveal);
 			}
 		});
 		shell.addListener(SWT.Resize, event -> rememberBounds());
@@ -162,6 +166,7 @@ final class DesktopWindow {
 				dark = "dark".equals(value);
 				paint();
 			}
+			case "ready" -> display.timerExec(PAINT_DELAY_MILLIS, this::reveal);
 			case "open" -> {
 				if (LinkPolicy.of(value, appOrigin) == LinkPolicy.EXTERNAL) {
 					openExternal.accept(URI.create(value));
@@ -195,7 +200,7 @@ final class DesktopWindow {
 		shell.setAlpha(255);
 		shell.forceActive();
 		browser.setFocus();
-		DesktopSplash.close();
+		display.timerExec(SPLASH_OVERLAP_MILLIS, DesktopSplash::close);
 	}
 
 	void activate() {
