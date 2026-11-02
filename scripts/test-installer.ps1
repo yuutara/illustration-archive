@@ -203,6 +203,23 @@ function Test-InputChecks {
         Set-Content -LiteralPath $secret -Value 'not a real key'
         Test-Rejected 'credential file in the image' 'must not ship' @{}
         Remove-Item -LiteralPath $secret -Force
+
+        # An input that sits where an older version of the script kept, and wiped, its temporary files.
+        $collision = (New-Item -ItemType Directory (Join-Path $work 'collision')).FullName
+        $sameName = Join-Path $collision 'installer-stage'
+        Copy-Item -LiteralPath $image $sameName -Recurse
+        $before = Get-TreeHash $sameName
+        $arguments = $good.Clone()
+        $arguments.Image = $sameName
+        $arguments.OutputDir = $collision
+        if ($Compiler) { $arguments.Compiler = $Compiler }
+        $problem = ''
+        try { & $buildInstaller @arguments *> $null } catch { $problem = $_.Exception.Message }
+        Report 'a build does not touch its own input' ((Test-Path -LiteralPath $sameName) -and (Get-TreeHash $sameName) -eq $before)
+        Report 'a build leaves no temporary files' (-not (Get-ChildItem -LiteralPath $collision -Filter 'installer-stage-*'))
+        if ($Compiler) {
+            Report 'the build still finishes' ($problem -eq '' -and (Test-Path -LiteralPath (Join-Path $collision 'IllustrationArchive-Setup-0.6.0.exe'))) $problem
+        }
     } else {
         Write-Host 'SKIP  checks after the bootstrapper: no -Bootstrapper given'
     }

@@ -76,7 +76,7 @@ IllustrationArchive.exe (jpackage 启动器 + 自带 Java 21 运行时)
 .\mvnw.cmd '-Dmaven.repo.local=C:\Users\YuanYuChou\.m2\repository' '-Dtest=DesktopServerIntegrationTest' '-DargLine=-Djava.io.tmpdir=D:\IdeaProjects\illustration-archive\target\test-temp -Djdk.net.unixdomain.tmpdir=D:\IdeaProjects\illustration-archive\target\test-temp' test
 ```
 
-`-Djdk.net.unixdomain.tmpdir` 是环境绕行：在 Claude Code 宿主派生的进程里，`%LOCALAPPDATA%` 下的 AF_UNIX socket 能创建但无法连接，JDK 的 Selector / HttpClient 会报 `Unable to establish loopback connection`。从资源管理器双击启动的应用不受影响。
+`-Djdk.net.unixdomain.tmpdir` 是环境绕行：在 Claude 或 Codex 桌面版宿主派生的进程里（包括 Windows-MCP 启动的程序），`AppData` 下的 AF_UNIX socket 能创建但无法连接，JDK 的 Selector / HttpClient 会报 `Unable to establish loopback connection`。JDK 把这个 socket 放在 `TEMP` 下，所以打包应用从宿主直接启动也会失败。从资源管理器启动的应用不受影响，GUI 验收要经 `explorer.exe <脚本>` 启动，实测见[安装器](#安装器r312026-11-02)的 R31-C2。
 
 2026-10-26 结果：`DesktopServerIntegrationTest` 5/5 通过。全量 `mvnw test`（JDK 17.0.19，同上 argLine）：390 tests，0 failures / errors，4 skipped（3 个未配置环境变量的 MySQL opt-in 测试 + 1 个 LocalStack 测试，与健康基线相同），BUILD SUCCESS。前端未改动，未重跑 JS 测试。
 
@@ -619,7 +619,7 @@ $h = 'D:\Temp\ia-config-20261102\acceptance-home'
 
 ## 安装器（R3.1，2026-11-02）
 
-计划与验收出口见 [DESKTOP_ROADMAP](DESKTOP_ROADMAP.md#r31-安装器计划2026-11-02开发中)。A 级自动检查已通过，C 级、B 级待验收。
+计划与验收出口见 [DESKTOP_ROADMAP](DESKTOP_ROADMAP.md#r31-安装器计划2026-11-02开发中)。A 级自动检查已通过；C 级首轮未签收，下述 2 项已处理，待 Codex 复验；B 级待用户验收。
 
 ```powershell
 .\scripts\build-desktop.ps1 -AppVersion <版本> -OutputDir <输出目录> ...
@@ -642,19 +642,32 @@ $h = 'D:\Temp\ia-config-20261102\acceptance-home'
 
 | 项 | 结果 |
 | --- | --- |
-| 回归 | `test-installer.ps1` 63/63，约 1 分钟：输入检查 12 项；安装、同版重装、`1.10` 覆盖 `1.9`、拒绝降级、运行中升级 / 卸载阻断、其他路径不误拦、文件被占用、未落盘报 9、目录重叠、WebView2 各分支、卸载保留图库 |
+| 回归 | `test-installer.ps1` 66/66，约 1 分钟：输入检查 15 项；安装、同版重装、`1.10` 覆盖 `1.9`、拒绝降级、运行中升级 / 卸载阻断、其他路径不误拦、文件被占用、未落盘报 9、目录重叠、WebView2 各分支、卸载保留图库 |
 | 变异测试 | 逐个破坏 11 处保护（`ignoreversion`、退出码 9、运行检查、卸载阻断、按文本比版本、允许降级、`pv` 为零、目录包含关系、清单路径越界、查询失败当未运行、信 Bootstrapper 退出码），全部被回归抓到 |
 | 版本贯通 | 源码副本实际构建 `0.5.101`、`0.5.102`：EXE、`.jpackage.xml` 和安装器版本一致 |
 | 真实包自查（隔离 home，D 盘目录，不算 C 级） | 347 个文件字节一致，102 个 JAR 时间戳未变；启动后 8863 个类来自动态 CDS 归档；前台和托盘态升级都退出 7、卸载都退出 1；正常退出后卸载干净，home 未变 |
 | AUMID | SWT 3.135 字节码确认直接用 `Display.setAppName` 的值，与快捷方式的 `IllustrationArchive` 一致 |
 
-未验证：向导界面和重试对话框（测试全程静默）；默认目录 `%LOCALAPPDATA%\Programs`（Claude 宿主内会被重定向，自查用的是 D 盘）；两个真实版本之间的覆盖升级；别的用户运行同名进程时读不到路径的分支（只靠代码审查，“查询失败”分支已测）；真实 Bootstrapper 下载安装。
+**Codex C 级首轮（2026-11-02，目标 `ffd1983`）：未签收。** 证据与命令：`D:\Temp\ia-r31-codex-20261102\result.md`。交接副本的安装脚本与提交存在差异，后续从当前提交重新编译安装器（复用既有镜像，不重建 Java）；源码及候选哈希见证据目录 `candidate-provenance.json`。
+
+- 已通过：D 盘 GUI 首装、同版重装、真实 101→102 覆盖、降级拒绝、运行中升级 / 卸载的“重试 / 取消”、HKCU 卸载项和实际快捷方式目标 / AUMID、卸载后重装。两个版本的程序文件全部同字节，102 个应用 JAR 时间戳匹配；102 动态 CDS 实际加载 8825 类。合成 2 作品的业务字段、媒体和假配置保留；停机时重装 / 升级前后整个 home 321 文件一致，卸载 / 再装前后 327 文件一致。
+- **R31-C1 / P1（已修复，待复验）**：`build-installer.ps1` 无条件删除 `<OutputDir>\installer-stage`；输入镜像正好位于该目录时，合法参数会导致输入被删除后才报错。现在每次用新建的唯一目录，只清理自己建的内容。回归新增 3 项，共 66/66；把旧代码放回副本后回归失败，确认能抓到。
+- **R31-C2 / P1（已定位，非产品缺陷，待复验）**：默认 TEMP 下启动报 `Invalid argument: connect`。同一 JRE、同一 TEMP 路径实测：
+  - 从 Claude 或 Codex 宿主进程树启动：socket 目录在 `AppData`（Local、Roaming、Temp）下失败，在 `%USERPROFILE%` 或 D 盘通过。
+  - 从 Explorer 启动：以上位置全部通过，含带中文和空格的路径。
+  - 真实打包应用从 Explorer 用默认 C 盘 TEMP 启动：窗口打开、接口响应、日志 0 条回环错误、关窗后进程归零。
+
+  结论：失败来自这两个 MSIX 宿主对 `AppData` 下 AF_UNIX `connect` 的影响，不是 C 盘 TEMP、JRE 或 R3.1。Codex 的失败证据全部来自宿主内：CLI、Windows-MCP（其进程树继承宿主）。用户双击、开始菜单和桌面图标都由 Explorer 启动，不受影响。没有改 Java 代码、TEMP 或网络设置。内核层的具体机制未查明：宿主内子进程没有包身份，普通文件写入 TEMP 也未被重定向，所以不能归因到文件重定向。
+- GUI 已按规则委派 `ui_acceptance`。程序实际安装按用户要求仅用 D 盘；默认 C 盘路径只观察不安装。测试完已正常退出并卸载，保留合成 home / 候选 / 证据，未动原图库、已登录 X 副本或原有用户验收快捷方式。
+
+未验证：别的用户运行同名进程时读不到路径的真实权限分支（“查询失败”自动分支已测）；R3.5 的无 Java、真实缺 WebView2、离线失败与 SmartScreen。默认 C 盘实际安装按用户指示排除；B 级体验仍由用户验收。
 
 ## 已知问题与后续候选
 
 - `LegacyMigrationTest` 的目录改名在 Windows 上偶发 `AccessDenied`：2026-11-02 与打包任务并行时失败一次，单独重跑 3 次和空闲时的全量都通过，判断是文件被短暂占用。真实迁移遇到时会报错退出，不会写坏数据，重试即可；这次没有改。
 - Flyway 12.4 提示 H2 2.4.240 高于其验证版本，当前功能未受影响。
 - 体积：CDS 归档约占 56 MB；可移除桌面模式用不到的 AWS SDK 依赖。
+- 由其他 MSIX 打包应用启动本应用时，可能遇到与 R31-C2 相同的启动失败，目前只在 Claude、Codex 宿主上实测过。JDK 21 没有关闭 AF_UNIX 管道的开关，只能把 socket 放到 `AppData` 以外，但这要在用户目录多放一个文件夹，换来的只是这个非默认启动路径，暂不做。
 - 未覆盖：签名、自动更新、大图库下的 H2 性能。
 - 导入校验只读图片头：文件头完好但内容截断的图片仍会通过。
 - 手动代理改动后，X 收藏里的图片要重新打开应用才走新代理（图片由浏览器窗口直接加载）。

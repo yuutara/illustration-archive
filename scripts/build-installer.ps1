@@ -70,8 +70,8 @@ if (($output + '\').StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCas
     throw "OutputDir '$output' is inside the image."
 }
 
-$stage = Join-Path $output 'installer-stage'
-Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
+# A new name every run: whatever already exists in OutputDir is the caller's, possibly this very build's input.
+$stage = Join-Path $output "installer-stage-$([guid]::NewGuid().ToString('N'))"
 New-Item -ItemType Directory $stage | Out-Null
 try {
     Copy-Item -LiteralPath $bootstrapperPath (Join-Path $stage 'MicrosoftEdgeWebview2Setup.exe')
