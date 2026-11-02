@@ -619,7 +619,7 @@ $h = 'D:\Temp\ia-config-20261102\acceptance-home'
 
 ## 安装器（R3.1，2026-11-02）
 
-计划与验收出口见 [DESKTOP_ROADMAP](DESKTOP_ROADMAP.md#r31-安装器计划2026-11-02开发中)。A 级自动检查已通过；C 级首轮未签收，下述 2 项已处理，待 Codex 复验；B 级待用户验收。
+计划与验收出口见 [DESKTOP_ROADMAP](DESKTOP_ROADMAP.md#r31-安装器计划2026-11-02开发中)。A 级自动检查已通过；Codex C 级复验通过并签收 `f5ea537`（2026-11-02）；B 级待用户验收。
 
 ```powershell
 .\scripts\build-desktop.ps1 -AppVersion <版本> -OutputDir <输出目录> ...
@@ -651,13 +651,15 @@ $h = 'D:\Temp\ia-config-20261102\acceptance-home'
 **Codex C 级首轮（2026-11-02，目标 `ffd1983`）：未签收。** 证据与命令：`D:\Temp\ia-r31-codex-20261102\result.md`。交接副本的安装脚本与提交存在差异，后续从当前提交重新编译安装器（复用既有镜像，不重建 Java）；源码及候选哈希见证据目录 `candidate-provenance.json`。
 
 - 已通过：D 盘 GUI 首装、同版重装、真实 101→102 覆盖、降级拒绝、运行中升级 / 卸载的“重试 / 取消”、HKCU 卸载项和实际快捷方式目标 / AUMID、卸载后重装。两个版本的程序文件全部同字节，102 个应用 JAR 时间戳匹配；102 动态 CDS 实际加载 8825 类。合成 2 作品的业务字段、媒体和假配置保留；停机时重装 / 升级前后整个 home 321 文件一致，卸载 / 再装前后 327 文件一致。
-- **R31-C1 / P1（已修复，待复验）**：`build-installer.ps1` 无条件删除 `<OutputDir>\installer-stage`；输入镜像正好位于该目录时，合法参数会导致输入被删除后才报错。现在每次用新建的唯一目录，只清理自己建的内容。回归新增 3 项，共 66/66；把旧代码放回副本后回归失败，确认能抓到。
-- **R31-C2 / P1（已定位，非产品缺陷，待复验）**：默认 TEMP 下启动报 `Invalid argument: connect`。同一 JRE、同一 TEMP 路径实测：
+- **R31-C1 / P1（已修复并复验关闭）**：`build-installer.ps1` 原来无条件删除 `<OutputDir>\installer-stage`；输入镜像正好位于该目录时，会被删除后才报错。现在每次新建唯一目录，只清理自己建的内容。新增 3 项回归共 66/66，旧代码变异能抓到；Codex 同情形复验 7 个输入文件及调用方预存文件均保留，构建成功无临时残留，普通真实镜像构建也通过。
+- **R31-C2 / P1（正常用户启动复验通过，移除阻塞）**：首轮宿主内默认 TEMP 下启动报 `Invalid argument: connect`。同一 JRE、同一 TEMP 路径对照：
   - 从 Claude 或 Codex 宿主进程树启动：socket 目录在 `AppData`（Local、Roaming、Temp）下失败，在 `%USERPROFILE%` 或 D 盘通过。
   - 从 Explorer 启动：以上位置全部通过，含带中文和空格的路径。
   - 真实打包应用从 Explorer 用默认 C 盘 TEMP 启动：窗口打开、接口响应、日志 0 条回环错误、关窗后进程归零。
 
-  结论：失败来自这两个 MSIX 宿主对 `AppData` 下 AF_UNIX `connect` 的影响，不是 C 盘 TEMP、JRE 或 R3.1。Codex 的失败证据全部来自宿主内：CLI、Windows-MCP（其进程树继承宿主）。用户双击、开始菜单和桌面图标都由 Explorer 启动，不受影响。没有改 Java 代码、TEMP 或网络设置。内核层的具体机制未查明：宿主内子进程没有包身份，普通文件写入 TEMP 也未被重定向，所以不能归因到文件重定向。
+  结论收窄为启动环境差异：当前 Claude/Codex 宿主内的失败不能直接归因于 C 盘 TEMP 或正常用户启动。Codex 在已安装 D 盘程序上，经 Explorer 和默认 C 盘 TEMP 独立复验：Selector、SWT/WebView2 窗口、两作品图库、HTTP 接口均通过，本次启动日志无回环错误，正常退出后进程归零。没有改 Java、全局 TEMP 或网络设置。底层机制仍未查明，不能直接归因于 MSIX 或文件重定向，也不能推广成所有 MSIX 应用的行为。
+
+**Codex C 级复验签收（目标 `f5ea537`）**：只补上述两条受影响路径，其他首轮通过项复用；证据与命令 `D:\Temp\ia-r31-codex-r2-20261102\result.md`。测试安装已卸载，合成 home 与证据保留；未改变阶段或发布版本。
 - GUI 已按规则委派 `ui_acceptance`。程序实际安装按用户要求仅用 D 盘；默认 C 盘路径只观察不安装。测试完已正常退出并卸载，保留合成 home / 候选 / 证据，未动原图库、已登录 X 副本或原有用户验收快捷方式。
 
 未验证：别的用户运行同名进程时读不到路径的真实权限分支（“查询失败”自动分支已测）；R3.5 的无 Java、真实缺 WebView2、离线失败与 SmartScreen。默认 C 盘实际安装按用户指示排除；B 级体验仍由用户验收。
