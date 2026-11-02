@@ -1,4 +1,4 @@
-# Builds the Windows desktop app as a self-contained app image (no installer, no auto-update yet).
+# Builds the Windows desktop app as a self-contained app image (no auto-update yet; build-installer.ps1 packs it).
 # Output: dist\IllustrationArchive\IllustrationArchive.exe plus a zip of that folder.
 # Tests are not run here; run them separately (see docs/DESKTOP_POC.md).
 param(
@@ -7,9 +7,17 @@ param(
     # Extra Maven arguments, e.g. '-Dmaven.repo.local=C:\Users\me\.m2\repository'.
     [string[]]$MavenArgs = @(),
     # Another folder lets you build while the app in dist is running.
-    [string]$OutputDir = (Join-Path (Split-Path -Parent $PSScriptRoot) 'dist')
+    [string]$OutputDir = (Join-Path (Split-Path -Parent $PSScriptRoot) 'dist'),
+    # Goes into the EXE and the image. build-installer.ps1 must be given the same one; the release number is the
+    # user's decision, so it is not derived from Maven's version.
+    [string]$AppVersion = '0.0.1'
 )
 $ErrorActionPreference = 'Stop'
+
+# Windows keeps version numbers as four 16-bit parts.
+if ($AppVersion -notmatch '^\d{1,5}(\.\d{1,5}){1,3}$' -or ($AppVersion -split '\.' | Where-Object { [int]$_ -gt 65535 })) {
+    throw "AppVersion '$AppVersion' is not two to four numbers from 0 to 65535, such as 0.6.0."
+}
 
 $root = Split-Path -Parent $PSScriptRoot
 $java = Join-Path $JavaHome 'bin\java.exe'
@@ -73,7 +81,7 @@ try {
     # JVM ignores it and starts a few seconds slower.
     & $jpackage --type app-image `
         --name IllustrationArchive `
-        --app-version 0.0.1 `
+        --app-version $AppVersion `
         --vendor yuutara `
         --description 'Illustration Archive' `
         --icon packaging\icon\app.ico `

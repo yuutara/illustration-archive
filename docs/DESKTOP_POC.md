@@ -54,7 +54,7 @@ IllustrationArchive.exe (jpackage 启动器 + 自带 Java 21 运行时)
 - `dist\IllustrationArchive\IllustrationArchive.exe`：双击运行；整个文件夹约 195 MB（应用约 46 MB，其余为 jlink 运行时，含 `java.exe` 和 CDS 基础归档）。第一次退出时生成约 40 MB 的 `app\app.jsa`，之后启动更快。
 - `dist\IllustrationArchive-win64.zip`：约 93 MB，解压后即可运行，目标机无需安装 Java。
 
-脚本不执行 `mvn clean`（运行中的本地实例可能占用 `target\` 下的文件），只删除 `target\classes` 和旧 jar；测试需单独运行。`dist` 里的应用正在运行时，脚本会拒绝覆盖，可用 `-OutputDir` 输出到别的目录。
+脚本不执行 `mvn clean`（运行中的本地实例可能占用 `target\` 下的文件），只删除 `target\classes` 和旧 jar；测试需单独运行。`dist` 里的应用正在运行时，脚本会拒绝覆盖，可用 `-OutputDir` 输出到别的目录。`-AppVersion` 写入 EXE 和镜像元数据，默认 `0.0.1`；要打安装器时必须显式传入，见[安装器](#安装器r312026-11-02)。
 
 图标与启动图的源文件在 `packaging\icon\`：`app-icon.png` 是 1024 px 母版，用于 24 px 及以上；`app-icon-small.svg` 是手绘小图，用于 16–20 px 和网页标签图标；另有 `splash.html`。生成结果 `app.ico`、`splash*.png` 和 `src\main\resources\desktop\icon-*.png` 一并提交，正常构建不需要重新生成。改了源文件后运行 `node scripts\build-icons.mjs`（用本机 Edge 渲染，只读本地文件），它也会把小图同步到 `src\main\resources\static\c\app-icon.svg`。
 
@@ -617,12 +617,45 @@ $h = 'D:\Temp\ia-config-20261102\acceptance-home'
 
 真实窗口用打包版：`dist\acceptance-20261102-config-r2\IllustrationArchive\IllustrationArchive.exe`，启动前设 `ILLUSTRATION_ARCHIVE_DESKTOP_HOME` 指向隔离目录，从资源管理器或 `.cmd` 启动。**打包版的地址是官方的，在 EXE 里不要点“在浏览器中授权”，也不要分析作品**：前者会打开真实 x.com，后者会把图片发给 Google。
 
+## 安装器（R3.1，2026-11-02）
+
+计划与验收出口见 [DESKTOP_ROADMAP](DESKTOP_ROADMAP.md#r31-安装器计划2026-11-02开发中)。A 级自动检查已通过，C 级、B 级待验收。
+
+```powershell
+.\scripts\build-desktop.ps1 -AppVersion <版本> -OutputDir <输出目录> ...
+.\scripts\build-installer.ps1 -Image <输出目录>\IllustrationArchive -Version <版本> -Compiler <ISCC.exe> -Bootstrapper <MicrosoftEdgeWebview2Setup.exe> -OutputDir <目录>
+.\scripts\test-installer.ps1 -WorkDir <新目录> -Compiler <ISCC.exe> -Bootstrapper <MicrosoftEdgeWebview2Setup.exe>
+```
+
+需要 Inno Setup 7（简体中文语言包从这一版起是官方自带）和微软官方的 Evergreen Bootstrapper。`build-installer.ps1` 在编译前拒绝：版本格式不对、与镜像或 EXE 不一致、Bootstrapper 不是有效的微软签名或不是 Edge Update 产品、镜像含隐藏文件（Inno 通配符会静默漏掉）、包内扫描不通过。
+
+- **运行中阻断**：用 WMI 查 `IllustrationArchive.exe` 的实际路径，覆盖前台和托盘。安装时在改文件前查两次（WebView2 安装前后），卸载前查一次；读不到路径或查询失败都算“无法确认”并停止。启动器是两个同路径进程，没有命名互斥量，所以不用 `AppMutex`。
+- **文件校验**：Inno 遇到替换失败的文件时提供“跳过”，之后仍报告成功。镜像的逐文件 SHA-256 清单嵌在安装器里，`ssPostInstall` 核对实际落盘的内容，不一致就报错、完成页改为未完成、退出码 9，不提供启动。检查放在这里而不是 `AfterInstall`，因为 Inno 会吞掉后者抛出的异常。
+- **旧文件清理**：只按上一版记录的清单删除新版不再有的文件，路径带 `..`、盘符或绝对路径的行一律忽略，手动放进去的文件不动。清单只在校验通过后才写入 `{app}`，所以升级失败后重跑仍知道该删什么。
+- **WebView2**：看 `pv`，缺失时先说明会联网下载，再以非提权方式运行 Bootstrapper，结果以复查 `pv` 为准，不看它的退出码。失败时程序文件未动，可重试或取消。
+- **版本比较**：用 Inno 的 `StrToVersion` 按段比较，`1.10` 比 `1.9` 新。已安装版本读不出时不覆盖。
+- **退出码**：0 成功；1 版本被拒绝；7 运行中、目录重叠或 WebView2 失败；9 文件未落盘。这几个都由 `test-installer.ps1` 断言。
+- **只读属性**：镜像里的 `app.jsa` 和启动器是只读的，但 Inno 不带过来，安装后都不是，所以脚本不需要 `overwritereadonly`（有测试钉住这一点）。
+- **测试隔离**：`test-installer.ps1` 用小 C# 假应用和假 Bootstrapper，有自己的 AppId、名称和注册表键，结束时删除，不启动真实应用。假 Bootstrapper 只证明分支，不能关闭 R3.5 的真实缺失环境验收。
+
+已验证（2026-11-02，Inno Setup 7.1.1，编译 0 警告）：
+
+| 项 | 结果 |
+| --- | --- |
+| 回归 | `test-installer.ps1` 63/63，约 1 分钟：输入检查 12 项；安装、同版重装、`1.10` 覆盖 `1.9`、拒绝降级、运行中升级 / 卸载阻断、其他路径不误拦、文件被占用、未落盘报 9、目录重叠、WebView2 各分支、卸载保留图库 |
+| 变异测试 | 逐个破坏 11 处保护（`ignoreversion`、退出码 9、运行检查、卸载阻断、按文本比版本、允许降级、`pv` 为零、目录包含关系、清单路径越界、查询失败当未运行、信 Bootstrapper 退出码），全部被回归抓到 |
+| 版本贯通 | 源码副本实际构建 `0.5.101`、`0.5.102`：EXE、`.jpackage.xml` 和安装器版本一致 |
+| 真实包自查（隔离 home，D 盘目录，不算 C 级） | 347 个文件字节一致，102 个 JAR 时间戳未变；启动后 8863 个类来自动态 CDS 归档；前台和托盘态升级都退出 7、卸载都退出 1；正常退出后卸载干净，home 未变 |
+| AUMID | SWT 3.135 字节码确认直接用 `Display.setAppName` 的值，与快捷方式的 `IllustrationArchive` 一致 |
+
+未验证：向导界面和重试对话框（测试全程静默）；默认目录 `%LOCALAPPDATA%\Programs`（Claude 宿主内会被重定向，自查用的是 D 盘）；两个真实版本之间的覆盖升级；别的用户运行同名进程时读不到路径的分支（只靠代码审查，“查询失败”分支已测）；真实 Bootstrapper 下载安装。
+
 ## 已知问题与后续候选
 
 - `LegacyMigrationTest` 的目录改名在 Windows 上偶发 `AccessDenied`：2026-11-02 与打包任务并行时失败一次，单独重跑 3 次和空闲时的全量都通过，判断是文件被短暂占用。真实迁移遇到时会报错退出，不会写坏数据，重试即可；这次没有改。
 - Flyway 12.4 提示 H2 2.4.240 高于其验证版本，当前功能未受影响。
 - 体积：CDS 归档约占 56 MB；可移除桌面模式用不到的 AWS SDK 依赖。
-- 未覆盖：正式安装器 / 签名、自动更新、大图库下的 H2 性能。
+- 未覆盖：签名、自动更新、大图库下的 H2 性能。
 - 导入校验只读图片头：文件头完好但内容截断的图片仍会通过。
 - 手动代理改动后，X 收藏里的图片要重新打开应用才走新代理（图片由浏览器窗口直接加载）。
 - 回调端口 47392 被占用时无法授权，页面会说明；没有备用端口，因为每多一个都要用户多登记一个回调地址。
