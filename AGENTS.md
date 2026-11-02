@@ -84,11 +84,21 @@ A commit is a save point, not a claim of acceptance, so it comes before review. 
 | --- | --- | --- |
 | A package passes its automated checks, or the working tree holds more than one finished package | `git add` + `git commit`, before any Codex handoff or packaged candidate | Tier B items to look at; whether Tier C applies, and if so `接 NEXT.md` |
 | A round of review or acceptance fixes is done | A new commit on top; never amend or squash reviewed commits unless asked | Who goes next and which paths to re-verify |
-| A package is signed off | `git push` | The state file is updated; the next package; whether to start a new conversation |
+| A package is signed off | `git push` | The state file and map are updated; the options for the next package; whether to start a new conversation |
 | A phase goal is reached | Merge and tag, if the user wants them | The Tier B sweep, the next phase, a new conversation |
 
 - Small changes outside a package ride along with the next commit.
 - A review targets the commit named in `NEXT.md`. Fixes go in later commits, so nothing needs undoing.
+
+### Project map and ideas
+
+- `docs/PROJECT_MAP.md` is the user's one-page view in plain Chinese: the roadmap, each capability's code and real-environment status, decisions waiting on the user, and the idea pool. Keep it to about 60 lines. Details stay in the topic documents.
+- Update the map when a package starts or finishes, or when something it states changes. When the user asks where the project stands, answer from the map.
+- The user chooses the next package. Before planning or development starts, say in plain words what the package does, what the user gets from it, and why it is the suggested next step, and list the realistic alternatives. A code name alone is not enough.
+- `想法：…` in any conversation is the way in for a new idea. Sort it and reply in one line saying where it went:
+  - A defect in the current package: fix it there.
+  - A small change: do it through the Fast Lane, here or in a `维护` conversation.
+  - A new feature or change of direction: add it to the idea pool without interrupting current work, and bring it up at the next milestone.
 
 ### New conversations
 
