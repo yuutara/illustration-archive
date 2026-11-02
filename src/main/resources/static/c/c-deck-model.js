@@ -8,10 +8,14 @@
  *   r = 0        顶牌，正对着你
  *   r = ±1       下一页静止时从右边露出一点，上一页从左边露出一点。两边各放一张，
  *                所以换方向不用换底牌：向左拖揭开右边那张，向右拖揭开左边那张
- *   |r| = 0.5    两张牌分到最开。它们这时已经不重叠，前后关系就在这一刻交换，看不到穿插
- *   |r| > 1      其余的页收在中间最底下，循环时从这里转到另一侧
+ *   |r| = 0.5    两张牌分到最开。转过之后的整张牌这时已经不重叠，前后关系就在这一刻交换，看不到穿插
+ *   |r| > 1      其余的页收在中间最底下，循环时从这里转到另一侧。它们也要互换前后，那时上面两张
+ *                正好分开、中间露着，所以到 1.5 时已经完全淡出，换的时候看不见
  *
  * 两张图时上一页和下一页是同一张，只有一个露出位置，向两边翻都从这里出发。
+ *
+ * 只剩一处交换发生在两张都看得见时：整页时上一页和下一页互换前后。它们被顶牌盖着，
+ * 露在顶牌外面的部分只在顶边有一道不到 3px 高的窄条相交，这是静止位置决定的。
  */
 (function (root) {
     'use strict';
@@ -20,11 +24,13 @@
     const NEXT = { x: 3, y: -3, rot: 1.8 };
     const PREV = { x: -3, y: -3, rot: -1.8 };
     const BACK = { x: 0, y: -1, rot: 0 };
-    const REACH = 0.58;      // 分到最开时，一张牌走出多少卡宽：要大于一半，两张牌交换前后时才不重叠
     const FOLLOW = 0.8;      // 走到这个比例之前 1:1 跟手，之后柔和减速到顶点
     const PEAK = FOLLOW + (1 - FOLLOW) / 2;
-    const TILT = 12;         // 走出一个卡宽时转多少度
+    const TILT = 6.25;       // 分到最开时转多少度
     const RISE = 8;          // 走到顶点时抬起多少像素
+    const CLEARANCE = 2;     // 分到最开时，转过之后的牌离中线还留多少像素：1px 描边之外再留一点
+    const SHADOW_NEAR = 0.15;  // 离交换点这么近时收起抬起的影子
+    const SHADOW_MIN = 0.03;   // 收到这个程度影子已不超出牌边，交换时不会翻到另一张牌上
 
     const mod = (a, n) => ((a % n) + n) % n;
     const lerp = (a, b, k) => a + (b - a) * k;
@@ -40,6 +46,12 @@
 
     const slotOf = (r, n) => (n === 2 || r > 0 ? NEXT : PREV);
 
+    // 分到最开时牌心离中线多远。两张牌左右对称，转过之后的外框不过中线就不重叠；牌越高，底角甩得越远
+    function spread(width, height) {
+        const turn = TILT * Math.PI / 180;
+        return (width * Math.cos(turn) + height * Math.sin(turn)) / 2 + CLEARANCE;
+    }
+
     // 走到顶点前是直线，所以顶牌和手完全同步；最后一段把速度减到 0，和收回去的那一段接上
     function outward(u) {
         if (u <= FOLLOW) return u;
@@ -47,13 +59,13 @@
         return FOLLOW + past - past * past / (2 * (1 - FOLLOW));
     }
 
-    function poseOf(r, n, width) {
+    function poseOf(r, n, width, height) {
         const a = Math.abs(r), side = r < 0 ? -1 : 1;
         const slot = slotOf(r, n);
-        const reach = REACH * width;
+        const peak = spread(width, height);
         const out = outward(clamp(a / 0.5));
-        const top = { x: side * reach * out, y: -RISE * out };
-        top.rot = top.x / width * TILT;
+        const top = { x: side * peak / PEAK * out, y: -RISE * out };
+        top.rot = top.x / peak * TILT;
         let pose;
         if (a <= 0.5) {
             pose = { ...top, depth: 0, lift: out };
@@ -71,6 +83,8 @@
             };
         }
         pose.scale = a < 1 ? 1 + 0.03 * Math.sin(2 * Math.PI * a) : 1;
+        pose.lift *= lerp(SHADOW_MIN, 1, smooth(clamp(Math.abs(a - 0.5) / SHADOW_NEAR)));
+        pose.opacity = 1 - smooth(clamp((a - 1) / 0.5));
         // 离得越近越靠前；一样近时右边的在上，顺序不会因为小数误差来回变
         pose.z = Math.round((n - a) * 100000) * 2 + (r > 0 ? 1 : 0);
         return pose;
@@ -83,7 +97,7 @@
     }
 
     // 一页对应手要走多少像素：顶牌走到顶点、下一张接上，手走过的正好是一页
-    const pixelsPerPage = (width) => 2 * REACH * width;
+    const pixelsPerPage = (width, height) => 2 * spread(width, height) / PEAK;
 
     /*
      * 松手停在哪一页。按下到松手之间怎么来回都不算数，只看此刻的位置和速度：

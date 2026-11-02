@@ -142,11 +142,13 @@ public final class DesktopServer {
 		// developer accounts, so no Client Secret or API key ships in the app or is read from the environment.
 		properties.put("x.api.enabled", "true");
 		properties.put("x.api.base-url", "https://api.x.com");
+		properties.put("illustration-archive.desktop.x-authorize-url", "https://x.com/i/oauth2/authorize");
 		properties.put("x.oauth.client-id", "");
 		properties.put("x.oauth.client-secret", "");
 		properties.put("x.oauth.credential-file", root.resolve("config").resolve("x-oauth-tokens.properties").toString());
 		properties.put("illustration-archive.desktop.x-callback-port", Integer.toString(X_CALLBACK_PORT));
 		properties.put("ai.analysis.enabled", "true");
+		properties.put("gemini.base-url", "https://generativelanguage.googleapis.com");
 		properties.put("gemini.api-key", "");
 		properties.put("gemini.credential-file", root.resolve("config").resolve("gemini-key.txt").toString());
 		properties.put("gemini.model", "gemini-3.1-flash-lite");

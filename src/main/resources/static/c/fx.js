@@ -748,10 +748,10 @@
         let d = decks.get(fig);
         if (d) return d;
         const work = workOfFig(fig), n = work.pages.length;
-        const w = fig.querySelector('.fx-card').getBoundingClientRect().width;
+        const { width: w, height: h } = fig.querySelector('.fx-card').getBoundingClientRect();
         const page = mod(pageOf.get(work.id) || 0, n);
         d = {
-            fig, work, n, w, span: Deck.pixelsPerPage(w), imgs: [...fig.querySelectorAll('.fx-layers img')],
+            fig, work, n, w, h, span: Deck.pixelsPerPage(w, h), imgs: [...fig.querySelectorAll('.fx-layers img')],
             mark: fig.querySelector('.piece-marks .mark'),
             t: page, t0: page, aim: page, held: false, flight: null, frame: 0, guard: 0, settling: null
         };
@@ -762,8 +762,9 @@
 
     function renderDeck(d) {
         d.imgs.forEach((img) => {
-            const p = Deck.poseOf(Deck.offset(Number(img.dataset.page), d.t, d.n), d.n, d.w);
+            const p = Deck.poseOf(Deck.offset(Number(img.dataset.page), d.t, d.n), d.n, d.w, d.h);
             img.style.zIndex = String(p.z);
+            img.style.opacity = p.opacity.toFixed(3);
             img.style.transform = `translate(${p.x.toFixed(2)}px, ${p.y.toFixed(2)}px) rotate(${p.rot.toFixed(2)}deg) scale(${p.scale.toFixed(4)})`;
             img.style.filter = p.depth > 0.01 ? `brightness(${(1 - 0.03 * p.depth).toFixed(3)})` : '';
             img.style.boxShadow = p.lift > 0.01
@@ -793,7 +794,7 @@
         cancelAnimationFrame(d.frame);
         clearTimeout(d.guard);
         d.settling = null;
-        d.imgs.forEach((img) => { img.style.zIndex = img.style.transform = img.style.filter = img.style.boxShadow = ''; });
+        d.imgs.forEach((img) => { img.style.zIndex = img.style.opacity = img.style.transform = img.style.filter = img.style.boxShadow = ''; });
         d.fig.classList.remove('fx-decking');
         decks.delete(d.fig);
         lower(d.fig);

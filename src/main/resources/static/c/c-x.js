@@ -17,12 +17,15 @@
     const PAGE_SIZE = 40;
     const COST_NOTICE_KEY = 'ia-x-sync-cost-seen';
     const PREVIEW_CLOSE_MILLIS = 160;
+    const CONNECTION_POLL_MILLIS = 1500;
+
+    let connectionTimer = 0;
 
     const state = {
         page: 0, totalPages: 0, total: 0, items: [],
         selected: new Set(), problems: new Map(),
-        connected: false, scanBudget: 100, busy: false,
-        preview: null // { index, media }
+        connected: false, scanBudget: 100, busy: false, recovering: false, progress: null,
+        preview: null // { item, index, media }：item 是正在展示的那件，index 只是它在列表里的位置，刷新后要重新对上
     };
 
     function toast(text) {
@@ -41,6 +44,15 @@
         ? `/api/x-import/inbox/${encodeURIComponent(item.id)}/media/${encodeURIComponent(media.mediaKey)}/content`
         : M.photoVariant(media.sourceUrl, size);
     const sorted = (item) => [...(item.media || [])].sort((a, b) => a.sortOrder - b.sortOrder);
+
+    // 从页面上拿掉的 <video> 仍占着解码器和连接，要清掉地址才会释放
+    function releaseVideos(root) {
+        root.querySelectorAll('video').forEach((video) => {
+            video.pause();
+            video.removeAttribute('src');
+            video.load();
+        });
+    }
 
     // <img> 拿不到状态码，这里不判断原因，也不说图片没了：可能只是这次没取到
     function showUnavailable(item, image) {
@@ -143,7 +155,8 @@
         const count = state.selected.size;
         $('x-bar').hidden = count === 0;
         $('x-selected').textContent = `已选 ${count} 件`;
-        ['x-archive', 'x-skip', 'x-clear'].forEach((id) => { $(id).disabled = state.busy; });
+        ['x-archive', 'x-skip', 'x-clear', 'x-sync'].forEach((id) => { $(id).disabled = state.busy; });
+        $('x-recovery-actions').querySelectorAll('button').forEach((button) => { button.disabled = state.busy; });
         const all = state.items.length > 0 && state.items.every((item) => state.selected.has(item.id));
         $('x-select-page').textContent = all ? '取消全选' : '全选本页';
     }
@@ -161,8 +174,9 @@
         const kept = new Map();
         [...grid.children].forEach((card) => {
             const id = Number(card.dataset.id);
-            if (state.items.some((item) => item.id === id)) kept.set(id, card);
-            else card.remove();
+            if (state.items.some((item) => item.id === id)) { kept.set(id, card); return; }
+            releaseVideos(card);
+            card.remove();
         });
         state.items.forEach((item, index) => {
             const card = kept.get(item.id) || renderCard(item);
@@ -195,9 +209,12 @@
             state.items = data.items;
             state.total = data.totalItems;
             state.totalPages = data.totalPages;
+            state.progress = data.syncProgress;
             const present = new Set(data.items.map((item) => item.id));
             state.selected.forEach((id) => { if (!present.has(id)) state.selected.delete(id); });
             renderList();
+            renderRecovery();
+            syncPreview();
             if (window.AppShell) window.AppShell.refreshInbox();
             return true;
         } catch (e) {
@@ -223,29 +240,48 @@
         }
     }
 
+    // 授权在浏览器里完成，这一页不会收到通知，等待期间要自己再看一眼
     async function loadConnection() {
+        let connection = null;
         try {
             const response = await fetch('/api/x-auth/status', { headers: { Accept: 'application/json' } });
             if (!response.ok) throw new Error();
-            const connection = await response.json();
-            state.connected = connection.status.state === 'CONNECTED';
+            connection = await response.json();
+            state.connected = connection.status.savedLogin === 'USABLE';
             state.scanBudget = connection.scanBudget;
         } catch (e) {
             state.connected = false;
         }
-        $('x-connect').hidden = state.connected;
+        const card = M.connectionCard(connection);
+        $('x-connect').hidden = !card;
+        if (card) {
+            $('x-connect-title').textContent = card.title;
+            $('x-connect-text').textContent = card.text;
+            $('x-connect-link').textContent = card.action;
+        }
         $('x-sync').hidden = !state.connected;
         $('x-empty-text').textContent = state.connected ? '点“同步”取回你在 X 上新点赞的作品。' : '连接 X 账号后，待整理的收藏会出现在这里。';
+        renderRecovery();
+        clearTimeout(connectionTimer);
+        if (connection && connection.status.state === 'WAITING') connectionTimer = setTimeout(loadConnection, CONNECTION_POLL_MILLIS);
     }
 
     function costNoticeSeen() {
         try { return localStorage.getItem(COST_NOTICE_KEY) === '1'; } catch (e) { return false; }
     }
 
-    function confirmCost() {
-        if (costNoticeSeen()) return Promise.resolve(true);
-        $('x-confirm-text').textContent = `每次同步最多读取 ${state.scanBudget} 条点赞，按 X 官方价目约 ${M.costEstimate(state.scanBudget)}，从你的 X 开发者额度中扣除。`
-            + '只有点“同步”时才会读取，不会在后台自动进行。实际费用以 X 开发者控制台为准。';
+    async function confirmCost() {
+        if (costNoticeSeen()) return true;
+        const ok = await confirmSheet('同步会产生 X API 费用',
+            `${M.syncCost(state.scanBudget)}费用从你的 X 开发者额度中扣除。只有点“同步”时才会读取，不会在后台自动进行。`, '继续同步');
+        if (ok) { try { localStorage.setItem(COST_NOTICE_KEY, '1'); } catch (e) { /* 下次再提示一次 */ } }
+        return ok;
+    }
+
+    function confirmSheet(title, text, okLabel) {
+        $('x-confirm-title').textContent = title;
+        $('x-confirm-text').textContent = text;
+        $('x-confirm-ok').textContent = okLabel;
         const sheet = $('x-confirm');
         const returnFocus = document.activeElement;
         sheet.hidden = false;
@@ -255,7 +291,6 @@
                 sheet.hidden = true;
                 $('x-confirm-ok').onclick = null;
                 $('x-confirm-cancel').onclick = null;
-                if (ok) { try { localStorage.setItem(COST_NOTICE_KEY, '1'); } catch (e) { /* 下次再提示一次 */ } }
                 if (returnFocus && returnFocus.isConnected) returnFocus.focus();
                 resolve(ok);
             };
@@ -289,6 +324,47 @@
         }
     }
 
+    /* ---------------- 同步进度需要处理时 ---------------- */
+
+    function renderRecovery() {
+        const found = window.UiCapabilities?.xImport === false ? null : M.recovery(state.progress, state.scanBudget);
+        $('x-recovery').hidden = !found;
+        if (!found) return;
+        $('x-recovery-title').textContent = found.title;
+        $('x-recovery-detail').textContent = found.detail;
+        $('x-recovery-actions').replaceChildren(...found.actions.map((action, index) => {
+            const button = el('button', index === 0 ? 'btn btn-ink' : 'btn', state.recovering ? '正在处理…' : action.label);
+            button.type = 'button';
+            button.disabled = state.busy;
+            button.addEventListener('click', () => recover(action));
+            return button;
+        }));
+    }
+
+    async function recover(action) {
+        if (state.busy || !(await confirmSheet(action.confirmTitle, action.confirmText, action.confirmLabel))) return;
+        state.busy = true;
+        state.recovering = true;
+        renderRecovery();
+        syncSelection();
+        const result = await M.runRecovery(action, async () => {
+            const response = await fetch(action.url, action.body ? {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify(action.body)
+            } : { method: 'POST', headers: { Accept: 'application/json' } });
+            if (response.ok) return null;
+            if (response.status === 409) return { expired: true };
+            const body = await response.json().catch(() => ({}));
+            return body.message || `HTTP ${response.status}`;
+        }, async () => (await load() ? state.progress : null));
+        state.busy = false;
+        state.recovering = false;
+        renderRecovery();
+        syncSelection();
+        showResult(result.head, result.detail, { problem: result.problem });
+    }
+
     /* ---------------- 归档与跳过 ---------------- */
 
     async function postArchive(id) {
@@ -310,10 +386,16 @@
         });
         outcome.problems.forEach((text, id) => state.problems.set(id, text));
         outcome.archived.forEach((id) => { state.problems.delete(id); state.selected.delete(id); });
-        state.busy = false;
         await load();
+        settle();
         toast(M.archiveSummary(outcome));
         return outcome;
+    }
+
+    // 列表刷新完才算结束：刷新途中再按一次，处理的还是刚才那一件
+    function settle() {
+        state.busy = false;
+        syncSelection();
     }
 
     async function skip(ids) {
@@ -335,33 +417,60 @@
         } catch (e) {
             toast('没有确认跳过结果，请看刷新后的列表');
         }
-        state.busy = false;
         await load();
+        settle();
         return done;
     }
 
     /* ---------------- 预览 ---------------- */
 
+    function clearStage() {
+        const stage = $('x-stage');
+        releaseVideos(stage);
+        stage.replaceChildren();
+    }
+
     function renderPreview() {
         const preview = state.preview;
-        const item = state.items[preview.index];
-        if (!item) { closePreview(); return; }
+        const item = preview.item;
         const media = sorted(item);
         preview.media = Math.min(preview.media, Math.max(0, media.length - 1));
+        clearStage();
         const stage = $('x-stage');
-        stage.replaceChildren();
         if (media[preview.media]) stage.appendChild(mediaElement(item, media[preview.media], { controls: true }));
         if (media.length > 1) stage.appendChild(el('span', 'x-stage-count', `${preview.media + 1} / ${media.length}`));
         $('x-side-author').textContent = item.authorDisplayName || item.authorUsername;
         $('x-side-handle').textContent = '@' + item.authorUsername;
         $('x-side-text').textContent = item.postText || '';
+        $('x-side-open').href = postUrl(item);
+        renderPreviewStatus();
+        preloadNext(preview.index);
+    }
+
+    function renderPreviewStatus() {
+        const { item, index } = state.preview;
         const created = item.postCreatedAt ? new Date(item.postCreatedAt).toLocaleDateString() : '';
-        $('x-side-meta').textContent = `${created}${created ? ' · ' : ''}第 ${state.page * PAGE_SIZE + preview.index + 1} / ${state.total} 件`;
+        const position = indexOfItem(item.id) < 0 ? '' : `第 ${state.page * PAGE_SIZE + index + 1} / ${state.total} 件`;
+        $('x-side-meta').textContent = [created, position].filter(Boolean).join(' · ');
         const problem = state.problems.get(item.id);
         $('x-side-problem').hidden = !problem;
         $('x-side-problem').textContent = problem || '';
-        $('x-side-open').href = postUrl(item);
-        preloadNext(preview.index);
+    }
+
+    /*
+     * 列表刷新（同步结束、别处处理过）时序号可能已经换了人，这里只按 ID 把位置对上，画面不动。
+     * 这件不在新列表里时继续展示：它可能只是被新收藏挤到后面的页，手下的作品不能悄悄换掉，
+     * index 留着它原来的位置，后面的作品已经补到这个序号上。
+     */
+    function syncPreview() {
+        const preview = state.preview;
+        if (!preview) return;
+        const index = indexOfItem(preview.item.id);
+        if (index >= 0) {
+            preview.index = index;
+            preview.item = state.items[index];
+        }
+        renderPreviewStatus();
     }
 
     // 逐件整理时下一张往往马上要看，提前取好就不用等
@@ -373,7 +482,7 @@
 
     function openPreview(index) {
         if (index < 0) return;
-        state.preview = { index, media: 0 };
+        state.preview = { item: state.items[index], index, media: 0 };
         $('x-preview').hidden = false;
         document.body.classList.add('is-locked');
         $('x-preview').focus({ preventScroll: true });
@@ -382,40 +491,46 @@
 
     function closePreview() {
         state.preview = null;
-        const stage = $('x-stage');
-        stage.querySelectorAll('video').forEach((video) => video.pause());
+        $('x-stage').querySelectorAll('video').forEach((video) => video.pause());
         $('x-preview').hidden = true;
         document.body.classList.remove('is-locked');
         // 退场结束后再清空，淡出时看到的还是这件作品
-        setTimeout(() => { if (!state.preview) stage.replaceChildren(); }, PREVIEW_CLOSE_MILLIS);
+        setTimeout(() => { if (!state.preview) clearStage(); }, PREVIEW_CLOSE_MILLIS);
     }
 
-    // 归档或跳过后列表已刷新，同一序号上就是下一件；这一件还在，说明没处理成功，留下来显示原因
+    function showInPreview(preview, index) {
+        preview.item = state.items[index];
+        preview.index = index;
+        preview.media = 0;
+        renderPreview();
+    }
+
+    // 处理的永远是展示着的这一件。处理完它不在列表里了，它原来的序号上就是下一件；
+    // 还在或有问题记录，说明没处理成功，留下来显示原因；处理途中已经翻到别的作品时，停在那一件上
     async function decide(action) {
         const preview = state.preview;
         if (!preview || state.busy) return;
-        const item = state.items[preview.index];
-        if (!item) return;
-        await action([item.id]);
-        if (!state.preview) return;
-        if (!state.items.length) { closePreview(); return; }
-        preview.index = Math.min(preview.index, state.items.length - 1);
-        preview.media = 0;
-        renderPreview();
+        const { id } = preview.item;
+        await action([id]);
+        if (state.preview !== preview || preview.item.id !== id) return;
+        if (indexOfItem(id) >= 0 || state.problems.has(id)) {
+            preview.media = 0;
+            renderPreview();
+        } else if (state.items.length) showInPreview(preview, Math.min(preview.index, state.items.length - 1));
+        else closePreview();
     }
 
     function movePreview(step) {
         const preview = state.preview;
-        const next = preview.index + step;
+        // 这一件已不在列表里时，它的序号上已经是下一件，往后翻不用再加一
+        const next = indexOfItem(preview.item.id) < 0 && step > 0 ? preview.index : preview.index + step;
         if (next < 0 || next >= state.items.length) return;
-        preview.index = next;
-        preview.media = 0;
-        renderPreview();
+        showInPreview(preview, next);
     }
 
     function moveMedia(step) {
         const preview = state.preview;
-        const count = sorted(state.items[preview.index]).length;
+        const count = sorted(preview.item).length;
         const next = preview.media + step;
         if (next < 0 || next >= count) { movePreview(step); return; }
         preview.media = next;

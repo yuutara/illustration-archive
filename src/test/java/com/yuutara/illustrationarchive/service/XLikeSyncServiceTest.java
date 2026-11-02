@@ -124,7 +124,7 @@ class XLikeSyncServiceTest {
 		assertFalse(summary.hasMore());
 		assertFalse(summary.stoppedByMaxPages());
 		verify(client).fetchRecentLikes("999", 5, null);
-		verify(client).resolveUserId();
+		verify(client).resolveUser();
 		verifyNoMoreInteractions(client);
 	}
 
@@ -133,7 +133,7 @@ class XLikeSyncServiceTest {
 		XApiClient client = mock(XApiClient.class);
 		XLikePersistenceService persistence = mock(XLikePersistenceService.class);
 		MemoryContinuation memory = new MemoryContinuation();
-		when(client.resolveUserId()).thenReturn("999");
+		when(client.resolveUser()).thenReturn(new XApiClient.XUser("999", "me"));
 		XLikePage first = new XLikePage(List.of(), true, "second");
 		XLikePage second = new XLikePage(List.of(), false, null);
 		when(client.fetchRecentLikes("999", 5, null)).thenReturn(first);
@@ -173,7 +173,7 @@ class XLikeSyncServiceTest {
 			return (long) stored.size();
 		});
 		when(items.findStatusByPostId(anyString())).thenAnswer(call -> stored.get(call.getArgument(0)));
-		when(client.resolveUserId()).thenReturn("999");
+		when(client.resolveUser()).thenReturn(new XApiClient.XUser("999", "me"));
 		XLikeCandidate first = photoCandidate("1");
 		XLikeCandidate second = photoCandidate("2");
 		XLikeCandidate later = photoCandidate("3");
@@ -229,7 +229,7 @@ class XLikeSyncServiceTest {
 		XLikeCandidate candidate = new XLikeCandidate("11", "a", "artist", "Artist", "text",
 				Instant.parse("2026-09-25T09:00:00Z"), XLikeStatus.PENDING,
 				List.of(new XLikeMedia("p1", 0, "photo", "https://img/1", 1, 1)));
-		when(client.resolveUserId()).thenReturn("999");
+		when(client.resolveUser()).thenReturn(new XApiClient.XUser("999", "me"));
 		when(client.fetchRecentLikes("999", 5, null)).thenReturn(new XLikePage(List.of(candidate), true, "next"));
 		when(client.fetchRecentLikes("999", 5, "next")).thenReturn(new XLikePage(List.of(candidate), false, null));
 		when(items.insertIfAbsent(eq(candidate), anyLong())).thenReturn(7L, null);
@@ -266,7 +266,7 @@ class XLikeSyncServiceTest {
 		assertTrue(summary.stoppedByMaxPages());
 		verify(client).fetchRecentLikes("999", 5, null);
 		verify(client).fetchRecentLikes("999", 5, "second");
-		verify(client).resolveUserId();
+		verify(client).resolveUser();
 		verifyNoMoreInteractions(client);
 	}
 
@@ -276,7 +276,7 @@ class XLikeSyncServiceTest {
 		XLikePersistenceService persistence = mock(XLikePersistenceService.class);
 		MemoryContinuation memory = new MemoryContinuation();
 		memory.repo.advance("saved-history", 5);
-		when(client.resolveUserId()).thenReturn("999");
+		when(client.resolveUser()).thenReturn(new XApiClient.XUser("999", "me"));
 		XLikePage first = page(1, 5, "latest-page-2");
 		when(client.fetchRecentLikes("999", 6, null)).thenReturn(first);
 		when(persistence.saveOrderedPage(eq(first), anyLong(), anyBoolean(), anySet())).thenReturn(new XLikeSyncSummary(1, 5, 0, 5, 0, 0, true, false, false));
@@ -289,7 +289,7 @@ class XLikeSyncServiceTest {
 		assertEquals(5, memory.saved.get().maxResults());
 		assertEquals(Set.of("saved-history"), memory.seen);
 		verify(client).fetchRecentLikes("999", 6, null);
-		verify(client).resolveUserId();
+		verify(client).resolveUser();
 		verifyNoMoreInteractions(client);
 	}
 
@@ -299,7 +299,7 @@ class XLikeSyncServiceTest {
 		XLikePersistenceService persistence = mock(XLikePersistenceService.class);
 		MemoryContinuation memory = new MemoryContinuation();
 		memory.repo.advance("saved-history", 5);
-		when(client.resolveUserId()).thenReturn("999");
+		when(client.resolveUser()).thenReturn(new XApiClient.XUser("999", "me"));
 		XLikePage last = page(16, 17, null);
 		when(client.fetchRecentLikes("999", 5, "saved-history")).thenReturn(last);
 		when(persistence.saveOrderedPage(eq(last), anyLong(), anyBoolean(), anySet())).thenReturn(new XLikeSyncSummary(1, 2, 2, 0, 0, 2, false, false, false));
@@ -337,7 +337,7 @@ class XLikeSyncServiceTest {
 				verify(client).fetchRecentLikes("999", 5, null);
 				verify(client).fetchRecentLikes("999", 5, token);
 			}
-			verify(client).resolveUserId();
+			verify(client).resolveUser();
 			verifyNoMoreInteractions(client);
 		}
 	}
@@ -347,7 +347,7 @@ class XLikeSyncServiceTest {
 		XApiClient client = mock(XApiClient.class);
 		XLikePersistenceService persistence = mock(XLikePersistenceService.class);
 		MemoryContinuation memory = new MemoryContinuation();
-		when(client.resolveUserId()).thenReturn("999");
+		when(client.resolveUser()).thenReturn(new XApiClient.XUser("999", "me"));
 		XLikePage first = page(1, 5, "page-2");
 		XLikePage second = page(6, 10, "page-3");
 		XLikePage third = page(11, 15, "page-4");
@@ -379,7 +379,7 @@ class XLikeSyncServiceTest {
 		XLikeSyncSummary newest = service(client, persistence, memory.repo).syncRecent(5, 3);
 		assertEquals(1, newest.newCount());
 		verify(client, times(2)).fetchRecentLikes("999", 5, null);
-		verify(client, times(3)).resolveUserId();
+		verify(client, times(3)).resolveUser();
 	}
 
 	@Test
@@ -387,7 +387,7 @@ class XLikeSyncServiceTest {
 		XApiClient client = mock(XApiClient.class);
 		XLikePersistenceService persistence = mock(XLikePersistenceService.class);
 		MemoryContinuation memory = new MemoryContinuation();
-		when(client.resolveUserId()).thenReturn("999");
+		when(client.resolveUser()).thenReturn(new XApiClient.XUser("999", "me"));
 		XLikePage first = page(1, 1, "same");
 		XLikePage repeated = page(2, 2, "same");
 		when(client.fetchRecentLikes("999", 5, null)).thenReturn(first);
@@ -399,7 +399,7 @@ class XLikeSyncServiceTest {
 		assertTrue(invalid.stoppedByInvalidToken());
 		assertEquals("INVALID", memory.saved.get().status());
 		assertThrows(XApiException.class, () -> service(client, persistence, memory.repo).syncContinuation(5, 3));
-		verify(client, times(2)).resolveUserId();
+		verify(client, times(2)).resolveUser();
 		service(client, persistence, memory.repo).resetInvalidContinuation();
 		assertNull(memory.saved.get());
 	}
@@ -427,7 +427,7 @@ class XLikeSyncServiceTest {
 		XLikePersistenceService persistence = mock(XLikePersistenceService.class);
 		MemoryContinuation memory = new MemoryContinuation();
 		memory.repo.advance("saved", 5);
-		when(client.resolveUserId()).thenReturn("999");
+		when(client.resolveUser()).thenReturn(new XApiClient.XUser("999", "me"));
 		when(client.fetchRecentLikes("999", 5, "saved"))
 				.thenThrow(new XApiException("rate limited", 429))
 				.thenThrow(new XApiException("invalid token", 400));
@@ -448,7 +448,7 @@ class XLikeSyncServiceTest {
 		XLikePersistenceService persistence = mock(XLikePersistenceService.class);
 		MemoryContinuation memory = new MemoryContinuation();
 		memory.repo.advance("saved", 5);
-		when(client.resolveUserId()).thenReturn("999");
+		when(client.resolveUser()).thenReturn(new XApiClient.XUser("999", "me"));
 		XLikePage page = page(6, 10, "next");
 		when(client.fetchRecentLikes("999", 5, "saved")).thenReturn(page);
 		when(persistence.saveOrderedPage(eq(page), anyLong(), anyBoolean(), anySet())).thenThrow(new IllegalStateException("database failure"));
@@ -505,7 +505,7 @@ class XLikeSyncServiceTest {
 	}
 
 	private XLikeSyncService service(XApiClient client, XLikePersistenceService persistence) {
-		when(client.resolveUserId()).thenReturn("999");
+		when(client.resolveUser()).thenReturn(new XApiClient.XUser("999", "me"));
 		return new XLikeSyncService(client, persistence, mock(XLikeRepository.class),
 				mock(XLikeMediaRepository.class), mock(XLikeSyncStateRepository.class), 5, 3, new XLikeSyncBudget(25, 2, 6, 100, 50));
 	}

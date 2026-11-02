@@ -41,7 +41,7 @@ class XApiClientTest {
 				"meta":{"next_token":"opaque"}}
 				"""));
 
-		XLikePage page = client.fetchRecentLikes(client.resolveUserId(), 5, null);
+		XLikePage page = client.fetchRecentLikes(client.resolveUser().id(), 5, null);
 
 		assertEquals(2, page.candidates().size());
 		assertTrue(page.hasMore());
@@ -78,7 +78,7 @@ class XApiClientTest {
 				{"media_key":"p","type":"photo","url":"https://img/p"}]},"meta":{}}
 				"""));
 
-		XLikePage page = client.fetchRecentLikes(client.resolveUserId(), 5, null);
+		XLikePage page = client.fetchRecentLikes(client.resolveUser().id(), 5, null);
 
 		assertFalse(page.hasMore());
 		assertEquals(null, page.nextToken());
@@ -129,7 +129,7 @@ class XApiClientTest {
 	void handlesUpstreamErrorsWithoutExposingToken() throws Exception {
 		for (int status : List.of(401, 403, 429, 500, 503)) {
 			XApiClient client = client(new ArrayList<>(), response(status, "secret-from-response"));
-			XApiException error = assertThrows(XApiException.class, client::resolveUserId);
+			XApiException error = assertThrows(XApiException.class, client::resolveUser);
 			assertEquals(status, error.upstreamStatus());
 			assertFalse(error.getMessage().contains("test-secret"));
 			assertFalse(error.getMessage().contains("secret-from-response"));
@@ -155,7 +155,7 @@ class XApiClientTest {
 		for (int status : List.of(401, 403)) {
 			XApiClient client = client(new ArrayList<>(), response(200, ME),
 					response(status, "secret-from-response"));
-			String userId = client.resolveUserId();
+			String userId = client.resolveUser().id();
 
 			XApiException error = assertThrows(XApiException.class,
 					() -> client.fetchRecentLikes(userId, 5, null));
@@ -171,7 +171,7 @@ class XApiClientTest {
 		HttpClient http = mock(HttpClient.class);
 		XTokenManager tokens = mock(XTokenManager.class);
 		XApiClient disabled = new XApiClient(http, new ObjectMapper(), false, "https://api.x.com", tokens);
-		assertThrows(XApiException.class, disabled::resolveUserId);
+		assertThrows(XApiException.class, disabled::resolveUser);
 		XApiClient enabled = new XApiClient(http, new ObjectMapper(), true, "https://api.x.com", tokens);
 		assertThrows(IllegalArgumentException.class, () -> enabled.fetchRecentLikes("999", 4, null));
 		assertThrows(IllegalArgumentException.class, () -> enabled.fetchRecentLikes("999", 101, null));
@@ -187,7 +187,7 @@ class XApiClientTest {
 		when(tokens.refreshAfterRejection("old-access")).thenReturn("new-access");
 		XApiClient client = client(requests, tokens, response(401, "secret-from-response"), response(200, ME));
 
-		assertEquals("999999999999999999999999999999", client.resolveUserId());
+		assertEquals("999999999999999999999999999999", client.resolveUser().id());
 		assertEquals(2, requests.size());
 		assertEquals("Bearer old-access", requests.get(0).headers().firstValue("Authorization").orElseThrow());
 		assertEquals("Bearer new-access", requests.get(1).headers().firstValue("Authorization").orElseThrow());
@@ -200,7 +200,7 @@ class XApiClientTest {
 		when(tokens.currentAccessToken()).thenReturn("test-secret");
 		XApiClient client = client(new ArrayList<>(), tokens, response(403, "secret-from-response"));
 
-		assertThrows(XApiException.class, client::resolveUserId);
+		assertThrows(XApiException.class, client::resolveUser);
 		verify(tokens, never()).refreshAfterRejection(any());
 	}
 
@@ -211,7 +211,7 @@ class XApiClientTest {
 				{"meta":{"next_token":"  "}}
 				"""));
 
-		XLikePage page = client.fetchRecentLikes(client.resolveUserId(), 5, "opaque+with/slash");
+		XLikePage page = client.fetchRecentLikes(client.resolveUser().id(), 5, "opaque+with/slash");
 
 		assertFalse(page.hasMore());
 		assertEquals(null, page.nextToken());
@@ -225,7 +225,7 @@ class XApiClientTest {
 				response(200, "{\"meta\":{\"next_token\":\"next\"}}"),
 				response(200, "{\"meta\":{}}"));
 
-		String userId = client.resolveUserId();
+		String userId = client.resolveUser().id();
 		XLikePage first = client.fetchRecentLikes(userId, 5, null);
 		XLikePage second = client.fetchRecentLikes(userId, 5, first.nextToken());
 

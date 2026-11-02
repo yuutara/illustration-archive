@@ -32,6 +32,7 @@
                 session.error = body.message || `分析没有完成（${response.status}）`;
                 // 503 也可能是 Gemini 暂时不可用，那种情况重试就好，不用去设置
                 session.needsKey = response.status === 503 && /未启用/.test(session.error);
+                session.checkKey = /到设置检查/.test(session.error);
             } else {
                 session.status = 'ready';
                 session.result = body;
@@ -75,8 +76,8 @@
             result.suggestedTags.forEach((t) => row.appendChild(el('span', 'ai-tag', t)));
             box.appendChild(row);
         }
-        if (result.skipped && result.skipped.length) {
-            box.appendChild(el('p', 'ai-note', `有 ${result.skipped.length} 个动图或视频没有参与分析。`));
+        if (result.skippedAssets && result.skippedAssets.length) {
+            box.appendChild(el('p', 'ai-note', `有 ${result.skippedAssets.length} 个动图或视频没有参与分析。`));
         }
     }
 
@@ -92,20 +93,24 @@
             button.addEventListener('click', () => analyze(work.id, rerender));
             return button;
         };
+        const settingsLink = (label) => {
+            const link = el('a', 'link', label);
+            link.href = '/c/settings.html#ai';
+            return link;
+        };
         if (!session) {
-            section.appendChild(el('p', 'ai-note', '摘要、日文 OCR 与中文翻译。图片会发送给 Google Gemini 处理。'));
+            section.appendChild(el('p', 'ai-note', '摘要、日文 OCR 与中文翻译。点击后，这件作品的静态图片会上传到 Google Gemini；是否计费取决于 Key 所属的 Google 项目。'));
             section.appendChild(start('分析这件作品'));
         } else if (session.status === 'loading') {
             section.appendChild(el('p', 'ai-note', '正在分析，通常需要几十秒…'));
         } else if (session.status === 'error') {
             if (session.needsKey) {
                 section.appendChild(el('p', 'ai-note', '还没有填写 Gemini API Key。'));
-                const link = el('a', 'link', '到设置中填写');
-                link.href = '/c/settings.html#ai';
-                section.appendChild(link);
+                section.appendChild(settingsLink('到设置中填写'));
             } else {
                 section.appendChild(el('p', 'ai-error', session.error));
                 section.appendChild(start('重试'));
+                if (session.checkKey) section.appendChild(settingsLink('打开设置'));
             }
         } else {
             renderResult(section, session.result);

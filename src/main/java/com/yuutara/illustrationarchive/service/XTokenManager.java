@@ -17,6 +17,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.UUID;
 import java.util.function.Supplier;
 
 @Component
@@ -80,16 +81,30 @@ public class XTokenManager {
 		return credentials.accessToken();
 	}
 
-	/** True when a local token pair exists; never contacts X. */
-	public synchronized boolean connected() {
-		return store.exists();
+	public enum SavedLogin { NONE, USABLE, UNUSABLE }
+
+	/**
+	 * What the local token file is good for, judged only from the file: it never contacts X, so USABLE does not mean
+	 * X would still accept it. UNUSABLE covers a damaged file and tokens this app could never refresh, such as a copy
+	 * from the MySQL setup, which belong to a confidential client whose secret the desktop app does not have.
+	 */
+	public synchronized SavedLogin savedLogin() {
+		if (!store.exists()) return SavedLogin.NONE;
+		try {
+			boolean refreshable = !store.load().clientId().isBlank() || !(clientId.isBlank() || clientSecret.isBlank());
+			return refreshable ? SavedLogin.USABLE : SavedLogin.UNUSABLE;
+		} catch (XApiException unreadable) {
+			return SavedLogin.UNUSABLE;
+		}
 	}
 
 	/**
-	 * Finishes the PKCE authorization: a public client proves itself with the code verifier, so no secret is
-	 * sent or stored. The Client ID stays with the tokens because every later refresh must repeat it.
+	 * Trades a PKCE authorization code for tokens and keeps nothing: a public client proves itself with the code
+	 * verifier, so no secret is sent or stored. The login can be cancelled or replaced while this waits on X, which
+	 * is why saving is a separate step, {@link #install}, decided by the caller once the answer is in. The Client ID
+	 * stays with the tokens because every later refresh must repeat it.
 	 */
-	public synchronized void connect(String publicClientId, String code, String codeVerifier, String redirectUri) {
+	public XTokenCredentialStore.Credentials exchange(String publicClientId, String code, String codeVerifier, String redirectUri) {
 		String body = "grant_type=authorization_code&code=" + form(code) + "&client_id=" + form(publicClientId)
 				+ "&redirect_uri=" + form(redirectUri) + "&code_verifier=" + form(codeVerifier);
 		HttpResponse<String> response = post(tokenEndpoint, body, null, "X OAuth authorization");
@@ -100,10 +115,25 @@ public class XTokenManager {
 		if (issued.refreshToken().isBlank()) {
 			throw new XApiException("X OAuth authorization did not return a refresh token.", null);
 		}
-		store.save(issued);
-		credentials = issued;
-		refreshedWithoutExpiry = issued.expiresAt() == null;
+		return issued;
+	}
+
+	/** Makes tokens from {@link #exchange} the connected account, replacing any before them. */
+	public synchronized void install(XTokenCredentialStore.Credentials issued) {
+		XTokenCredentialStore.Credentials login = issued.withLoginId(UUID.randomUUID().toString());
+		store.save(login);
+		credentials = login;
+		refreshedWithoutExpiry = login.expiresAt() == null;
 		pendingPersistence = false;
+	}
+
+	/** Identifies the sign-in behind the saved tokens, across refreshes; empty when there is no such sign-in. */
+	public synchronized String loginId() {
+		try {
+			return store.exists() ? store.load().loginId() : "";
+		} catch (XApiException unreadable) {
+			return "";
+		}
 	}
 
 	/**
@@ -125,7 +155,12 @@ public class XTokenManager {
 		refreshedWithoutExpiry = false;
 		pendingPersistence = false;
 		if (current == null || current.clientId().isBlank()) return current == null;
-		String body = "token=" + form(current.refreshToken()) + "&client_id=" + form(current.clientId());
+		return revoke(current);
+	}
+
+	/** @return false when X could not be told; the tokens are then simply unused until they expire */
+	public boolean revoke(XTokenCredentialStore.Credentials issued) {
+		String body = "token=" + form(issued.refreshToken()) + "&client_id=" + form(issued.clientId());
 		try {
 			int status = post(tokenEndpoint.resolve("revoke"), body, null, "X OAuth revoke").statusCode();
 			return status >= 200 && status < 300;
@@ -149,7 +184,8 @@ public class XTokenManager {
 			throw new XApiException("X OAuth token refresh failed with HTTP " + response.statusCode()
 					+ ". Check the App credentials or generate a new token pair in X Developer Console.", response.statusCode());
 		}
-		XTokenCredentialStore.Credentials updated = readTokens(response, credentials.refreshToken(), credentials.clientId());
+		XTokenCredentialStore.Credentials updated = readTokens(response, credentials.refreshToken(), credentials.clientId())
+				.withLoginId(credentials.loginId());
 		credentials = updated;
 		refreshedWithoutExpiry = updated.expiresAt() == null;
 		pendingPersistence = true;

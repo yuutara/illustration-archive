@@ -16,6 +16,8 @@
     const syncButton = document.getElementById("sync-button");
     const resetHistoryButton = document.getElementById("reset-history-button");
     const resetRecentButton = document.getElementById("reset-recent-button");
+    const adoptAccountButton = document.getElementById("adopt-account-button");
+    const restartAccountButton = document.getElementById("restart-account-button");
     const syncProgress = document.getElementById("sync-progress");
     let savedSyncProgress = { recentStatus: "UNKNOWN", historyStatus: "UNKNOWN", unscannedIntervals: true };
     const previousButton = document.getElementById("inbox-previous");
@@ -97,6 +99,8 @@
         syncButton.disabled = locked;
         resetHistoryButton.disabled = locked;
         resetRecentButton.disabled = locked;
+        adoptAccountButton.disabled = locked;
+        restartAccountButton.disabled = locked;
         selectAllButton.disabled = locked || items.length === 0 || selectionCount === items.length;
         clearButton.disabled = locked || selectionCount === 0;
         selectFailedButton.hidden = !items.some(item => archiveIssues.get(item.id)?.status === "FAILED");
@@ -448,6 +452,7 @@
                 RECENT_WINDOW: "达到本次近期页数预算，下次续传", PAGE_BUDGET: "达到请求页数预算",
                 CAUGHT_UP: "已衔接上次验证范围", VERIFY_PENDING: "等待下次复核头部",
                 WAIT_RECENT_BOOTSTRAP: "等待首次近期遍历建立可信边界", INVALID_CHECKPOINT: "近期顺序进度异常，需重置",
+                ACCOUNT_MISMATCH: "当前账号不能继续这份进度，未读取 Likes",
                 SCAN_BUDGET: "达到扫描预算", NEW_BUDGET: "达到新增预算（不截断整页）",
                 INVALID_TOKEN: "分页游标失效或重复", API_FAILURE: "API 请求或解析失败",
                 API_PARTIAL: "API 返回部分数据，保留进度等待重试", SAVE_FAILURE: "本页保存失败",
@@ -480,10 +485,18 @@
 
     function renderSyncProgress(progress) {
         savedSyncProgress = progress;
-        resetHistoryButton.hidden = !xSyncEnabled || progress.historyStatus !== "INVALID";
-        resetRecentButton.hidden = !xSyncEnabled || progress.recentStatus !== "INVALID";
+        const refused = { CHANGED: `当前登录的 ${progress.currentAccount} 不是这份进度的账号，未读取 Likes；登录错了可以重新连接原账号，确实要换账号才需要清除旧进度。`,
+            UNATTRIBUTED: `这份进度没有记录账号，未读取 Likes。请确认 ${progress.currentAccount} 是否为以前同步用的账号。` }[progress.accountStatus];
+        resetHistoryButton.hidden = !xSyncEnabled || Boolean(refused) || progress.historyStatus !== "INVALID";
+        resetRecentButton.hidden = !xSyncEnabled || Boolean(refused) || progress.recentStatus !== "INVALID";
+        adoptAccountButton.hidden = !xSyncEnabled || progress.accountStatus !== "UNATTRIBUTED";
+        restartAccountButton.hidden = !xSyncEnabled || !refused;
         if (!xSyncEnabled) {
             syncProgress.textContent = "当前版本未启用 X 同步；已在 Inbox 中的项目仍可归档或跳过。";
+            return;
+        }
+        if (refused) {
+            syncProgress.textContent = refused;
             return;
         }
         const recent = { UNKNOWN: "近期范围尚未验证", ACTIVE: "近期追赶未完成，下次 Sync 继续",
@@ -524,6 +537,43 @@
             busy = false;
             updateActions();
         }
+    }
+
+    async function settleAccount(url, question, done) {
+        // 确认的是此刻显示的内容：版本在提问前取定，之后状态变了服务端会拒绝
+        const confirmation = savedSyncProgress.accountConfirmation;
+        if (busy || loading || refreshRequired || !window.confirm(question)) return;
+        busy = true;
+        updateActions();
+        try {
+            const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ confirmation }) });
+            if (response.status === 409) setMessage("账号状态已经变化，这次没有执行。请按最新的状态重新确认。", true);
+            else if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            else setMessage(done, false);
+        } catch (error) {
+            setMessage(`操作失败：${error.message}`, true);
+        } finally {
+            busy = false;
+        }
+        await loadInbox({ preservePosition: true });
+    }
+
+    function exactAccount() {
+        const { currentAccount, currentAccountId } = savedSyncProgress;
+        return currentAccount.startsWith("ID ") ? currentAccount : `${currentAccount}（ID ${currentAccountId}）`;
+    }
+
+    function adoptAccount() {
+        settleAccount("/api/x-import/sync/account/adopt",
+            `确认 ${exactAccount()} 是以前同步用的账号？确认后它会接着这份旧进度读取。`,
+            "已确认账号，旧进度保留。本次未请求 X API。");
+    }
+
+    function restartAccount() {
+        settleAccount("/api/x-import/sync/account/restart",
+            `清除保存的同步进度，下次 Sync 从 ${exactAccount()} 的最新 Likes 重新核对？Inbox 与作品保留，重新读取同样计费。`,
+            "同步进度已清除，Inbox 与作品保留。本次未请求 X API。");
     }
 
     async function processSelected(action) {
@@ -591,6 +641,8 @@
     syncButton.addEventListener("click", syncLatest);
     resetHistoryButton.addEventListener("click", resetHistory);
     resetRecentButton.addEventListener("click", resetRecent);
+    adoptAccountButton.addEventListener("click", adoptAccount);
+    restartAccountButton.addEventListener("click", restartAccount);
     skipButton.addEventListener("click", () => processSelected("skip"));
     importButton.addEventListener("click", () => processSelected("import"));
     previousButton.addEventListener("click", async () => {

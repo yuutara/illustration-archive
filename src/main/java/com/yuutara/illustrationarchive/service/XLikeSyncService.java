@@ -11,6 +11,7 @@ import com.yuutara.illustrationarchive.repository.XLikeRepository;
 import com.yuutara.illustrationarchive.repository.XLikeSyncStateRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,6 +35,7 @@ public class XLikeSyncService {
 	private final int defaultPageSize;
 	private final int defaultMaxPages;
 	private final XLikeSyncBudget budget;
+	private IntegrationEvidence evidence = new IntegrationEvidence() { };
 
 	public XLikeSyncService(XApiClient client, XLikePersistenceService persistence,
 			XLikeRepository items, XLikeMediaRepository media, XLikeSyncStateRepository syncState,
@@ -49,12 +51,25 @@ public class XLikeSyncService {
 		this.budget = budget;
 	}
 
+	@Autowired(required = false)
+	public void setEvidence(IntegrationEvidence evidence) {
+		this.evidence = evidence;
+	}
+
 	/** Recent owns its resumable frontier; History keeps its independent older cursor. */
 	public synchronized XLikeSyncReport sync() {
 		var usage = new XLikeSyncBudget.Usage(budget);
 		Scan recent = new Scan(), history = new Scan();
+		String attempt = evidence.xAttempt();
+		XApiClient.XUser reader = null;
 		try {
-			String userId = client.resolveUserId();
+			XApiClient.XUser user = client.resolveUser();
+			if (!ownsProgress(user)) {
+				recent.reason = "ACCOUNT_MISMATCH"; recent.partial = true; history.reason = "SKIPPED_AFTER_FAILURE";
+				return report(recent, history);
+			}
+			reader = user;
+			String userId = user.id();
 			recent = catchUp(userId, usage);
 			var state = syncState.load();
 			if (recent.partial) history.reason = "SKIPPED_AFTER_FAILURE";
@@ -72,9 +87,56 @@ public class XLikeSyncService {
 			log.warn("X Likes sync state could not be read or saved.", failure);
 			history.reason = "STATE_FAILURE"; history.partial = true;
 		}
+		XLikeSyncReport finished = report(recent, history);
+		if (reader != null && !finished.partial()) evidence.xWorked(attempt, reader.username());
+		return finished;
+	}
+
+	private XLikeSyncReport report(Scan recent, Scan history) {
 		var progress = progress();
 		return new XLikeSyncReport(recent.report(), history.report(), budget.maxPages(), budget.maxScanned(),
 				budget.maxNew(), recent.partial || history.partial, progress.historyStatus(), progress.recentStatus());
+	}
+
+	/**
+	 * Cursors, anchor windows and completion marks all describe one account's Likes, so nobody else may continue
+	 * them. The check uses the /users/me read a sync makes anyway, which is why signing in stays free of reads. A
+	 * refused account changes nothing but the note of who was refused. Progress with no recorded owner refuses
+	 * everyone: it may well be this account's, but only the user can know that.
+	 */
+	private boolean ownsProgress(XApiClient.XUser user) {
+		String owner = syncState.loadAccount().map(XLikeSyncStateRepository.Account::ownerId).orElse(null);
+		if (!user.id().equals(owner) && syncState.hasProgress()) {
+			syncState.observeAccount(user.id(), user.username());
+			return false;
+		}
+		syncState.bindAccount(user.id());
+		return true;
+	}
+
+	/** The user says progress with no recorded owner is this account's. A recorded owner cannot be overruled this way. */
+	public synchronized void adoptProgress(String confirmation) {
+		var seen = confirmed(confirmation);
+		if (seen.ownerId() != null) throw new IllegalArgumentException("This X Likes progress already has an owner.");
+		if (!syncState.settleAccount(seen)) throw new XSyncConfirmationExpiredException();
+	}
+
+	/**
+	 * Drops the saved progress for the account a sync refused, once the user has confirmed it. Only progress goes:
+	 * the Inbox, works and media stay, X is not contacted, and scanning waits for the next sync the user starts.
+	 */
+	public synchronized void restartForRefusedAccount(String confirmation) {
+		if (!syncState.restartFor(confirmed(confirmation))) throw new XSyncConfirmationExpiredException();
+	}
+
+	/**
+	 * A confirmation answers one question about one account. Another window may have changed that question since
+	 * the page was drawn, so it only counts while the saved state is still exactly what the page showed. Comparing
+	 * here, under the lock every sync holds, also makes it wait for a sync already running.
+	 */
+	private XLikeSyncStateRepository.Account confirmed(String confirmation) {
+		return syncState.loadAccount().filter(a -> a.observedId() != null && a.confirmation().equals(confirmation))
+				.orElseThrow(XSyncConfirmationExpiredException::new);
 	}
 
 	/** A persisted ordered window is stronger evidence than membership of one already-saved Post. */
@@ -207,7 +269,12 @@ public class XLikeSyncService {
 		String recent = syncState.loadRecent().map(s -> validRecent(s) ? s.status() : "INVALID").orElse("UNKNOWN");
 		String history = syncState.load().map(s -> !validHistory(s) ? "INVALID"
 				: "COMPLETE".equals(s.status()) ? "COMPLETE" : "MORE").orElse("UNKNOWN");
-		return new XLikeSyncReport.Progress(recent, history, !"CAUGHT_UP".equals(recent) || !"COMPLETE".equals(history));
+		var refused = syncState.loadAccount().filter(a -> a.observedId() != null);
+		return new XLikeSyncReport.Progress(recent, history, !"CAUGHT_UP".equals(recent) || !"COMPLETE".equals(history),
+				refused.map(a -> a.ownerId() == null ? "UNATTRIBUTED" : "CHANGED").orElse("OK"),
+				refused.map(a -> a.observedUsername() == null ? "ID " + a.observedId() : "@" + a.observedUsername()).orElse(null),
+				refused.map(XLikeSyncStateRepository.Account::observedId).orElse(null),
+				refused.map(XLikeSyncStateRepository.Account::confirmation).orElse(null));
 	}
 
 	private static boolean validHistory(XLikeSyncStateRepository.State state) {
@@ -239,24 +306,27 @@ public class XLikeSyncService {
 			throw new IllegalArgumentException("maxPages must be between 1 and 10.");
 		}
 		Optional<XLikeSyncStateRepository.State> continuation = continuationMode ? syncState.load() : Optional.empty();
-		if (continuation.isPresent() && "COMPLETE".equals(continuation.get().status())) {
-			return new XLikeSyncSummary(0, 0, 0, 0, 0, 0, false, false, false);
-		}
+		boolean complete = continuation.filter(state -> "COMPLETE".equals(state.status())).isPresent();
 		if (continuation.isPresent() && "INVALID".equals(continuation.get().status())) {
 			throw new XApiException("X Likes continuation is invalid. Reset it explicitly before continuing history.", null);
 		}
-		if (continuation.isPresent() && continuation.get().maxResults() != size) {
+		if (!complete && continuation.isPresent() && continuation.get().maxResults() != size) {
 			throw new IllegalArgumentException("Finish the saved continuation with maxResults="
 					+ continuation.get().maxResults() + " before changing maxResults.");
 		}
-		String token = continuation.map(XLikeSyncStateRepository.State::nextToken).orElse(null);
-		if (continuation.isPresent() && (token == null || token.isBlank())) {
+		String token = complete ? null : continuation.map(XLikeSyncStateRepository.State::nextToken).orElse(null);
+		if (!complete && continuation.isPresent() && (token == null || token.isBlank())) {
 			syncState.markInvalid(size);
 			throw new XApiException("Saved X Likes continuation has no token. Reset it explicitly before continuing history.", null);
 		}
-		String userId = client.resolveUserId();
+		XApiClient.XUser user = client.resolveUser();
+		// Recent mode neither reads nor writes saved progress; this mode continues it, and "complete" is part of it.
+		if (continuationMode && !ownsProgress(user)) {
+			throw new XApiException("The saved X Likes progress does not belong to this account.", null);
+		}
+		if (complete) return new XLikeSyncSummary(0, 0, 0, 0, 0, 0, false, false, false);
 		var limits = new XLikeSyncBudget(size, limit, limit, size * limit, size * limit);
-		Scan result = scan(userId, size, token, limit, continuationMode, new XLikeSyncBudget.Usage(limits), false);
+		Scan result = scan(user.id(), size, token, limit, continuationMode, new XLikeSyncBudget.Usage(limits), false);
 		return new XLikeSyncSummary(result.saved, result.savedFetched, result.added, result.existing,
 				result.pending, result.unsupported, result.hasMore,
 				result.hasMore && result.saved == limit && !"INVALID_TOKEN".equals(result.reason),

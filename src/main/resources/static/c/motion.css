@@ -36,7 +36,7 @@
 /* ============ 载入提示：本地接口通常几十毫秒就回来，慢的时候才出现 ============ */
 @keyframes ia-appear { from { opacity: 0; } }
 .x-loading, .wall-status.is-loading #wall-status-text { animation: ia-appear .2s ease-out .2s backwards; }
-:is(.set-error, .set-ok, .x-result) { animation: ia-appear .16s ease-out; }
+:is(.set-error, .x-result) { animation: ia-appear .16s ease-out; }
 
 /* ============ 基础反馈：图库由 fx.css 的按压反馈负责，这里给没有动效层的页面 ============ */
 .mast-nav a { transition: color .12s, background-color .12s; }

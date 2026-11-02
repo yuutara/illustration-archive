@@ -53,7 +53,8 @@ public class XTokenCredentialStore {
 				throw new XApiException("X OAuth expires_at must be an ISO-8601 UTC instant or blank.", null);
 			}
 		}
-		return new Credentials(accessToken, refreshToken, expiresAt, values.getProperty("client_id", "").trim());
+		return new Credentials(accessToken, refreshToken, expiresAt, values.getProperty("client_id", "").trim(),
+				values.getProperty("login_id", "").trim());
 	}
 
 	boolean exists() {
@@ -80,6 +81,7 @@ public class XTokenCredentialStore {
 			values.setProperty("refresh_token", credentials.refreshToken());
 			values.setProperty("expires_at", credentials.expiresAt() == null ? "" : credentials.expiresAt().toString());
 			if (!credentials.clientId().isBlank()) values.setProperty("client_id", credentials.clientId());
+			if (!credentials.loginId().isBlank()) values.setProperty("login_id", credentials.loginId());
 			try (Writer writer = Files.newBufferedWriter(temporary, StandardCharsets.UTF_8)) {
 				values.store(writer, "X OAuth credentials - keep private");
 			}
@@ -116,10 +118,22 @@ public class XTokenCredentialStore {
 		return value.chars().anyMatch(Character::isWhitespace);
 	}
 
-	/** A non-blank clientId marks tokens from the PKCE public-client flow, which refresh without a secret. */
-	record Credentials(String accessToken, String refreshToken, Instant expiresAt, String clientId) {
+	/**
+	 * A non-blank clientId marks tokens from the PKCE public-client flow, which refresh without a secret. Tokens rotate
+	 * on every refresh, so loginId is what stays the same for one sign-in; it is written in the same atomic step as
+	 * the tokens, which makes a new login a new identity even if nothing else could be saved.
+	 */
+	public record Credentials(String accessToken, String refreshToken, Instant expiresAt, String clientId, String loginId) {
 		Credentials(String accessToken, String refreshToken, Instant expiresAt) {
 			this(accessToken, refreshToken, expiresAt, "");
+		}
+
+		Credentials(String accessToken, String refreshToken, Instant expiresAt, String clientId) {
+			this(accessToken, refreshToken, expiresAt, clientId, "");
+		}
+
+		Credentials withLoginId(String id) {
+			return new Credentials(accessToken, refreshToken, expiresAt, clientId, id);
 		}
 	}
 }

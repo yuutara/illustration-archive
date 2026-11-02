@@ -60,7 +60,7 @@ public final class LegacyMigration {
 	public static final String COMMAND = "--migrate-from-mysql";
 	/** Parents before children, so foreign keys hold throughout. */
 	private static final List<String> TABLES = List.of("author", "tag", "illustration", "asset", "illustration_tag",
-			"x_like_item", "x_like_media", "x_like_sync_state", "x_like_sync_seen_token");
+			"x_like_item", "x_like_media", "x_like_sync_state", "x_like_sync_seen_token", "x_like_sync_account");
 	private static final List<String> GENERATED_ID_TABLES = List.of("author", "tag", "illustration", "asset",
 			"x_like_item", "x_like_media");
 

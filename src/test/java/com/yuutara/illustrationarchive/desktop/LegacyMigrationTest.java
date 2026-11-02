@@ -74,6 +74,7 @@ class LegacyMigrationTest {
 		jdbc.update("INSERT INTO x_like_sync_state (id, next_token, max_results, status, updated_at, matched_count, coverage_to_end)"
 				+ " VALUES (2, 'cursor', 25, 'ACTIVE', '2026-09-03 01:02:03', 3, TRUE)");
 		jdbc.update("INSERT INTO x_like_sync_seen_token (sync_id, token_sha256) VALUES (2, ?)", (Object) new byte[32]);
+		jdbc.update("INSERT INTO x_like_sync_account (id, owner_x_user_id, updated_at) VALUES (1, '42', '2026-09-03 01:02:03')");
 	}
 
 	@Test
@@ -101,6 +102,8 @@ class LegacyMigrationTest {
 		assertEquals("cursor", jdbc.queryForObject("SELECT next_token FROM x_like_sync_state WHERE id = 2", String.class));
 		assertEquals(Boolean.TRUE, jdbc.queryForObject("SELECT coverage_to_end FROM x_like_sync_state WHERE id = 2", Boolean.class));
 		assertEquals(32, jdbc.queryForObject("SELECT token_sha256 FROM x_like_sync_seen_token", byte[].class).length);
+		assertEquals("42", jdbc.queryForObject("SELECT owner_x_user_id FROM x_like_sync_account WHERE id = 1", String.class),
+				"copied progress keeps its owner");
 
 		jdbc.update("INSERT INTO author (display_name) VALUES ('新作者')");
 		assertEquals(6L, jdbc.queryForObject("SELECT id FROM author WHERE display_name = '新作者'", Long.class),
@@ -165,13 +168,13 @@ class LegacyMigrationTest {
 
 	@Test
 	void aSchemaThatIsNotAtTheSameMigrationIsRefused() throws Exception {
-		sourceJdbc.update("UPDATE flyway_schema_history SET success = FALSE WHERE version = '7'");
+		sourceJdbc.update("UPDATE flyway_schema_history SET success = FALSE WHERE version = '8'");
 		Path target = workspace.resolve("new-home");
 
 		IllegalStateException refused = assertThrows(IllegalStateException.class,
 				() -> LegacyMigration.execute(source, media, target, false));
 
-		assertTrue(refused.getMessage().contains("migration 6"), refused.getMessage());
+		assertTrue(refused.getMessage().contains("migration 7"), refused.getMessage());
 		assertFalse(Files.exists(target));
 		assertNoStagingLeft();
 	}

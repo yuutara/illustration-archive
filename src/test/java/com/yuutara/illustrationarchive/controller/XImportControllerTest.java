@@ -104,12 +104,13 @@ class XImportControllerTest {
 	void localInboxExposesInvalidProgressAndRecentResetRequiresNoSync() throws Exception {
 		var service = mock(XLikeSyncService.class);
 		when(service.inbox(null, null)).thenReturn(new XLikeInboxPage(List.of(), 0, 24, 351, 15,
-				new XLikeSyncReport.Progress("INVALID", "INVALID", true)));
+				new XLikeSyncReport.Progress("INVALID", "INVALID", true, "OK", null, null, null)));
 		mvc(service).perform(get("/api/x-import/inbox"))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.syncProgress.recentStatus").value("INVALID"))
 				.andExpect(jsonPath("$.syncProgress.historyStatus").value("INVALID"))
 				.andExpect(jsonPath("$.syncProgress.unscannedIntervals").value(true))
+				.andExpect(jsonPath("$.syncProgress.accountStatus").value("OK"))
 				.andExpect(content().string(not(containsString("nextToken"))))
 				.andExpect(content().string(not(containsString("anchorIds"))));
 		mvc(service).perform(post("/api/x-import/sync/recent/reset")).andExpect(status().isNoContent());

@@ -2,7 +2,9 @@ package com.yuutara.illustrationarchive.desktop;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import com.yuutara.illustrationarchive.repository.XLikeSyncStateRepository;
 import com.yuutara.illustrationarchive.service.XApiException;
+import com.yuutara.illustrationarchive.service.XTokenCredentialStore;
 import com.yuutara.illustrationarchive.service.XTokenManager;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
@@ -28,6 +30,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -43,6 +46,13 @@ import java.util.stream.Collectors;
  *
  * <p>Connecting makes no billable call: the code exchange is OAuth, and no X API endpoint is read until the user
  * asks for a sync.
+ *
+ * <p>There is one live login, {@code attempt}, from {@link #start} until it ends. Its callback claims it and then
+ * trades the code for tokens outside the lock, because that takes as long as X takes; the attempt stays current
+ * meanwhile. Cancelling, disconnecting and starting over all end it by replacing that field, and only a callback
+ * still holding the current attempt may save tokens or report an outcome. So whatever an abandoned attempt learns
+ * afterwards is thrown away, and it cannot touch the state of the login that replaced it. Expiry only applies while
+ * waiting for the callback: once claimed, the token request's own timeout bounds the wait.
  */
 @Service
 @Profile(DesktopServer.PROFILE)
@@ -51,34 +61,52 @@ public class XAuthorizationService {
 	public static final String SCOPES = "tweet.read users.read like.read offline.access";
 	static final String CALLBACK_PATH = "/x/callback";
 	private static final Logger log = LoggerFactory.getLogger(XAuthorizationService.class);
-	private static final URI AUTHORIZE_ENDPOINT = URI.create("https://x.com/i/oauth2/authorize");
 	private static final Pattern CLIENT_ID = Pattern.compile("[A-Za-z0-9_-]{8,128}");
 
 	public enum State { DISCONNECTED, WAITING, CONNECTED, FAILED }
 
-	/** {@code failure} is a code the page turns into words; it never carries upstream text. */
-	public record Status(State state, String failure, String authorizeUrl) {
+	/**
+	 * {@code state} is the login in progress or how the last one ended; {@code savedLogin} says separately what is on
+	 * disk, because a reconnect that is waiting or failed leaves the existing login in place and still usable.
+	 * {@code failure} is a code the page turns into words; it never carries upstream text.
+	 */
+	public record Status(State state, String failure, String authorizeUrl, XTokenManager.SavedLogin savedLogin,
+			boolean browserOpened) {
 	}
 
-	private record Attempt(String state, String verifier, String clientId, String authorizeUrl, HttpServer server) {
+	private record Attempt(String state, String verifier, String clientId, String authorizeUrl, HttpServer server,
+			AtomicBoolean stopped) {
+		/** Both the callback and whoever abandons the attempt get here, and a server must only stop once. */
+		void stop() {
+			if (stopped.compareAndSet(false, true)) server.stop(0);
+		}
 	}
 
 	private final XTokenManager tokens;
 	private final DesktopSettings settings;
 	private final DesktopExternal external;
+	private final XLikeSyncStateRepository syncState;
+	private final DesktopEvidence evidence;
+	private final URI authorizeEndpoint;
 	private final int callbackPort;
 	private final Duration attemptLifetime;
 	private final SecureRandom random = new SecureRandom();
 	private Attempt attempt;
 	private boolean exchanging;
+	private boolean browserOpened;
 	private String failure;
 
 	public XAuthorizationService(XTokenManager tokens, DesktopSettings settings, DesktopExternal external,
+			XLikeSyncStateRepository syncState, DesktopEvidence evidence,
+			@Value("${illustration-archive.desktop.x-authorize-url}") String authorizeEndpoint,
 			@Value("${illustration-archive.desktop.x-callback-port}") int callbackPort,
 			@Value("${illustration-archive.desktop.x-authorization-seconds:300}") int attemptSeconds) {
 		this.tokens = tokens;
 		this.settings = settings;
 		this.external = external;
+		this.syncState = syncState;
+		this.evidence = evidence;
+		this.authorizeEndpoint = URI.create(authorizeEndpoint);
 		this.callbackPort = callbackPort;
 		this.attemptLifetime = Duration.ofSeconds(attemptSeconds);
 	}
@@ -89,19 +117,20 @@ public class XAuthorizationService {
 	}
 
 	public synchronized Status status() {
-		if (attempt != null) return new Status(State.WAITING, null, attempt.authorizeUrl());
-		if (exchanging) return new Status(State.WAITING, null, null);
-		if (failure != null) return new Status(State.FAILED, failure, null);
-		return new Status(tokens.connected() ? State.CONNECTED : State.DISCONNECTED, null, null);
+		XTokenManager.SavedLogin saved = tokens.savedLogin();
+		if (attempt != null) return new Status(State.WAITING, null, exchanging ? null : attempt.authorizeUrl(), saved, browserOpened);
+		if (failure != null) return new Status(State.FAILED, failure, null, saved, false);
+		return new Status(saved == XTokenManager.SavedLogin.USABLE ? State.CONNECTED : State.DISCONNECTED, null, null, saved, false);
 	}
 
 	public synchronized Status start(String clientId) {
 		if (clientId == null || !CLIENT_ID.matcher(clientId).matches()) {
 			throw new IllegalArgumentException("Client ID format is not valid.");
 		}
-		closeAttempt();
-		failure = null;
+		// First, so that a value that cannot be saved leaves any login in progress as it was.
 		settings.saveXClientId(clientId);
+		abandonAttempt();
+		failure = null;
 		String state = randomToken();
 		String verifier = randomToken();
 		HttpServer server;
@@ -114,50 +143,77 @@ public class XAuthorizationService {
 			return status();
 		}
 		String authorizeUrl = authorizeUrl(clientId, state, challenge(verifier));
-		Attempt started = new Attempt(state, verifier, clientId, authorizeUrl, server);
+		Attempt started = new Attempt(state, verifier, clientId, authorizeUrl, server, new AtomicBoolean());
 		server.createContext(CALLBACK_PATH, exchange -> handleCallback(started, exchange));
+		// A handler on the dispatcher thread would keep the port bound for as long as X takes to answer,
+		// and starting over needs that port back straight away.
+		server.setExecutor(Thread::startVirtualThread);
 		server.start();
 		attempt = started;
 		CompletableFuture.delayedExecutor(attemptLifetime.toSeconds(), TimeUnit.SECONDS).execute(() -> expire(started));
-		external.browse(URI.create(authorizeUrl));
+		browserOpened = external.browse(URI.create(authorizeUrl));
 		return status();
 	}
 
 	public synchronized void cancel() {
-		closeAttempt();
+		abandonAttempt();
 		failure = null;
 	}
 
 	/** @return false when local tokens were removed but X could not be told to revoke them */
 	public synchronized boolean disconnect() {
-		closeAttempt();
+		abandonAttempt();
 		failure = null;
-		return tokens.disconnect();
+		boolean revoked = tokens.disconnect();
+		forgetObservedAccount();
+		evidence.loginChanged();
+		return revoked;
+	}
+
+	/** A refused account is a fact about the old credentials. If this fails, the next sync simply looks again. */
+	private void forgetObservedAccount() {
+		try {
+			syncState.forgetObservedAccount();
+		} catch (RuntimeException failed) {
+			log.warn("Could not clear the account a sync last refused.", failed);
+		}
 	}
 
 	@PreDestroy
-	synchronized void closeAttempt() {
+	synchronized void abandonAttempt() {
 		if (attempt != null) {
-			stop(attempt.server());
+			attempt.stop();
 			attempt = null;
+			exchanging = false;
 		}
 	}
 
 	private synchronized void expire(Attempt expired) {
-		if (attempt == expired) {
-			closeAttempt();
+		if (attempt == expired && !exchanging) {
+			abandonAttempt();
 			failure = "TIMED_OUT";
 		}
 	}
 
 	private synchronized boolean claim(Attempt candidate) {
-		if (attempt != candidate) return false;
-		attempt = null;
+		if (attempt != candidate || exchanging) return false;
 		exchanging = true;
 		return true;
 	}
 
-	private synchronized void finish(String outcome) {
+	/** @return false when this login was abandoned during the exchange, so the tokens must not be used */
+	private synchronized boolean install(Attempt current, XTokenCredentialStore.Credentials issued) {
+		if (attempt != current) return false;
+		tokens.install(issued);
+		forgetObservedAccount();
+		evidence.loginChanged();
+		finish(current, null);
+		return true;
+	}
+
+	private synchronized void finish(Attempt current, String outcome) {
+		if (attempt != current) return;
+		attempt = null;
 		exchanging = false;
 		failure = outcome;
 	}
@@ -180,26 +236,44 @@ public class XAuthorizationService {
 				finishLogin(current, query, exchange);
 			}
 		} finally {
-			if (claimed) stop(current.server());
+			if (claimed) current.stop();
 		}
 	}
 
 	private void finishLogin(Attempt current, Map<String, String> query, HttpExchange exchange) throws IOException {
 		String code = query.get("code");
 		if (code == null || code.isBlank()) {
-			finish("access_denied".equals(query.get("error")) ? "DENIED" : "REJECTED");
+			finish(current, "access_denied".equals(query.get("error")) ? "DENIED" : "REJECTED");
 			respond(exchange, 200, "没有完成授权", "没有连接 X 账号。可以关闭这个页面，回到插画档案。");
 			return;
 		}
+		XTokenCredentialStore.Credentials issued;
 		try {
-			tokens.connect(current.clientId(), code, current.verifier(), callbackUrl());
-			finish(null);
-			respond(exchange, 200, "已连接 X 账号", "可以关闭这个页面，回到插画档案。");
+			issued = tokens.exchange(current.clientId(), code, current.verifier(), callbackUrl());
 		} catch (XApiException rejected) {
 			log.warn("X authorization code exchange failed. upstreamStatus={}", rejected.upstreamStatus());
-			finish(rejected.upstreamStatus() == null ? "NETWORK" : "EXCHANGE_FAILED");
+			finish(current, rejected.upstreamStatus() == null ? "NETWORK" : "EXCHANGE_FAILED");
 			respond(exchange, 200, "没有完成授权", "X 没有接受这次授权，请回到插画档案查看原因。");
+			return;
 		}
+		try {
+			if (install(current, issued)) {
+				respond(exchange, 200, "授权已完成", "还没有读取任何 X 数据。可以关闭这个页面，回到插画档案的 X 收藏，点“同步”时才会读取并确认账号。");
+				return;
+			}
+			revokeUnused(issued);
+			respond(exchange, 409, "这次授权已取消", "没有保存这次授权。可以关闭这个页面，回到插画档案。");
+		} catch (XApiException unsaved) {
+			log.warn("The tokens of a finished X login could not be saved.");
+			finish(current, "SAVE_FAILED");
+			revokeUnused(issued);
+			respond(exchange, 200, "没有完成授权", "本机没能保存这次授权，请回到插画档案查看原因。");
+		}
+	}
+
+	/** X has already issued these, so they would stay valid with nobody holding them. */
+	private void revokeUnused(XTokenCredentialStore.Credentials issued) {
+		if (!tokens.revoke(issued)) log.warn("X could not be told to revoke the tokens of an unfinished login.");
 	}
 
 	private static void respond(HttpExchange exchange, int status, String title, String message) throws IOException {
@@ -213,11 +287,6 @@ public class XAuthorizationService {
 		exchange.getResponseBody().write(body);
 	}
 
-	/** Stopping waits for the dispatcher, which may be the caller, so it runs on another thread. */
-	private static void stop(HttpServer server) {
-		CompletableFuture.runAsync(() -> server.stop(0));
-	}
-
 	private String authorizeUrl(String clientId, String state, String challenge) {
 		Map<String, String> parameters = new LinkedHashMap<>();
 		parameters.put("response_type", "code");
@@ -227,7 +296,7 @@ public class XAuthorizationService {
 		parameters.put("state", state);
 		parameters.put("code_challenge", challenge);
 		parameters.put("code_challenge_method", "S256");
-		return AUTHORIZE_ENDPOINT + "?" + parameters.entrySet().stream()
+		return authorizeEndpoint + "?" + parameters.entrySet().stream()
 				.map(entry -> entry.getKey() + "=" + URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8).replace("+", "%20"))
 				.collect(Collectors.joining("&"));
 	}

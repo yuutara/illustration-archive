@@ -86,7 +86,7 @@ class DesktopServerIntegrationTest {
 		assertEquals("true", environment.getProperty("ai.analysis.enabled"));
 		assertEquals("", environment.getProperty("gemini.api-key"), "no key is read from the environment");
 		assertEquals("", environment.getProperty("x.oauth.client-secret"), "no secret is read from the environment");
-		assertEquals(7, jdbc(first).queryForObject(
+		assertEquals(8, jdbc(first).queryForObject(
 				"SELECT COUNT(*) FROM \"flyway_schema_history\" WHERE \"success\" = TRUE AND \"version\" IS NOT NULL", Integer.class));
 
 		String cookie = openSession(first);
@@ -797,10 +797,40 @@ class DesktopServerIntegrationTest {
 			try (var connection = running.context().getBean(javax.sql.DataSource.class).getConnection()) {
 				assertTrue(connection.getMetaData().getURL().startsWith(expected), connection.getMetaData().getURL());
 			}
-			assertEquals(7, flyway.info().applied().length, "migrations ran against the PoC database");
+			assertEquals(8, flyway.info().applied().length, "migrations ran against the PoC database");
 			var environment = running.context().getEnvironment();
 			assertEquals("90", environment.getProperty("ai.analysis.timeout-seconds"));
 			assertEquals("6", environment.getProperty("x.sync.max-pages"));
+		} finally {
+			hostile.keySet().forEach(System::clearProperty);
+		}
+	}
+
+	@Test
+	void nothingOutsideTheAppCanSupplyCredentialsOrRedirectThem() throws Exception {
+		// The development settings by name, in the one local file the desktop app does read, and as system properties,
+		// which outrank config files like environment variables do.
+		Path config = Files.createDirectories(home.resolve("config"));
+		Files.writeString(config.resolve("desktop.properties"), """
+				X_OAUTH_CLIENT_ID=from-development
+				X_OAUTH_CLIENT_SECRET=from-development
+				GEMINI_API_KEY=from-development
+				gemini.api-key=from-development
+				""");
+		Map<String, String> hostile = Map.of("GEMINI_API_KEY", "from-outside", "X_OAUTH_CLIENT_SECRET", "from-outside",
+				"gemini.base-url", "http://outside.example", "x.api.base-url", "http://outside.example",
+				"illustration-archive.desktop.x-authorize-url", "http://outside.example/authorize");
+		hostile.forEach(System::setProperty);
+		try {
+			DesktopServer.Running running = start();
+			var environment = running.context().getEnvironment();
+			assertEquals("", environment.getProperty("x.oauth.client-id"));
+			assertEquals("", environment.getProperty("x.oauth.client-secret"));
+			assertEquals("https://generativelanguage.googleapis.com", environment.getProperty("gemini.base-url"));
+			assertEquals("https://api.x.com", environment.getProperty("x.api.base-url"));
+			assertEquals("https://x.com/i/oauth2/authorize", environment.getProperty("illustration-archive.desktop.x-authorize-url"));
+			assertEquals(config.resolve("x-oauth-tokens.properties").toString(), environment.getProperty("x.oauth.credential-file"));
+			assertEquals("", running.context().getBean(com.yuutara.illustrationarchive.service.GeminiKeyStore.class).apiKey());
 		} finally {
 			hostile.keySet().forEach(System::clearProperty);
 		}

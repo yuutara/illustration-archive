@@ -11,8 +11,14 @@
         return node;
     };
     const POLL_MILLIS = 1500;
+    const fromX = new URLSearchParams(location.search).get('from') === 'x';
 
     let pollTimer = 0;
+    let lastState = null;
+    let guideDecided = false;
+    let connecting = false;
+    let keyBusy = false;
+    let keySaved = false;
 
     function toast(text) {
         const t = $('toast');
@@ -40,6 +46,25 @@
         return response.status === 204 ? null : response.json();
     }
 
+    async function copy(text, done) {
+        try {
+            await navigator.clipboard.writeText(text);
+            toast(done);
+        } catch (e) {
+            toast('没能写入剪贴板，请手动选中复制');
+        }
+    }
+
+    function renderSteps(box, steps) {
+        box.replaceChildren(...steps.map((step) => {
+            const row = el('div', 'set-step');
+            row.dataset.tone = step.tone;
+            row.appendChild(el('dt', null, step.label));
+            row.appendChild(el('dd', null, step.value));
+            return row;
+        }));
+    }
+
     /* ---------------- X 账号 ---------------- */
 
     function button(text, cls, onClick) {
@@ -49,37 +74,66 @@
         return b;
     }
 
+    // 连点两下“授权”会开两个授权页，第二个还会让第一个作废，所以一次只走一个操作
+    async function exclusive(work) {
+        if (connecting) return;
+        connecting = true;
+        const buttons = [...$('x-actions').children];
+        buttons.forEach((b) => { b.disabled = true; });
+        try {
+            await work();
+        } finally {
+            connecting = false;
+            buttons.forEach((b) => { b.disabled = false; });
+        }
+    }
+
+    function waitingText({ authorizeUrl, browserOpened }) {
+        if (!authorizeUrl) return '浏览器已经返回，正在向 X 确认授权…';
+        if (!browserOpened) return '没能自动打开浏览器。请复制授权链接，粘贴到已登录 X 的浏览器。';
+        return '请在打开的浏览器页面中完成授权。如果 X 的页面报错，多半是应用类型或回调地址不符，可以取消后再核对。';
+    }
+
     function renderConnection(connection) {
-        const { state, failure, authorizeUrl } = connection.status;
+        const { state, failure, authorizeUrl, savedLogin } = connection.status;
         $('x-callback').textContent = connection.callbackUrl;
+        $('x-cost').textContent = M.syncCost(connection.scanBudget);
         const input = $('x-client-id');
         if (!input.value) input.value = connection.clientId || '';
+        if (!guideDecided) {
+            guideDecided = true;
+            $('x-guide').open = fromX && !connection.clientId;
+        }
+        renderSteps($('x-steps'), M.connectionSteps(connection));
+        const connected = savedLogin === 'USABLE';
+        const waiting = state === 'WAITING';
         const box = $('x-state');
         const actions = $('x-actions');
         box.replaceChildren();
         actions.replaceChildren();
-        const connected = state === 'CONNECTED';
-        const waiting = state === 'WAITING';
-        $('x-setup').hidden = connected || waiting;
-        showError('x-error', state === 'FAILED' ? M.connectionProblem(failure) : '');
+        $('x-setup').hidden = waiting || (connected && !!connection.clientId);
+        const kept = connected ? ' 原来的连接没有变化。' : '';
+        showError('x-error', state === 'FAILED' ? M.connectionProblem(failure) + kept : '');
         clearTimeout(pollTimer);
+        if (lastState === 'WAITING' && state === 'CONNECTED') toast('授权完成。还没有读取任何 X 数据，账号要到第一次同步时确认');
+        lastState = state;
 
-        if (connected) {
-            box.appendChild(el('p', 'set-ok', '已连接'));
-            actions.appendChild(button('断开连接', 'btn', disconnect));
-        } else if (waiting) {
-            box.appendChild(el('p', null, '请在打开的浏览器页面中完成授权…'));
+        if (waiting) {
+            box.appendChild(el('p', null, waitingText(connection.status)));
             if (authorizeUrl) {
-                actions.appendChild(button('复制授权链接', 'btn', async () => {
-                    await navigator.clipboard.writeText(authorizeUrl);
-                    toast('已复制，可以粘贴到已登录 X 的浏览器');
-                }));
+                actions.appendChild(button('复制授权链接', 'btn', () => copy(authorizeUrl, '已复制，可以粘贴到已登录 X 的浏览器')));
             }
-            actions.appendChild(button('取消', 'btn', async () => renderConnection(await send('/api/x-auth/cancel', 'POST'))));
+            actions.appendChild(button('取消', 'btn', cancel));
             pollTimer = setTimeout(loadConnection, POLL_MILLIS);
+        } else if (connected) {
+            if (!connection.verifiedAt) box.appendChild(el('p', null, '授权已保存，但还没有读取过 X。到“X 收藏”点“同步”时，才会确认账号并开始计费。'));
+            actions.appendChild(button('回到 X 收藏', 'btn btn-ink', () => { location.href = '/c/x.html'; }));
+            actions.appendChild(button('重新授权', 'btn', connect));
+            actions.appendChild(button('断开连接', 'btn', disconnect));
         } else {
-            box.appendChild(el('p', null, '未连接'));
+            if (savedLogin === 'UNUSABLE') box.appendChild(el('p', null, '这份登录可能来自开发版，或文件已经损坏，桌面版不能使用。重新授权即可，已保存的收藏不受影响。'));
             actions.appendChild(button('在浏览器中授权', 'btn btn-ink', connect));
+            if (savedLogin === 'UNUSABLE') actions.appendChild(button('移除这份登录', 'btn', disconnect));
         }
     }
 
@@ -91,54 +145,95 @@
         }
     }
 
-    async function connect() {
+    function connect() {
+        const clientId = $('x-client-id').value.trim();
+        if (!clientId) { showError('x-error', '请先填写 Client ID'); return undefined; }
         showError('x-error', '');
-        try {
-            renderConnection(await send('/api/x-auth/start', 'POST', { clientId: $('x-client-id').value.trim() }));
-        } catch (e) {
-            showError('x-error', /format/i.test(e.message) ? 'Client ID 的格式不对，请从开发者控制台重新复制。' : e.message);
-        }
+        return exclusive(async () => {
+            try {
+                renderConnection(await send('/api/x-auth/start', 'POST', { clientId }));
+            } catch (e) {
+                showError('x-error', /format/i.test(e.message) ? 'Client ID 的格式不对，请从开发者控制台重新复制。' : `没有开始授权：${e.message}。可以再试一次。`);
+            }
+        });
     }
 
-    async function disconnect() {
-        try {
-            const result = await send('/api/x-auth/disconnect', 'POST');
-            toast(result.revoked ? '已断开连接' : '本机的登录已移除；没能通知 X，可到 X 的“已连接的应用”中手动撤销');
-            await loadConnection();
-        } catch (e) {
-            showError('x-error', `断开失败：${e.message}`);
-        }
+    function cancel() {
+        return exclusive(async () => {
+            try {
+                renderConnection(await send('/api/x-auth/cancel', 'POST'));
+                toast('已取消，这次授权没有保存');
+            } catch (e) {
+                showError('x-error', `取消失败：${e.message}`);
+            }
+        });
+    }
+
+    function disconnect() {
+        return exclusive(async () => {
+            try {
+                const result = await send('/api/x-auth/disconnect', 'POST');
+                toast(result.revoked ? '已断开连接，本机的登录已移除' : '本机的登录已移除；没能通知 X，可到 X 的“已连接的应用”中手动撤销');
+                await loadConnection();
+            } catch (e) {
+                showError('x-error', `断开失败：${e.message}`);
+            }
+        });
     }
 
     /* ---------------- 其余设置 ---------------- */
 
-    function renderKey(saved) {
-        $('ai-state').textContent = saved ? '已保存 API Key。' : '填写自己的 Gemini API Key 后，看图时可以分析作品、识别日文并翻译。';
+    function renderKey(saved, verifiedAt = null) {
+        keySaved = saved;
+        renderSteps($('ai-steps'), M.aiSteps({ saved, verifiedAt }));
         $('ai-clear').hidden = !saved;
+        $('ai-save').textContent = saved ? '替换' : '保存';
+        $('ai-key').placeholder = saved ? '粘贴新的 Key，替换已保存的' : '粘贴后保存';
         $('ai-key').value = '';
     }
 
-    async function saveKey() {
-        const key = $('ai-key').value.trim();
-        if (!key) { showError('ai-error', '请先粘贴 API Key'); return; }
-        showError('ai-error', '');
+    async function keyWork(work) {
+        if (keyBusy) return;
+        keyBusy = true;
+        $('ai-save').disabled = true;
+        $('ai-clear').disabled = true;
         try {
-            await send('/api/desktop/settings/gemini-key', 'PUT', { apiKey: key });
-            renderKey(true);
-            toast('已保存');
-        } catch (e) {
-            showError('ai-error', /format/i.test(e.message) ? 'API Key 的格式不对。' : e.message);
+            await work();
+        } finally {
+            keyBusy = false;
+            $('ai-save').disabled = false;
+            $('ai-clear').disabled = false;
         }
     }
 
-    async function clearKey() {
-        try {
-            await send('/api/desktop/settings/gemini-key', 'DELETE');
-            renderKey(false);
-            toast('已移除');
-        } catch (e) {
-            showError('ai-error', e.message);
-        }
+    function saveKey() {
+        const key = $('ai-key').value.trim();
+        if (!key) { showError('ai-error', '请先粘贴 API Key'); return undefined; }
+        showError('ai-error', '');
+        return keyWork(async () => {
+            const replacing = keySaved;
+            try {
+                await send('/api/desktop/settings/gemini-key', 'PUT', { apiKey: key });
+                renderKey(true);
+                toast(replacing ? '已替换，新的 Key 保存在本机，尚未验证' : '已保存在本机，尚未验证');
+            } catch (e) {
+                const kept = replacing ? '原来的 Key 没有变化。' : '';
+                showError('ai-error', /format/i.test(e.message) ? 'API Key 的格式不对，不能有空格或换行。' : `没有保存：${e.message}。${kept}可以再试一次。`);
+            }
+        });
+    }
+
+    function clearKey() {
+        showError('ai-error', '');
+        return keyWork(async () => {
+            try {
+                await send('/api/desktop/settings/gemini-key', 'DELETE');
+                renderKey(false);
+                toast('已移除，本机不再保存 API Key');
+            } catch (e) {
+                showError('ai-error', `没有移除：${e.message}。可以再试一次。`);
+            }
+        });
     }
 
     async function saveProxy() {
@@ -176,7 +271,7 @@
             $('data-dir').textContent = settings.dataDirectory;
             $('version').textContent = settings.version;
             $('proxy').value = settings.proxy;
-            renderKey(settings.geminiKeySaved);
+            renderKey(settings.geminiKeySaved, settings.geminiVerifiedAt);
             closeAction = settings.closeAction;
             renderCloseAction();
             $('window').hidden = !window.iaDesktop;
@@ -195,10 +290,7 @@
             if (!result.opened) toast('没能打开文件夹，请手动访问上面的路径');
         } catch (e) { toast(e.message); }
     });
-    $('x-copy-callback').addEventListener('click', async () => {
-        await navigator.clipboard.writeText($('x-callback').textContent);
-        toast('已复制回调地址');
-    });
+    $('x-copy-callback').addEventListener('click', () => copy($('x-callback').textContent, '已复制回调地址'));
 
     function syncTheme() {
         const dark = window.CTheme.get() === 'dark';

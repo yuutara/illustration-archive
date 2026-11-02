@@ -32,6 +32,9 @@ public class XApiClient {
 			+ "&tweet.fields=author_id,attachments,created_at,text"
 			+ "&user.fields=name,username&media.fields=media_key,type,url,width,height,variants,preview_image_url";
 
+	public record XUser(String id, String username) {
+	}
+
 	private final Supplier<HttpClient> httpClient;
 	private final ObjectMapper objectMapper;
 	private final boolean enabled;
@@ -59,15 +62,18 @@ public class XApiClient {
 		this.tokens = tokens;
 	}
 
-	public String resolveUserId() {
+	public XUser resolveUser() {
 		if (!enabled) {
 			throw new XApiException("X API sync is disabled.", null);
 		}
-		String userId = requiredText(get("/2/users/me").path("data"), "id");
+		JsonNode user = get("/2/users/me").path("data");
+		String userId = requiredText(user, "id");
 		if (!userId.matches("[0-9]+")) {
 			throw new XApiException("X API returned an invalid user id.", null);
 		}
-		return userId;
+		// Only ever shown so the user can recognise the account, so an odd one must not stop a sync.
+		String username = optionalText(user, "username");
+		return new XUser(userId, username != null && username.matches("\\w{1,64}") ? username : null);
 	}
 
 	public XLikePage fetchRecentLikes(String userId, int maxResults, String paginationToken) {

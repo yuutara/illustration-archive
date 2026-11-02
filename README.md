@@ -275,6 +275,8 @@ Tag ID 会先校验存在性，并去除重复 ID，然后在同一数据库事�
 | `POST` | `/api/x-import/sync/continuation` | 保留的独立历史续扫入口（参数同上）；截断时保存游标，自然末页记为 `COMPLETE`。日常 History 推进已由上面的综合 Sync 完成 |
 | `POST` | `/api/x-import/sync/continuation/reset` | 显式重置失效的 History，同时安排从头至末尾的保守遍历；不删除帖子、不自动请求 X |
 | `POST` | `/api/x-import/sync/recent/reset` | 显式重置失效的 Recent 游标，保留已验证边界与帖子，等待下一次 Sync |
+| `POST` | `/api/x-import/sync/account/adopt` | 用户确认没有归属的旧进度属于同步刚识别到的账号，绑定后沿用；请求体 `{"confirmation":"<syncProgress.accountConfirmation>"}`，状态已变化时返回 409，不请求 X |
+| `POST` | `/api/x-import/sync/account/restart` | 同步实际发现账号不符且用户确认后，清除同步进度并绑定该账号；请求体同上，状态已变化时返回 409；保留 Inbox、作品与媒体，不请求 X |
 | `GET` | `/api/x-import/inbox?page=0&size=24` | 返回 `items`、`page`、`size`、`totalItems`、`totalPages` 和本地 `syncProgress`；默认每页 24 条，`size` 范围 1..100，仅查询当页 `PENDING` 及媒体，按 `likes_order DESC, discovered_at DESC, id DESC` 排序 |
 | `PATCH` | `/api/x-import/inbox/skip` | 跳过请求体 `itemIds` 中仍为 `PENDING` 的项 |
 | `POST` | `/api/x-import/inbox/import` | 导入请求体 `itemIds` 中的项，逐项返回 `SUCCESS`、`DUPLICATE` 或 `FAILED` |
@@ -312,7 +314,8 @@ Tag ID 会先校验存在性，并去除重复 ID，然后在同一数据库事�
 │  │     │  ├─ V4__add_x_archive_links.sql
 │  │     │  ├─ V5__add_x_like_sync_continuation.sql
 │  │     │  ├─ V6__index_x_like_inbox_discovery.sql
-│  │     │  └─ V7__add_x_like_api_order.sql
+│  │     │  ├─ V7__add_x_like_api_order.sql
+│  │     │  └─ V8__add_x_like_sync_account.sql
 │  │     ├─ static/
 │  │     │  ├─ index.html / app.js            # Gallery
 │  │     │  ├─ detail.html / detail.js        # Detail

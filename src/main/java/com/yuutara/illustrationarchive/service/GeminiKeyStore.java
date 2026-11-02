@@ -9,6 +9,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 
 /**
  * Where the Gemini key comes from. Server deployments configure it; the desktop app sets
@@ -31,6 +34,30 @@ public class GeminiKeyStore {
 			return Files.exists(file) ? Files.readString(file, StandardCharsets.UTF_8).trim() : "";
 		} catch (IOException e) {
 			throw new UncheckedIOException("Cannot read the local Gemini key file.", e);
+		}
+	}
+
+	/** Whether a key is on file, without reading it: Settings must still open, and offer Remove, if it cannot be read. */
+	public boolean saved() {
+		if (file == null) return !configuredKey.isBlank();
+		try {
+			return Files.exists(file) && Files.size(file) > 0;
+		} catch (IOException e) {
+			return true;
+		}
+	}
+
+	/** Tells keys apart without keeping one anywhere new; empty when no key can be read. */
+	public String fingerprint() {
+		try {
+			String key = apiKey();
+			if (key.isBlank()) return "";
+			byte[] digest = MessageDigest.getInstance("SHA-256").digest(key.getBytes(StandardCharsets.UTF_8));
+			return HexFormat.of().formatHex(digest, 0, 16);
+		} catch (UncheckedIOException unreadable) {
+			return "";
+		} catch (NoSuchAlgorithmException e) {
+			throw new IllegalStateException("SHA-256 is unavailable.", e);
 		}
 	}
 

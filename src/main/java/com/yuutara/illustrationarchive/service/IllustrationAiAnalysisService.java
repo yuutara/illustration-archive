@@ -6,6 +6,7 @@ import com.yuutara.illustrationarchive.repository.AssetRepository;
 import com.yuutara.illustrationarchive.repository.AssetRepository.AnalysisSource;
 import com.yuutara.illustrationarchive.repository.IllustrationRepository;
 import com.yuutara.illustrationarchive.storage.FileStorage;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -31,6 +32,7 @@ public class IllustrationAiAnalysisService {
 	private final AssetRepository assets;
 	private final FileStorage storage;
 	private final GeminiClient client;
+	private IntegrationEvidence evidence = new IntegrationEvidence() { };
 
 	public IllustrationAiAnalysisService(IllustrationRepository illustrations, AssetRepository assets,
 			FileStorage storage, GeminiClient client) {
@@ -40,12 +42,18 @@ public class IllustrationAiAnalysisService {
 		this.client = client;
 	}
 
+	@Autowired(required = false)
+	public void setEvidence(IntegrationEvidence evidence) {
+		this.evidence = evidence;
+	}
+
 	// No database transaction spans file reads or the external HTTP request. No archive writes.
 	public AiAnalysisResponse analyze(long id) {
 		if (illustrations.findDetailBaseById(id).isEmpty()) {
 			throw new ResponseStatusException(HttpStatus.NOT_FOUND, "插画不存在。");
 		}
 		client.checkAvailable();
+		String attempt = evidence.aiAttempt();
 		var sources = assets.findAnalysisSources(id);
 		var staticSources = sources.stream().filter(source -> "image/jpeg".equals(source.mimeType())
 				|| "image/png".equals(source.mimeType())).toList();
@@ -66,7 +74,9 @@ public class IllustrationAiAnalysisService {
 				skipped.add(media);
 			}
 		}
-		return client.analyze(images, analyzed, skipped);
+		AiAnalysisResponse result = client.analyze(images, analyzed, skipped);
+		evidence.aiWorked(attempt);
+		return result;
 	}
 
 	byte[] prepareImage(AnalysisSource source) {

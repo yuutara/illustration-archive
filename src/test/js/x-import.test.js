@@ -128,6 +128,78 @@ test("reopening Inbox exposes INVALID reset buttons using only the local GET", a
     ]);
 });
 
+test("progress with no owner names the account; confirming keeps it, and backing out sends nothing", async () => {
+    const asked = { recentStatus: "INVALID", historyStatus: "INVALID", unscannedIntervals: true, accountStatus: "UNATTRIBUTED",
+        currentAccount: "@me", currentAccountId: "42", accountConfirmation: "null/42/t1" };
+    const settled = { ...asked, accountStatus: "OK", currentAccount: null, currentAccountId: null, accountConfirmation: null,
+        recentStatus: "ACTIVE", historyStatus: "MORE" };
+    const { elements, calls, env } = await page([
+        { url: "/api/x-import/inbox?page=0&size=24", body: { ...inboxPage([]), syncProgress: asked } },
+        { url: "/api/x-import/sync/account/adopt", status: 204 },
+        { url: "/api/x-import/inbox?page=0&size=24", body: { ...inboxPage([]), syncProgress: settled } }
+    ]);
+    assert.match(elements.get("sync-progress").textContent, /@me/);
+    assert.equal(elements.get("adopt-account-button").hidden, false);
+    assert.equal(elements.get("restart-account-button").hidden, false);
+    assert.equal(elements.get("reset-recent-button").hidden, true, "who owns this comes first");
+
+    env.window.confirm = () => false;
+    await elements.get("adopt-account-button").dispatch("click");
+    assert.equal(calls.length, 1);
+
+    let question;
+    env.window.confirm = (text) => { question = text; return true; };
+    await elements.get("adopt-account-button").dispatch("click");
+    await new Promise(setImmediate);
+    assert.match(question, /@me（ID 42）/);
+    assert.deepEqual(calls.map(call => call.url).slice(1), ["/api/x-import/sync/account/adopt", "/api/x-import/inbox?page=0&size=24"]);
+    assert.deepEqual(JSON.parse(calls[1].options.body), { confirmation: "null/42/t1" });
+    assert.equal(elements.get("adopt-account-button").hidden, true);
+    assert.match(elements.get("inbox-message").textContent, /本次未请求 X API/);
+});
+
+test("an expired confirmation on the old page changes nothing and shows the account now in question", async () => {
+    const question = (who, id, version) => ({ recentStatus: "ACTIVE", historyStatus: "MORE", unscannedIntervals: true,
+        accountStatus: "UNATTRIBUTED", currentAccount: who, currentAccountId: id, accountConfirmation: version });
+    const { elements, env, calls } = await page([
+        { url: "/api/x-import/inbox?page=0&size=24", body: { ...inboxPage([]), syncProgress: question("@me", "42", "null/42/t1") } },
+        { url: "/api/x-import/sync/account/adopt", ok: false, status: 409, body: { code: "CONFIRMATION_EXPIRED" } },
+        { url: "/api/x-import/inbox?page=0&size=24", body: { ...inboxPage([]), syncProgress: question("@other", "43", "null/43/t2") } },
+        { url: "/api/x-import/sync/account/restart", status: 204 },
+        { url: "/api/x-import/inbox?page=0&size=24", body: { ...inboxPage([]), syncProgress: {
+            recentStatus: "UNKNOWN", historyStatus: "UNKNOWN", unscannedIntervals: true, accountStatus: "OK" } } }
+    ]);
+    env.window.confirm = () => true;
+    await elements.get("adopt-account-button").dispatch("click");
+    await new Promise(setImmediate);
+    assert.match(elements.get("inbox-message").textContent, /账号状态已经变化.*没有执行/);
+    assert.match(elements.get("sync-progress").textContent, /@other/);
+    assert.equal(elements.get("adopt-account-button").hidden, false, "asked again, now about the new account");
+    assert.equal(calls.length, 3, "no Sync starts by itself");
+
+    await elements.get("restart-account-button").dispatch("click");
+    await new Promise(setImmediate);
+    assert.deepEqual(JSON.parse(calls[3].options.body), { confirmation: "null/43/t2" });
+});
+
+test("another account can only clear the progress, never adopt it", async () => {
+    const { elements, env, calls } = await page([
+        { url: "/api/x-import/inbox?page=0&size=24", body: { ...inboxPage([]), syncProgress: {
+            recentStatus: "ACTIVE", historyStatus: "MORE", unscannedIntervals: true, accountStatus: "CHANGED", currentAccount: "@other" } } },
+        { url: "/api/x-import/sync/account/restart", ok: false, status: 500 },
+        { url: "/api/x-import/inbox?page=0&size=24", body: { ...inboxPage([]), syncProgress: {
+            recentStatus: "ACTIVE", historyStatus: "MORE", unscannedIntervals: true, accountStatus: "CHANGED", currentAccount: "@other" } } }
+    ]);
+    assert.equal(elements.get("adopt-account-button").hidden, true);
+    assert.equal(elements.get("restart-account-button").hidden, false);
+    env.window.confirm = () => true;
+    await elements.get("restart-account-button").dispatch("click");
+    await new Promise(setImmediate);
+    assert.equal(calls[1].url, "/api/x-import/sync/account/restart");
+    assert.match(elements.get("inbox-message").textContent, /操作失败/);
+    assert.equal(elements.get("restart-account-button").hidden, false, "still offered: nothing changed");
+});
+
 test("resetting an invalid Recent cursor preserves History status and never starts a paid Sync", async () => {
     const { elements, calls } = await page([
         { url: "/api/x-import/inbox?page=0&size=24", body: { ...inboxPage([]),

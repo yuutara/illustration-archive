@@ -7,7 +7,13 @@ public record XLikeSyncReport(Phase recent, Phase history, int pageBudget, int s
 			int newBudget, boolean partial, String historyStatus) {
 		this(recent, history, pageBudget, scanBudget, newBudget, partial, historyStatus, "UNKNOWN");
 	}
-	public record Progress(String recentStatus, String historyStatus, boolean unscannedIntervals) { }
+	/**
+	 * accountStatus: OK, CHANGED (progress belongs to another account) or UNATTRIBUTED (saved before owners were
+	 * recorded). currentAccount and currentAccountId name the signed-in account a sync refused, and are null while the
+	 * status is OK. accountConfirmation is sent back with the user's answer, which only counts while it still matches.
+	 */
+	public record Progress(String recentStatus, String historyStatus, boolean unscannedIntervals, String accountStatus,
+			String currentAccount, String currentAccountId, String accountConfirmation) { }
 	public record Phase(int pagesRequested, int pagesSaved, int scannedCount, int reservedScanCount,
 			int newCount, int existingCount, int processedCount, int unsupportedCount,
 			boolean scanCountKnown, boolean hasMore, String stopReason, Integer upstreamStatus) {

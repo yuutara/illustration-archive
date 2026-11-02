@@ -88,7 +88,8 @@ kbd { padding: 0 5px; border: 1px solid var(--line); border-radius: 4px; color: 
 .density button[aria-pressed="true"] { color: var(--ink); background: var(--card); box-shadow: 0 1px 2px rgba(0, 0, 0, .08); }
 
 /* ---------- 作品墙 ---------- */
-.wall-wrap { padding: 8px 24px 40px; }
+/* 翻牌、牵引时靠边的牌会伸出窗口，不能因此撑出横向滚动条。clip 只裁横向、不产生滚动容器，上下的抬起和阴影照常，页面仍由窗口滚动 */
+.wall-wrap { padding: 8px 24px 40px; overflow-x: clip; }
 .wall { display: flex; align-items: flex-start; }
 .wall-col { display: flex; flex: 1; flex-direction: column; min-width: 0; }
 .piece { position: relative; margin: 0; scroll-margin: 132px 0 96px; }

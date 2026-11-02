@@ -79,8 +79,16 @@ class Element {
         walk(this);
         return out;
     }
-    // Missing parts of the static page are not under test: hand back a detached stand-in instead of null
-    querySelector(selector) { return this.querySelectorAll(selector)[0] || doc.createElement("span"); }
+    // Missing parts of the static page are not under test: hand back a detached stand-in instead of null.
+    // The card's video really is optional, so that one answers as a browser would
+    querySelector(selector) {
+        return this.querySelectorAll(selector)[0] || (selector === ".piece-video" ? null : doc.createElement("span"));
+    }
+    get src() { return this.getAttribute("src"); }
+    set src(url) { this.setAttribute("src", url); }
+    pause() { this.paused = true; }
+    play() { this.paused = false; return Promise.resolve(); }
+    load() { this.loads = (this.loads || 0) + 1; }
     setAttribute(name, value) { this.attributes.set(name, String(value)); }
     getAttribute(name) { return this.attributes.get(name) ?? null; }
     removeAttribute(name) { this.attributes.delete(name); }
@@ -198,6 +206,24 @@ function library(ids, { match = () => true } = {}) {
 
 const card = (env, id) => env.Gallery.pieces.get(id);
 const cardButton = (env, id) => card(env, id).querySelector(".piece-open");
+const videosOn = (env, id) => card(env, id).querySelectorAll("video");
+
+// Saved X animated GIFs: a library of MP4 works next to a still one
+function videoLibrary(ids, { match = () => true } = {}) {
+    const responses = library(ids, { match });
+    const asVideo = (row) => (row.id === 1 ? row : { ...row, coverMimeType: "video/mp4", assets: [{ id: row.id * 10, mimeType: "video/mp4", sortOrder: 0 }] });
+    for (const key of ["/api/illustrations?page=0&size=30", "/api/illustrations?page=0&size=30&q=keep"]) {
+        const plain = responses[key];
+        responses[key] = () => { const page = plain(); return { ...page, items: page.items.map(asVideo) }; };
+    }
+    return responses;
+}
+
+function assertReleased(video) {
+    assert.equal(video.paused, true, "stopped");
+    assert.equal(video.getAttribute("src"), null, "no longer pointing at the file");
+    assert.ok(video.loads >= 1, "load() has to run for the browser to drop the resource");
+}
 
 async function deleteFromWall(env, id) {
     const button = cardButton(env, id);
@@ -369,4 +395,59 @@ test("a work that leaves the results drops out of the selection; the rest stay s
     await settle();
     assert.deepEqual(selected(env), [1, 3]);
     assert.equal(env.ids["bb-count"].textContent, "已选 2 件");
+});
+
+test("however often the wall is redrawn, a video work has one video element", async () => {
+    const env = setup(videoLibrary([2, 1]));
+    await settle();
+    assert.equal(videosOn(env, 2).length, 1);
+    const video = videosOn(env, 2)[0];
+    assert.equal(video.getAttribute("src"), "/api/assets/20/content");
+
+    env.Gallery.renderWall();
+    env.Gallery.renderWall();
+    assert.equal(videosOn(env, 2).length, 1);
+    assert.equal(videosOn(env, 2)[0], video, "the same element: its first frame does not have to load again");
+    assert.equal(video.loads, undefined);
+    assert.equal(videosOn(env, 1).length, 0, "still images have none");
+});
+
+test("a video that drops out of the results lets go of the file, and comes back when the work does", async () => {
+    const env = setup(videoLibrary([3, 2, 1], { match: (row) => row.id !== 2 }));
+    await settle();
+    const video = videosOn(env, 2)[0];
+
+    env.Archive.setQuery({ q: "keep" });
+    await settle();
+    assertReleased(video);
+    assert.equal(videosOn(env, 2).length, 0);
+    assert.equal(videosOn(env, 3).length, 1, "works still on the wall keep theirs");
+
+    env.Archive.setQuery({});
+    await settle();
+    assert.equal(videosOn(env, 2).length, 1);
+    assert.equal(videosOn(env, 2)[0].getAttribute("src"), "/api/assets/20/content");
+});
+
+test("deleting a video work releases its video", async () => {
+    const env = setup(videoLibrary([3, 2]));
+    await settle();
+    const video = videosOn(env, 3)[0];
+    await deleteFromWall(env, 3);
+    assertReleased(video);
+});
+
+test("leaving the viewer stops the video and releases it", async () => {
+    const env = setup(videoLibrary([2, 1]));
+    await settle();
+    env.Gallery.openViewer(2);
+    await settle();
+    const video = env.ids["sv-video"];
+    assert.equal(video.hidden, false);
+    assert.equal(video.getAttribute("src"), "/api/assets/20/content");
+
+    env.ids["sv-back"].click();
+    await settle();
+    assert.equal(video.hidden, true);
+    assertReleased(video);
 });

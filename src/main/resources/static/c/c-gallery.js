@@ -84,6 +84,16 @@
 
     const hasCaption = (work) => Boolean(work.title || A.authorName(work));
 
+    // 拿下来的 <video> 仍占着解码器和连接，要清掉地址才会释放；下次上墙时 pieceFor 再放一个
+    function releaseVideo(fig) {
+        const video = fig.querySelector('.piece-video');
+        if (!video) return;
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+        video.remove();
+    }
+
     function pieceFor(work) {
         let fig = pieces.get(work.id);
         if (!fig) {
@@ -144,14 +154,16 @@
         if (p.format === 'gif') marks.appendChild(el('span', 'mark', 'GIF'));
         if (p.video) {
             marks.appendChild(el('span', 'mark', '视频'));
-            // 视频没有缩略图：叠一层静音 <video>，由浏览器显示首帧
-            const first = document.createElement('video');
-            first.className = 'piece-video';
-            first.src = p.full;
-            first.muted = true;
-            first.preload = 'metadata';
-            first.setAttribute('aria-hidden', 'true');
-            fig.querySelector('.piece-open').appendChild(first);
+            // 视频没有缩略图：叠一层静音 <video>，由浏览器显示首帧。每次重排都会走到这里，只放一个
+            if (!fig.querySelector('.piece-video')) {
+                const first = document.createElement('video');
+                first.className = 'piece-video';
+                first.src = p.full;
+                first.muted = true;
+                first.preload = 'metadata';
+                first.setAttribute('aria-hidden', 'true');
+                fig.querySelector('.piece-open').appendChild(first);
+            }
         }
         return fig;
     }
@@ -184,6 +196,8 @@
             columns[i].appendChild(pieceFor(work));
             heights[i] += colWidth * (p.height / p.width) + (roomy && hasCaption(work) ? 26 : 0) + gap;
         });
+        // 换了条件后，不在结果里的卡片留在 pieces 里备用，视频不留
+        pieces.forEach((fig) => { if (!fig.isConnected) releaseVideo(fig); });
         paintSelection();
         renderStatus();
         fx('playWall', before);
@@ -831,6 +845,7 @@
         const at = index >= 0 ? index : onViewer && v.anchor != null ? v.anchor : -1;
         const fig = pieces.get(id);
         const hadFocus = !!fig && fig.contains(document.activeElement);
+        if (fig) releaseVideo(fig);
         pieces.delete(id);
         state.selected.delete(id);
         if (state.focusId === id) state.focusId = null;

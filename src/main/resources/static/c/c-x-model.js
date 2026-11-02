@@ -5,13 +5,18 @@
 (function (root) {
     'use strict';
 
-    // 官方价目：应用属于授权账号本人时，读取自己的点赞 US$0.001 / 条（2026-10）。以开发者控制台为准
+    // 官方价目：授权用户同时是应用所有者时，读取自己的点赞 US$0.001 / 条（2026-11 核对）。以开发者控制台为准
     const OWNED_READ_USD = 0.001;
 
     const usd = (amount) => 'US$' + (amount < 0.01 ? amount.toFixed(3) : amount.toFixed(2));
 
     function costEstimate(items) {
         return usd(items * OWNED_READ_USD);
+    }
+
+    // 官方没有写明 /users/me 的单价，也会调价，所以这里只说上限和以谁为准，不说一定是多少
+    function syncCost(scanBudget) {
+        return `每次同步最多读取 ${scanBudget} 条点赞。授权账号就是应用所有者时约 ${costEstimate(scanBudget)}，否则单价可能更高；确认账号身份的读取另计，官方没有写明单价。价格可能调整，实际费用以 X 开发者控制台为准。`;
     }
 
     function upstreamProblem(status) {
@@ -38,7 +43,10 @@
         let problem = null;
         if (report.partial) {
             const reason = [recent.stopReason, history.stopReason];
-            if (reason.includes('INVALID_TOKEN')) problem = '同步进度已失效，需要重置后重新衔接。已保存的收藏不受影响。';
+            if (reason.includes('ACCOUNT_MISMATCH')) {
+                return { headline: '这次没有读取收藏', detail: '', problem: '当前登录的 X 账号不能继续这份同步进度。已保存的收藏不受影响。' };
+            }
+            if (reason.includes('INVALID_TOKEN') || reason.includes('INVALID_CHECKPOINT')) problem = '同步进度已失效，需要重置后重新衔接。已保存的收藏不受影响。';
             else if (reason.includes('API_FAILURE')) problem = upstreamProblem(recent.upstreamStatus ?? history.upstreamStatus);
             else if (reason.includes('API_PARTIAL')) problem = 'X 这次只返回了部分数据，进度保留，下次会重试。';
             else problem = '这次同步没有全部完成，进度已保存，可以再试一次。';
@@ -50,6 +58,102 @@
             detail: parts.join('，') + (parts.length ? '。' : '') + (!problem && more ? '更早的收藏还没取完，再同步一次会接着往下。' : ''),
             problem
         };
+    }
+
+    /*
+     * 同步进度需要用户处理时的说明和可选操作，账号问题优先：弄清进度属于谁之前，失效的游标也无从谈起。
+     * 这些操作都不读取 X，也不会自动同步。重新扫描要等用户点“同步”，读到的内容同样计费。
+     * 重置历史进度时后端会把近期进度一起从头安排，所以两者都失效时只需要这一个操作。
+     */
+    function recovery(progress, scanBudget = 100) {
+        if (!progress) return null;
+        const who = progress.currentAccount;
+        // 用户名可能改过，要拍板的地方连 ID 一起给出；只有 ID 时 who 本身就是它
+        const exact = progress.currentAccountId && !String(who).startsWith('ID ') ? `${who}（ID ${progress.currentAccountId}）` : who;
+        // 这个版本在画出按钮时就定下来：确认的是用户此刻看到的内容，之后状态变了服务端会拒绝
+        const seen = { confirmation: progress.accountConfirmation };
+        const limit = `每次同步最多读取 ${scanBudget} 条，约 ${costEstimate(scanBudget)}。这次操作本身不读取 X。`;
+        const restart = (label) => ({
+            url: '/api/x-import/sync/account/restart',
+            body: seen,
+            label,
+            confirmTitle: '清除旧进度，从头开始？',
+            confirmText: `会清除保存的同步进度，下次同步从 ${exact} 最新的收藏开始，一路核对到最早的一条。Inbox、作品和媒体都会保留，但重新读取的内容同样计费，可能要同步多次才能读完。${limit}`,
+            confirmLabel: '从头开始',
+            doneHead: '同步进度已清除',
+            doneDetail: `这次没有读取 X。准备好后点“同步”，从 ${who} 最新的收藏开始。`
+        });
+        if (progress.accountStatus === 'CHANGED') {
+            return {
+                title: `当前登录的 ${who} 不是这份进度的账号`,
+                detail: '所以这次没有读取收藏，保存的进度也没有变化。如果是登录错了，到设置里重新连接原来的账号即可接着同步。确实要换账号时，才需要清除旧进度。Inbox、作品和媒体都会保留。',
+                actions: [restart('确认更换账号，从头开始')]
+            };
+        }
+        if (progress.accountStatus === 'UNATTRIBUTED') {
+            return {
+                title: `这份同步进度是 ${who} 的吗？`,
+                detail: `这份进度保存时还没有记录账号，所以这次没有读取收藏。如果 ${who} 就是以前同步用的账号，确认后接着用旧进度，不用重新扫描。不确认就什么都不会变。`,
+                actions: [{
+                    url: '/api/x-import/sync/account/adopt',
+                    body: seen,
+                    label: `是 ${who}，继续用旧进度`,
+                    confirmTitle: `确认 ${who} 是以前同步用的账号？`,
+                    confirmText: `确认后，${exact} 会接着这份旧进度读取。如果其实是别的账号，保存的位置就和它的收藏对不上，所以请确认后再继续。这次操作不读取 X。`,
+                    confirmLabel: '确认，继续用',
+                    doneHead: '已确认账号',
+                    doneDetail: `旧进度已归到 ${who}。这次没有读取 X，准备好后点“同步”继续。`
+                }, restart('不是，从头开始')]
+            };
+        }
+        const reset = (url, title, detail) => ({
+            title,
+            detail,
+            actions: [{
+                url,
+                label: '重置进度',
+                confirmTitle: '重置同步进度？',
+                confirmText: `${detail}${limit}`,
+                confirmLabel: '重置进度',
+                doneHead: '同步进度已重置',
+                doneDetail: '这次没有读取 X。准备好后点“同步”重新核对。'
+            }]
+        });
+        if (progress.historyStatus === 'INVALID') {
+            return reset('/api/x-import/sync/continuation/reset', '更早收藏的同步进度已失效',
+                '保存的位置已经不能继续。重置后，下次同步会从最新的收藏开始，一路核对到最早的一条。已保存的收藏和作品都会保留，但重新读取的内容同样计费，可能要同步多次才能读完。');
+        }
+        if (progress.recentStatus === 'INVALID') {
+            return reset('/api/x-import/sync/recent/reset', '最新收藏的同步进度已失效',
+                '保存的位置已经不能继续。重置后，下次同步会从最新的收藏开始，读到上次确认过的位置为止。已保存的收藏和作品都会保留，但重新读取的内容同样计费。');
+        }
+        return null;
+    }
+
+    /*
+     * 发出操作，再以服务端读回的进度为准：回执丢了但已经生效，或别的窗口先处理过，都不算失败。
+     * 账号确认例外：别的窗口也能让问题消失，所以没收到成功回执就不能说成是这次确认的结果。
+     * send() 返回错误说明（成功时为空，确认过期时为 { expired: true }），reload() 读回进度，读不到时返回 null。
+     */
+    async function runRecovery(action, send, reload) {
+        let failure;
+        try {
+            failure = await send();
+        } catch (e) {
+            failure = e.message;
+        }
+        const progress = await reload();
+        if (failure && failure.expired) {
+            return { head: '账号状态已经变化', detail: '刚才确认的内容已过期，这次没有执行。请按最新的状态重新确认。已保存的收藏不受影响。', problem: true };
+        }
+        const unknown = { head: '无法确认操作结果', detail: '重新打开这个页面可以看到实际状态。已保存的收藏不受影响。', problem: true };
+        if (!progress) return unknown;
+        const remaining = recovery(progress);
+        if (remaining && remaining.actions.some((other) => other.url === action.url)) {
+            return { head: '这次操作没有完成', detail: `${failure || '进度没有变化'}。可以再试一次，已保存的收藏不受影响。`, problem: true };
+        }
+        if (action.body && failure) return unknown;
+        return { head: action.doneHead, detail: action.doneDetail, problem: false };
     }
 
     function archiveProblem(result) {
@@ -109,10 +213,73 @@
             TIMED_OUT: '等待授权超时，请重新开始。',
             DENIED: '你在 X 上取消了授权。',
             REJECTED: 'X 没有完成授权，请重试。',
-            EXCHANGE_FAILED: 'X 没有接受这次授权。请确认 Client ID、回调地址和应用类型（Native App）都正确。',
-            NETWORK: '无法连接 X，请检查网络或下方的代理设置。'
+            EXCHANGE_FAILED: 'X 没有接受这次授权。请确认 Client ID 正确、应用类型是 Native App（Web App 和 Automated App 不能用），回调地址也完全一致。',
+            NETWORK: '无法连接 X，请检查网络或下方的代理设置。',
+            SAVE_FAILED: 'X 已同意授权，但本机没能保存，这次授权已作废。请检查磁盘空间和数据文件夹的写入权限后重试。'
         }[code] || '授权没有完成，请重试。';
     }
 
-    root.XInboxModel = { costEstimate, syncSummary, archiveAll, archiveSummary, archiveProblem, photoVariant, connectionProblem };
+    function localTime(iso) {
+        const at = new Date(iso);
+        const pad = (value) => String(value).padStart(2, '0');
+        return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`;
+    }
+
+    /*
+     * 设置页的三行状态，各说各的：配置存没存、授权连没连、真实读取成没成。
+     * 账号名只来自一次成功的同步。授权完成时还没有读过 X，这时不写任何账号。
+     */
+    function connectionSteps(connection) {
+        const { state, savedLogin } = connection.status;
+        const connected = savedLogin === 'USABLE';
+        let login;
+        if (savedLogin === 'UNUSABLE') login = { value: '本机的登录不能使用，需要重新授权', tone: 'bad' };
+        else if (connected && state === 'WAITING') login = { value: '已连接，正在重新授权', tone: 'ok' };
+        else if (connected && state === 'FAILED') login = { value: '已连接，这次重新授权没有完成', tone: 'ok' };
+        else if (connected) login = { value: '已连接', tone: 'ok' };
+        else if (state === 'WAITING') login = { value: '正在等待浏览器授权', tone: 'wait' };
+        else if (state === 'FAILED') login = { value: '这次授权没有完成', tone: 'bad' };
+        else login = { value: '未连接', tone: 'off' };
+        let check;
+        if (!connected) check = { value: '连接后，第一次同步时确认', tone: 'off' };
+        else if (connection.verifiedAt) {
+            const who = connection.verifiedAccount ? `@${connection.verifiedAccount}，` : '';
+            check = { value: `已验证：${who}${localTime(connection.verifiedAt)} 同步成功`, tone: 'ok' };
+        } else check = { value: '尚未验证：这次授权还没有同步过，账号也还没有读取', tone: 'wait' };
+        return [
+            { label: '开发者应用', ...(connection.clientId ? { value: 'Client ID 已保存在本机', tone: 'ok' } : { value: '未填写', tone: 'off' }) },
+            { label: '浏览器授权', ...login },
+            { label: '同步验证', ...check }
+        ];
+    }
+
+    function aiSteps({ saved, verifiedAt }) {
+        let check;
+        if (!saved) check = { value: '保存 Key 后，第一次分析时确认', tone: 'off' };
+        else if (verifiedAt) check = { value: `已验证：${localTime(verifiedAt)} 分析成功`, tone: 'ok' };
+        else check = { value: '尚未验证：保存不代表 Google 会接受，第一次分析时才知道', tone: 'wait' };
+        return [
+            { label: 'API Key', ...(saved ? { value: '已保存在本机', tone: 'ok' } : { value: '未保存', tone: 'off' }) },
+            { label: '分析验证', ...check }
+        ];
+    }
+
+    // X 收藏页顶部的提示；已连接时不需要。connection 为空表示状态读不到
+    function connectionCard(connection) {
+        if (!connection) return { title: '暂时读不到 X 的连接状态', text: '已保存的收藏不受影响。可以到设置查看。', action: '打开设置' };
+        const { state, failure, savedLogin } = connection.status;
+        if (savedLogin === 'USABLE') return null;
+        if (savedLogin === 'UNUSABLE') {
+            return { title: '本机保存的 X 登录不能使用', text: '它可能来自开发版，或文件已经损坏。重新授权后才能同步，已保存的收藏不受影响。', action: '去重新授权' };
+        }
+        if (state === 'WAITING') return { title: '正在等待浏览器授权', text: '在浏览器里完成后，这里会自动更新。', action: '查看进度' };
+        if (state === 'FAILED') return { title: '上次授权没有完成', text: connectionProblem(failure), action: '去处理' };
+        return {
+            title: '连接 X 账号后才能同步收藏',
+            text: 'X 收藏是可选功能，本地图库不需要它。连接时使用你自己的 X 开发者应用，读取按量计费，费用记在你的开发者账号上。',
+            action: connection.clientId ? '去授权' : '去设置'
+        };
+    }
+
+    root.XInboxModel = { costEstimate, syncCost, syncSummary, recovery, runRecovery, archiveAll, archiveSummary, archiveProblem, photoVariant, connectionProblem, connectionSteps, aiSteps, connectionCard };
 })(typeof window !== 'undefined' ? window : globalThis);

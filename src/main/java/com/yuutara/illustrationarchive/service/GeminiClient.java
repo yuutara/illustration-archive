@@ -39,6 +39,9 @@ public class GeminiClient {
 			"(?i)(authorization|x-goog-api-key|GEMINI_API_KEY|inline_?data|system_?instruction|data:image/|\"(?:contents|generationConfig)\"\\s*:)");
 	private static final Pattern LONG_BASE64 = Pattern.compile("[A-Za-z0-9+/]{80,}={0,2}");
 	private static final String MODEL = "gemini-3.1-flash-lite";
+	private static final String DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com";
+	/** The page matches on 到设置检查 to offer the way there. */
+	static final String KEY_REJECTED = "Gemini 拒绝了这次请求，可能是 API Key 无效或已被停用、项目没有权限或结算有问题，也可能是所在地区不受支持。请到设置检查。";
 	private static final String IMAGE_PREFIX = "data:image/jpeg;base64,";
 	private static final int MAX_INLINE_REQUEST_BYTES = 20_000_000;
 	private static final String PROMPT = """
@@ -76,34 +79,37 @@ public class GeminiClient {
 	private final Supplier<String> apiKey;
 	private final String model;
 	private final int timeoutSeconds;
+	private final String baseUrl;
 
 	@Autowired
 	public GeminiClient(ObjectMapper mapper,
 			@Value("${ai.analysis.enabled:false}") boolean enabled,
 			GeminiKeyStore keys,
 			@Value("${gemini.model:gemini-3.1-flash-lite}") String model,
-			@Value("${ai.analysis.timeout-seconds:90}") int timeoutSeconds) {
-		this(new LazyHttpClient(), mapper, enabled, keys::apiKey, model, timeoutSeconds);
+			@Value("${ai.analysis.timeout-seconds:90}") int timeoutSeconds,
+			@Value("${gemini.base-url:" + DEFAULT_BASE_URL + "}") String baseUrl) {
+		this(new LazyHttpClient(), mapper, enabled, keys::apiKey, model, timeoutSeconds, baseUrl);
 	}
 
 	GeminiClient(HttpClient http, ObjectMapper mapper, boolean enabled, String apiKey, String model, int timeoutSeconds) {
-		this(() -> http, mapper, enabled, () -> apiKey, model, timeoutSeconds);
+		this(() -> http, mapper, enabled, () -> apiKey, model, timeoutSeconds, DEFAULT_BASE_URL);
 	}
 
 	private GeminiClient(Supplier<HttpClient> http, ObjectMapper mapper, boolean enabled, Supplier<String> apiKey, String model,
-			int timeoutSeconds) {
+			int timeoutSeconds, String baseUrl) {
 		this.http = http;
 		this.mapper = mapper;
 		this.enabled = enabled;
 		this.apiKey = apiKey;
 		this.model = model;
 		this.timeoutSeconds = timeoutSeconds;
+		this.baseUrl = baseUrl.replaceAll("/+$", "");
 	}
 
 	public void checkAvailable() {
 		if (!enabled || apiKey.get().isBlank() || !MODEL.equals(model) || timeoutSeconds < 1) {
 			throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-					"免费 AI 分析未启用或后端配置未完成。");
+					"AI 分析未启用或后端配置未完成。");
 		}
 	}
 
@@ -127,7 +133,7 @@ public class GeminiClient {
 			throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
 					"这组图片合起来太大，暂时无法一次分析。可改用较小版本重新导入。");
 		}
-		var request = HttpRequest.newBuilder(URI.create("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent"))
+		var request = HttpRequest.newBuilder(URI.create(baseUrl + "/v1beta/models/" + model + ":generateContent"))
 				.timeout(Duration.ofSeconds(timeoutSeconds)).header("x-goog-api-key", apiKey.get())
 				.header("Content-Type", "application/json").header("Accept", "application/json")
 				.POST(HttpRequest.BodyPublishers.ofByteArray(requestBody)).build();
@@ -284,11 +290,15 @@ public class GeminiClient {
 	}
 
 	private ResponseStatusException upstreamFailure(int status) {
-		if (status == 429) return new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "免费模型额度/速率限制，请稍后再试。");
+		if (status == 429) return new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "已达到 Gemini 的额度或速率限制，请稍后再试。");
 		if (status == 404 || status == 503 || status >= 500 && status != 502 && status != 504) {
-			return new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "免费 AI 分析暂不可用。");
+			return new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "AI 分析暂不可用。");
 		}
 		if (status == 504 || status == 408) return new ResponseStatusException(HttpStatus.GATEWAY_TIMEOUT, "AI 分析超时，请稍后再试。");
-		return new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Gemini 请求失败，请检查后端配置或稍后再试。");
+		// Google's troubleshooting guide groups invalid keys, billing and bad requests under these codes without saying which is which.
+		if (status == 400 || status == 401 || status == 402 || status == 403) {
+			return new ResponseStatusException(HttpStatus.BAD_GATEWAY, KEY_REJECTED);
+		}
+		return new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Gemini 请求失败，请稍后再试。");
 	}
 }

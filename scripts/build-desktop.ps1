@@ -97,6 +97,8 @@ try {
         -jar (Join-Path $appDir $jar.Name) --train-class-data
     if ($LASTEXITCODE -ne 0) { throw 'Class data training failed.' }
 
+    & (Join-Path $PSScriptRoot 'check-desktop-package.ps1') -Image $image
+
     $zip = Join-Path $dist 'IllustrationArchive-win64.zip'
     Remove-Item $zip -Force -ErrorAction SilentlyContinue
     Compress-Archive -Path $image -DestinationPath $zip

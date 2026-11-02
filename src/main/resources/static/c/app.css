@@ -22,7 +22,12 @@
 .x-connect[hidden] { display: none; }
 .x-connect h2 { margin: 0; color: var(--ink); font: 600 14px/1.5 var(--sans); }
 .x-connect p { grid-row: 2; margin: 0; color: var(--muted); font-size: 13px; }
-.x-connect .btn { grid-row: 1 / span 2; grid-column: 2; text-decoration: none; }
+.x-connect > .btn { grid-row: 1 / span 2; grid-column: 2; text-decoration: none; }
+/* 说明比“去连接”长得多，按钮又可能带账号名：文字占满宽度，按钮排在下面，放不下就换行 */
+.x-recovery { grid-template-columns: minmax(0, 1fr); }
+.x-recovery :is(h2, p) { overflow-wrap: anywhere; }
+.x-recovery-actions { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; margin-top: 10px; }
+.x-recovery-actions .btn { max-width: 100%; height: auto; min-height: 34px; padding-block: 6px; text-align: left; white-space: normal; overflow-wrap: anywhere; }
 
 .x-loading { color: var(--muted); font-size: 14px; }
 /* 按行排列：整理时从左到右读，和键盘顺序一致 */
@@ -82,7 +87,16 @@
 .set-section p { margin: 0 0 8px; color: var(--ink-2); font-size: 14px; line-height: 1.6; }
 .set-section .set-note { color: var(--muted); font-size: 13px; }
 .set-section .set-error { color: var(--danger); font-size: 13px; }
-.set-section .set-ok { color: var(--accent-text); font-weight: 600; }
+.set-steps { display: grid; gap: 2px; margin: 4px 0 12px; }
+.set-step { display: grid; grid-template-columns: 6em minmax(0, 1fr); gap: 12px; font-size: 13px; line-height: 1.6; }
+.set-step dt { color: var(--muted); }
+.set-step dd { margin: 0; color: var(--ink-2); overflow-wrap: anywhere; }
+.set-step[data-tone="ok"] dd { color: var(--accent-text); }
+.set-step[data-tone="off"] dd { color: var(--muted); }
+.set-step[data-tone="bad"] dd { color: var(--danger); }
+.set-guide { margin: 0 0 10px; }
+.set-guide summary { color: var(--accent-text); font-size: 13px; line-height: 1.8; cursor: pointer; }
+.set-guide[open] summary { margin-bottom: 6px; }
 .set-section ol { margin: 8px 0 12px; padding-left: 20px; color: var(--ink-2); font-size: 14px; line-height: 1.8; }
 .set-section a { color: var(--accent-text); }
 .set-section code { padding: 1px 5px; border-radius: 4px; color: var(--ink); background: var(--paper-2); font: 13px/1.5 Consolas, monospace; }

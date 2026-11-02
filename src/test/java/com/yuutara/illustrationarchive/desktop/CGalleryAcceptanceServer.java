@@ -10,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
 
@@ -24,6 +25,12 @@ import java.util.concurrent.locks.LockSupport;
  * {@code -Dc.acceptance.inbox=<n>} also fills the X Inbox with n made-up Posts whose images are local works,
  * so X 收藏 can be reviewed without any X account. Archiving them fails at the download step by design: the
  * downloader only accepts X's CDN, which makes this the way to see a failed archive.
+ * {@code -Dc.acceptance.syncState=<recent-invalid|history-invalid|both-invalid|account-changed|unattributed>} writes
+ * that sync progress into an empty home, so each recovery on X 收藏 can be reviewed. None of them reads X: the home
+ * has no credentials, and the recovery actions only touch the local database.
+ * {@code -Dc.acceptance.fakeIntegrations=true} points X and Gemini at {@link FakeIntegrations} on loopback, so Settings
+ * can be taken through authorize, sync and analyze with made-up values; {@code <home>/acceptance-fakes.txt} lists them.
+ * The server is headless, so no browser opens by itself: the authorize link is copied from Settings.
  */
 @EnabledIfSystemProperty(named = "c.acceptance.home", matches = ".+")
 class CGalleryAcceptanceServer {
@@ -34,8 +41,15 @@ class CGalleryAcceptanceServer {
 		Files.createDirectories(home);
 		Path stop = home.resolve("acceptance-stop");
 		Files.deleteIfExists(stop);
-		DesktopServer.Running running = DesktopServer.start(home, 0, true);
+		FakeIntegrations fakes = Boolean.getBoolean("c.acceptance.fakeIntegrations") ? new FakeIntegrations() : null;
+		DesktopServer.Running running = DesktopServer.start(home, 0, true, fakes == null ? Map.of() : fakes.overrides());
 		try {
+			if (fakes != null) {
+				Files.writeString(home.resolve("acceptance-fakes.txt"), "base=" + fakes.baseUrl() + "\nanyClientId=fake-client-id"
+						+ "\nrejectedClientId=" + FakeIntegrations.REJECTED_CLIENT + "\ngoodKey=" + FakeIntegrations.GOOD_KEY
+						+ "\nquotaKey=" + FakeIntegrations.QUOTA_KEY + "\nanyOtherKey=refused\naccount=" + FakeIntegrations.ACCOUNT
+						+ "\n", StandardCharsets.UTF_8);
+			}
 			JdbcTemplate jdbc = new JdbcTemplate(running.context().getBean(DataSource.class));
 			int existing = jdbc.queryForObject("SELECT COUNT(*) FROM illustration", Integer.class);
 			if (existing == 0 && !"false".equals(System.getProperty("c.acceptance.seed"))) {
@@ -51,6 +65,7 @@ class CGalleryAcceptanceServer {
 						+ "\n", StandardCharsets.UTF_8);
 			}
 			seedInbox(jdbc, Integer.getInteger("c.acceptance.inbox", 0));
+			seedSyncState(jdbc, System.getProperty("c.acceptance.syncState"));
 			Files.writeString(home.resolve("acceptance-session.txt"), running.sessionUri() + "\n", StandardCharsets.UTF_8);
 			Instant deadline = Instant.now().plus(Duration.ofHours(2));
 			while (!Files.exists(stop) && Instant.now().isBefore(deadline)) {
@@ -58,8 +73,27 @@ class CGalleryAcceptanceServer {
 			}
 		} finally {
 			running.context().close();
+			if (fakes != null) fakes.close();
 			Files.deleteIfExists(home.resolve("acceptance-session.txt"));
 			((ch.qos.logback.classic.LoggerContext) org.slf4j.LoggerFactory.getILoggerFactory()).reset();
+		}
+	}
+
+	private static void seedSyncState(JdbcTemplate jdbc, String scenario) {
+		if (scenario == null || jdbc.queryForObject("SELECT COUNT(*) FROM x_like_sync_state", Integer.class) > 0) {
+			return;
+		}
+		boolean recentInvalid = scenario.equals("recent-invalid") || scenario.equals("both-invalid");
+		boolean historyInvalid = scenario.equals("history-invalid") || scenario.equals("both-invalid");
+		jdbc.update("INSERT INTO x_like_sync_state (id, next_token, max_results, status, updated_at) VALUES (1, ?, 25, ?, CURRENT_TIMESTAMP)",
+				historyInvalid ? null : "acceptance-history", historyInvalid ? "INVALID" : "ACTIVE");
+		jdbc.update("INSERT INTO x_like_sync_state (id, next_token, max_results, status, updated_at, matched_count, order_next, order_floor,"
+				+ " coverage_to_end) VALUES (2, 'acceptance-recent', 25, ?, CURRENT_TIMESTAMP, 0, 100000, 0, FALSE)",
+				recentInvalid ? "INVALID" : "ACTIVE");
+		if (scenario.equals("account-changed") || scenario.equals("unattributed")) {
+			boolean changed = scenario.equals("account-changed");
+			jdbc.update("INSERT INTO x_like_sync_account (id, owner_x_user_id, observed_x_user_id, observed_x_username, updated_at)"
+					+ " VALUES (1, ?, '200', ?, CURRENT_TIMESTAMP)", changed ? "100" : null, changed ? "another_account" : "my_account");
 		}
 	}
 

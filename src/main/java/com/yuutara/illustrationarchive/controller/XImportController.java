@@ -6,6 +6,7 @@ import com.yuutara.illustrationarchive.dto.XLikeSyncReport;
 import com.yuutara.illustrationarchive.service.XApiException;
 import com.yuutara.illustrationarchive.service.XLikeSyncService;
 import com.yuutara.illustrationarchive.service.XImportService;
+import com.yuutara.illustrationarchive.service.XSyncConfirmationExpiredException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -59,6 +60,18 @@ public class XImportController {
 		return ResponseEntity.noContent().build();
 	}
 
+	@PostMapping("/sync/account/adopt")
+	public ResponseEntity<Void> adoptProgress(@RequestBody AccountConfirmation request) {
+		syncService.adoptProgress(request.confirmation());
+		return ResponseEntity.noContent().build();
+	}
+
+	@PostMapping("/sync/account/restart")
+	public ResponseEntity<Void> restartForRefusedAccount(@RequestBody AccountConfirmation request) {
+		syncService.restartForRefusedAccount(request.confirmation());
+		return ResponseEntity.noContent().build();
+	}
+
 	@GetMapping("/inbox")
 	public XLikeInboxPage inbox(@RequestParam(required = false) Integer page,
 			@RequestParam(required = false) Integer size) {
@@ -80,6 +93,12 @@ public class XImportController {
 		return ResponseEntity.badRequest().body(new ApiError("INVALID_REQUEST", null, exception.getMessage()));
 	}
 
+	@ExceptionHandler(XSyncConfirmationExpiredException.class)
+	public ResponseEntity<ApiError> confirmationExpired(XSyncConfirmationExpiredException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+				.body(new ApiError("CONFIRMATION_EXPIRED", null, exception.getMessage()));
+	}
+
 	@ExceptionHandler(XApiException.class)
 	public ResponseEntity<ApiError> xApiFailure(XApiException exception) {
 		Integer upstreamStatus = exception.upstreamStatus();
@@ -98,5 +117,8 @@ public class XImportController {
 	}
 
 	public record SkipRequest(List<Long> itemIds) {
+	}
+
+	public record AccountConfirmation(String confirmation) {
 	}
 }

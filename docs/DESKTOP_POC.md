@@ -17,7 +17,7 @@ IllustrationArchive.exe (jpackage 启动器 + 自带 Java 21 运行时)
             ├─ instance.lock 单实例锁
             ├─ DesktopServer.start(home)  → Spring profile "desktop"
             │    ├─ 文件型 H2：<home>\data\archive.mv.db（MODE=MySQL, IGNORECASE）
-            │    ├─ Flyway：classpath:db/migration-h2（V1–V7 的 H2 等价版本）
+            │    ├─ Flyway：classpath:db/migration-h2（V1–V8 的 H2 等价版本）
             │    ├─ 媒体：<home>\media（数据库仍只存相对 storage_key）
             │    ├─ Tomcat 只监听 127.0.0.1（默认 47391，被占用时随机端口）
             │    └─ LocalAccessFilter：启动令牌 → SameSite=Strict Cookie
@@ -32,7 +32,7 @@ IllustrationArchive.exe (jpackage 启动器 + 自带 Java 21 运行时)
 ### 关键设计
 
 - **配置隔离**：所有隔离相关属性由 `DesktopServer` 以命令行参数传入（最高优先级）。原因是 `X_API_ENABLED`、`AI_ANALYSIS_ENABLED`、`SPRING_DATASOURCE_URL` 等环境变量经宽松绑定会覆盖 profile 文件。`spring.config.import` 改为 `${illustration-archive.local-config:./config/application-local.properties}`：MySQL 模式默认值不变，桌面模式指向 `<home>\config\desktop.properties`（可选，默认不存在），因此不会读取 `./config/application-local.properties`。
-- **H2 迁移**：V2/V4/V6/V7 使用了 H2 不支持的 MySQL 多子句 `ALTER TABLE`，所以 `db/migration-h2` 提供语义等价的 V1–V7，未改动任何已应用的 MySQL migration。MySQL `TEXT` 映射为 `VARCHAR(65535)`，使 `IGNORECASE` 生效，保持与 `utf8mb4_unicode_ci` 一致的大小写不敏感搜索和标签唯一性。**代价：若保留桌面 PoC，后续每个 schema 变更都要同时写一份 H2 版本。**
+- **H2 迁移**：V2/V4/V6/V7 使用了 H2 不支持的 MySQL 多子句 `ALTER TABLE`，所以 `db/migration-h2` 提供语义等价的版本（现为 V1–V8），未改动任何已应用的 MySQL migration。MySQL `TEXT` 映射为 `VARCHAR(65535)`，使 `IGNORECASE` 生效，保持与 `utf8mb4_unicode_ci` 一致的大小写不敏感搜索和标签唯一性。**代价：若保留桌面 PoC，后续每个 schema 变更都要同时写一份 H2 版本。**
 - **Repository 唯一改动**：H2 对 `RETURN_GENERATED_KEYS` 会把带默认值的列（`created_at` 等）一起作为生成键返回，`KeyHolder.getKey()` 因此失败。Illustration / Asset / Author / Tag 的插入改为按列名 `{"id"}` 取键；MySQL Connector/J 同样支持该写法。X 相关 Repository 不在 PoC 范围内，未改动（其中仍有 `UTC_TIMESTAMP` 等 MySQL 专用 SQL）。
 - **本机访问保护**（无用户鉴权的前提下）：
   - 只绑定 `127.0.0.1`，局域网不可达；
@@ -155,6 +155,8 @@ Codex 只读 Review 指出两点，均只改 `DesktopServer` 的桌面启动参�
 ```powershell
 .\mvnw.cmd '-Dmaven.repo.local=C:\Users\YuanYuChou\.m2\repository' '-Dtest=CGalleryAcceptanceServer' '-Dsurefire.failIfNoSpecifiedTests=false' '-DargLine=-Djava.io.tmpdir=D:\IdeaProjects\illustration-archive\target\test-temp -Djdk.net.unixdomain.tmpdir=D:\IdeaProjects\illustration-archive\target\test-temp -Dc.acceptance.home=D:\ClaudeProjects\2026-10-28\c-gallery-acceptance' test
 ```
+
+再加 `-Dc.acceptance.inbox=14` 会造假 Inbox；加 `-Dc.acceptance.syncState=recent-invalid`（或 `history-invalid`、`both-invalid`、`account-changed`、`unattributed`）会写入对应的同步进度，用于验收 X 收藏页的恢复入口。目录里没有 X 凭据，这些入口也只改本地数据库，不会访问 X。换一种状态要换一个新目录。
 
 用真实桌面启动器体验同一份验收图库：`mvnw package -DskipTests` 后，设置 `ILLUSTRATION_ARCHIVE_DESKTOP_HOME` 指向该目录，再 `java -Dillustration-archive.desktop=true -jar target\illustration-archive-0.0.1-SNAPSHOT.jar`。
 
@@ -363,11 +365,12 @@ Codex 只读 Review 指出两点，均只改 `DesktopServer` 的桌面启动参�
 
 ### X
 
-- 流程：设置页提交 Client ID → `XAuthorizationService` 绑定回调端口、生成 `state` 与 PKCE S256、用默认浏览器打开授权页 → 回调校验 `state` → `XTokenManager.connect` 换 token 并写入 `<home>\config\x-oauth-tokens.properties`。
+- 流程：设置页提交 Client ID → `XAuthorizationService` 绑定回调端口、生成 `state` 与 PKCE S256、用默认浏览器打开授权页 → 回调校验 `state` → `XTokenManager.exchange` 换 token → 这次登录仍是当前尝试时才 `install` 写入 `<home>\config\x-oauth-tokens.properties`，否则撤销（状态关系见 [DESKTOP_ROADMAP.md](DESKTOP_ROADMAP.md#x-登录用户自己的开发者应用--pkce)）。
+- 回调在虚拟线程上处理：放在 `HttpServer` 的调度线程上时，换 token 期间端口释放不掉，重新开始会报端口被占用。
 - 伪造或无关的回调返回 400，不结束正在进行的登录。五分钟超时、取消、端口被占用、用户拒绝、X 拒绝、网络失败都有各自的说明。
 - 公开客户端刷新：凭据文件带 `client_id` 时，刷新只发 `client_id`、不带 Authorization 头。文件里没有 `client_id` 时走原来的机密客户端逻辑，MySQL 方式不变。
 - 断开：先删本机 token，再通知 X 撤销；通知失败时如实提示，可到 X 的“已连接的应用”撤销。
-- `x.api.base-url` 由 `DesktopServer` 固定为官方地址，环境变量改不了；测试经 `start(..., overrides)` 指向假 X。token 地址由它派生。
+- `x.api.base-url`、`illustration-archive.desktop.x-authorize-url`、`gemini.base-url` 由 `DesktopServer` 固定为官方地址，环境变量和本地配置都改不了；只有测试能经 `start(..., overrides)` 指向假服务。token 地址由 `x.api.base-url` 派生。
 - 代理：启动器设 `java.net.useSystemProxies=true`，`DesktopProxySelector` 在其上叠加设置页的手动代理，改动立即生效（JDK HttpClient 只在创建时读一次默认选择器，所以选择器本身是可变的）。回环地址永不走代理。
 
 ### MySQL 数据迁移（2026-10-30）
@@ -542,9 +545,81 @@ Codex 只读 Review 指出两点，均只改 `DesktopServer` 的桌面启动参�
 - **模型**（`c-deck-model.js`，纯函数）：连续位置 `t` 是“看到第几页”。每张牌的姿态只由它和 `t` 的差 `r` 决定，没有方向状态，往回拖就是倒放同一段动画。`r = ±1` 是右边的下一页和左边的上一页，所以换方向不用换底牌；`|r| = 0.5` 时两张牌分开超过一个卡宽，此时交换前后看不到穿插；其余页收在中间最底下，从这里转到另一侧。两张图时只有一个露出位置，`r = 1` 与 `r = -1` 姿态相同，绕圈时不跳。顶牌走到顶点的 80% 前 1:1 跟手，之后柔和减速。
 - **手势**（`fx.js`）：`dragDeck` 只是 `t = t0 - dx / 每页像素`，长拖可以连续翻多页。`restingPage` 只在松手时按位置和速度选页：甩动顺着速度走，反向甩就是撤销，连着甩一下一页，否则过 28% 卡宽（至少 56 px）才翻页。牌在动时按下立即接管，不等手移动，从当前的 `t` 接着算；不移动就松手，继续去原来的终点。
 - **验证**：JS 全量通过，新增 `c-deck-model.test.js`，覆盖同一 `t` 同一画面、任意相邻位置都不跳（2 / 3 / 4 / 5 / 8 张，跨起点和绕圈）、1:1 跟手、换方向底牌不变、不重叠时才换前后、角标与最前的牌一致、松手规则。`dist\round9` 上用真实 WebView2 和 CDP 可信鼠标事件：往返 98 步手与牌偏差 0 px、没有卡住的步数；2 / 3 / 4 张图各 9 条路径共 27 条全过（左拖回起点再右拖、不松手连续四圈、慢拖反悔、快甩、松手前反向甩、动画中抓住后拖回、动画中抓住后直接松手、连续快甩），逐帧记录的错页帧、空白帧、角标不一致都是 0，最终页码全部符合预期。**真实鼠标的手感和真实图库上的观感待用户验收。**
+- **旋转后的实际范围（2026-11-01 修正）**：上面“分开超过一个卡宽”只比了牌心距离，没算旋转。竖图 H/W = 1.4 时两张牌的底角在交换时还重叠约 25 px，越细长越多；4 张及以上时，第 3、4 张也恰好在两张牌分开时互换前后，从中间的楔形缺口能看到。现在分开距离按转过之后的外框算（`(W cos θ + H sin θ) / 2 + 2 px`，θ 固定 6.25°），所以每页手要走的距离随卡片高度增加（240 × 336 的卡片从 278 px 变为约 310 px），手和牌仍是 1:1。`|r|` 从 1 到 1.5 时下层的牌淡出，到互换时已看不见；交换点附近抬起的影子收进牌内，否则影子会翻到另一张牌上。整页时上一页和下一页互换前后，这时只有顶边一道不到 3 px 高的窄条看得出，是静止位置决定的，保留。
+- **最右列横向溢出（2026-11-01）**：Codex 复审发现，最右列的牌拖到最开时页面变宽（2245 → 2373 px），横向滚动条随拖动出现，可视高度少 17 px。旧版也有（溢出 116 px），分开距离变大后是 128 px。`.wall-wrap` 改为 `overflow-x: clip`：牌伸到窗口边就被裁掉，不再撑宽页面；不用 `hidden`，因为它会让纵向也变成滚动容器。
+
+## 配置与连接收尾（2026-11-02）
+
+本地图库开箱即用，X 与 AI 按需配置。状态怎么分、为什么没有“测试连接”，见 [路线文档](DESKTOP_ROADMAP.md#配置的三种状态)。
+
+### 配置从哪来
+
+| | 开发版（MySQL） | 桌面版 |
+| --- | --- | --- |
+| 本地配置文件 | `./config/application-local.properties`（可选，相对启动目录），环境变量优先 | `<home>\config\desktop.properties`（可选），但 X、Gemini、数据库、存储都被命令行参数固定，这个文件改不了它们 |
+| X 凭据 | `X_OAUTH_CLIENT_ID` + `X_OAUTH_CLIENT_SECRET`，机密客户端 | 设置页的 Client ID，存 `<home>\config\settings.properties`；固定不用 Secret |
+| X token | `./config/x-oauth-tokens.properties`（`x.oauth.credential-file` 可改），没有 `client_id` | `<home>\config\x-oauth-tokens.properties`，带 `client_id` 和 `login_id`，刷新时不用 Secret |
+| Gemini Key | `GEMINI_API_KEY`，`AI_ANALYSIS_ENABLED` 控制开关 | 设置页保存到 `<home>\config\gemini-key.txt`，环境变量和配置文件都不读，无需重启 |
+
+命令行参数是最高优先级的属性来源，所以环境变量进不来。`<home>` 默认是 `%LOCALAPPDATA%\IllustrationArchive`。两边互不读取，也不自动导入。`config` 里的文件没有加密。
+
+### 旧配置能否复用
+
+| 项目 | 结论 | 条件 |
+| --- | --- | --- |
+| Gemini Key | 可以，到设置页粘贴一次 | Key 没被停用，且符合 Google 现行的 Key 限制；所在地区、项目额度也要满足。第一次分析才知道 |
+| X Client ID | 不一定 | 只有应用类型是 Native App、回调地址 `http://127.0.0.1:47392/x/callback` 已加入时才兼容。只有 Client ID 判断不了 |
+| X Client Secret | 不用 | 桌面版不用；旧配置同时有 Secret，说明旧应用很可能是机密客户端，不能走 PKCE 公开客户端流程 |
+| 旧 X token | 不能 | 属于机密客户端，桌面版没有 Secret，刷新不了；也不要手工复制，刷新时可能轮换，影响开发版 |
+
+沿用同一个 X 账号时，换应用不影响同步进度：进度按 X 用户 ID 归属，不按 Client ID。
+
+### 改动
+
+- **状态拆开**：`Status` 增加 `savedLogin`（`NONE` / `USABLE` / `UNUSABLE`）。`state` 说这次登录，`savedLogin` 说磁盘上有什么。原来“重新授权等待中 / 失败”时 X 收藏把已有连接当成未连接，并隐藏“同步”。
+- **不能用的 token 不再显示已连接**：以前只看文件是否存在。现在损坏的文件和没有 `client_id` 的开发版 token 都算 `UNUSABLE`，移除时不联系 X。
+- **验证记录**：`IntegrationEvidence`，桌面版由 `DesktopEvidence` 写入 `settings.properties`，每条记录写明证明的是哪份凭据（`x.verified-login`、`ai.verified-key`）。只有完整成功的同步和分析才写，设置页的账号名只来自这里。
+- **验证记录绑定凭据（Codex 复审 P2）**：原来靠换凭据后删除记录，`settings.properties` 单独写不进去时旧记录留了下来。现在读取时比对：`XTokenManager.install` 给每次登录生成 `login_id`，和 token 同一次原子写入，刷新时保留；Key 用 SHA-256 前 16 字节的指纹，不保存 Key 本身。对不上就不返回，不依赖删除成功，重启读到旧记录也一样。没有绑定信息的旧记录不显示。操作开始时取当前身份，结束时身份变了就不记，既不能为新凭据作证，也不能覆盖新凭据已有的记录。两种写入失败分开处理：记录成功写不进去，只记日志，操作本身仍算成功，下次真实成功再记；删除旧记录失败，也只记日志，它已经不算数，下次写入时覆盖。新凭据的保存不受设置文件影响。
+- **保存失败**：`UncheckedIOException` 转成明确的 500 提示，输入保留可重试；`DesktopSettings` 写失败时内存回滚，读回的就是磁盘上的值。Client ID 先保存再结束旧尝试，保存失败不影响进行中的授权。X 已签发但本机存不下的 token 报 `SAVE_FAILED` 并撤销，原来误报为网络问题，且 token 不撤销。
+- **设置页**：三行状态；开发者应用说明收进折叠区，只有从 X 收藏过来且没有 Client ID 时才展开；已连接时有“回到 X 收藏”“重新授权”；浏览器没打开时明说；一次只跑一个授权操作，防止连点开两个授权页。
+- **X 收藏页**：提示卡按状态显示；等待授权时自己轮询，完成后出现“同步”，不会自动同步。
+- **AI**：保存 / 替换 / 移除各有说法，保存只说“已保存在本机，尚未验证”。Gemini 拒绝请求时提示到设置检查，看图器给出入口。服务端提示去掉了“免费”和“后端配置”。
+- **隔离**：授权页和 Gemini 地址也由 `DesktopServer` 固定，测试才能换。`FakeIntegrations` 是本机模拟的 X 和 Gemini。
+- **打包**：`build-desktop.ps1` 打完包后运行 `check-desktop-package.ps1`，发现本地配置、凭据、图库、日志或内置凭据值就失败。
+
+没有 schema / migration 改动，OAuth 与同步状态机未重写。
+
+### 验证
+
+| 层 | 结果 |
+| --- | --- |
+| Java 全量 | `mvnw test`（JDK 21）502 tests，0 failures / errors，19 skipped（默认关闭的 MySQL / S3 测试） |
+| JS 全量 | `node --test` 389/389 |
+| 绑定修复 | 新增设置文件单独不可写时的换 Key、重新授权、解锁重试、重启和移除凭据测试。撤掉绑定比较（X / AI）、迟到结果检查（X / AI）、刷新时保留登录 ID，这 5 处撤掉任一处，相关测试都失败。迟到结果检查第一次撤掉时测试没有失败，补了“不能覆盖新凭据已有记录”的断言后才会失败。用真实文件占用重放 Codex 的探针：换 Key 204、回调 200、状态 CONNECTED，旧 `verifiedAt` / 账号都不再返回；解锁后新的同步和分析正常记录 |
+| 打包 | 用仓库副本构建，副本的 `config`、`data`、`media`、`storage`、`logs` 放了带标记的假凭据和假图库。包体和解压后的 zip 共 347 个文件、28654 个 jar 条目都没有这些文件，标记值也没有出现（含 `app.jsa`）。故意放入违规文件时检查会失败 |
+
+覆盖：无配置时导入、浏览、搜索、编辑且不写配置、不外连；重新授权等待 / 失败时原登录可用；开发版 token 不算已连接；保存失败与重试；重启后读取配置与验证记录；密钥不进响应、`settings.properties` 和日志；保存 Key、授权都不触发同步或分析；环境变量和 `desktop.properties` 不能提供凭据或改地址。
+
+全程只用隔离目录、假凭据和本机模拟服务。**未验证**：真实 X 授权、真实同步、真实 Gemini、原图库。
+
+### 隔离验收
+
+浏览器路径用模拟服务。服务不会自己开浏览器，授权链接从设置页复制，打开的是本机模拟页。在 Claude 的宿主里还要给 `-DargLine` 加 `-Djdk.net.unixdomain.tmpdir=<D: 路径>`。
+
+```powershell
+$h = 'D:\Temp\ia-config-20261102\acceptance-home'
+.\mvnw.cmd '-Dmaven.repo.local=C:\Users\YuanYuChou\.m2\repository' '-Dtest=CGalleryAcceptanceServer' '-Dsurefire.failIfNoSpecifiedTests=false' "-DargLine=-Dc.acceptance.home=$h -Dc.acceptance.images=24 -Dc.acceptance.inbox=8 -Dc.acceptance.fakeIntegrations=true" test
+```
+
+- 入口：`<home>\acceptance-session.txt` 是一次性地址；`<home>\acceptance-fakes.txt` 列出可用的假值。
+- 假值：任意 Client ID 走通授权，`fake-rejected-client` 被 X 拒绝；`fake-good-key` 分析成功，`fake-quota-key` 触发限额，其他 Key 被拒绝。
+- 退出：在 `<home>` 下新建 `acceptance-stop`，服务关闭并释放端口。
+
+真实窗口用打包版：`dist\acceptance-20261102-config-r2\IllustrationArchive\IllustrationArchive.exe`，启动前设 `ILLUSTRATION_ARCHIVE_DESKTOP_HOME` 指向隔离目录，从资源管理器或 `.cmd` 启动。**打包版的地址是官方的，在 EXE 里不要点“在浏览器中授权”，也不要分析作品**：前者会打开真实 x.com，后者会把图片发给 Google。
 
 ## 已知问题与后续候选
 
+- `LegacyMigrationTest` 的目录改名在 Windows 上偶发 `AccessDenied`：2026-11-02 与打包任务并行时失败一次，单独重跑 3 次和空闲时的全量都通过，判断是文件被短暂占用。真实迁移遇到时会报错退出，不会写坏数据，重试即可；这次没有改。
 - Flyway 12.4 提示 H2 2.4.240 高于其验证版本，当前功能未受影响。
 - 体积：CDS 归档约占 56 MB；可移除桌面模式用不到的 AWS SDK 依赖。
 - 未覆盖：正式安装器 / 签名、自动更新、大图库下的 H2 性能。
