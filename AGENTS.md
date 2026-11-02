@@ -72,6 +72,7 @@
 
 - Ordinary UI changes are A + B: no Codex handoff and no reminders.
 - List a Tier B item once, when it is created, in the state file's acceptance table. It never blocks the next work package. Do not repeat it in later reports unless a new change affects it. Tier B items are reviewed together before a release.
+- Tier B starts from a desktop shortcut to an isolated copy, not from a path the user has to find.
 - Tier C runs only when a change hits that row. Use Tier C for a small change only if the user asks.
 - Claude may check its own UI work on an isolated, no-auto-open server at one or two widths. That is a self-check, not acceptance, and it never closes a Tier B or C item.
 
@@ -92,7 +93,7 @@ A commit is a save point, not a claim of acceptance, so it comes before review. 
 ### New conversations
 
 - Suggest a new conversation when a package is signed off, a phase ends, the work moves between planning, development, and review, the topic is unrelated, or context has been summarized and fresh work is starting. Do not suggest one in the middle of a package.
-- Codex leads this for planning, review, and acceptance conversations. Claude raises it for development conversations and for Fast Lane work with no Codex involved.
+- Each agent judges its own current conversation against these triggers and says so when one applies, Codex included. Codex also leads the call for planning, review, and acceptance work across the project; Claude raises it for Fast Lane work with no Codex involved.
 - Give a ready-to-use name and the opening line. Name format: `R<round>.<package> <name> <规划|开发|审核|验收>`, such as `R3.1 安装器 开发`; work outside the roadmap uses `维护 <topic>`.
 - An agent that can rename its own conversation does so when the title is stale and the user did not set it by hand.
 
