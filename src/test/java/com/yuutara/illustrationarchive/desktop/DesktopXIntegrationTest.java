@@ -786,6 +786,20 @@ class DesktopXIntegrationTest {
 	}
 
 	@Test
+	void settingsShowTheVersionThePackagedAppWasBuiltWith() throws Exception {
+		DesktopServer.Running running = start();
+		String cookie = sessionCookie(running);
+		assertEquals("开发版", json(send(running, cookie, "GET", "/api/desktop/settings", null)).path("version").asText());
+
+		System.setProperty("jpackage.app-version", "9.8.7");
+		try {
+			assertEquals("9.8.7", json(send(running, cookie, "GET", "/api/desktop/settings", null)).path("version").asText());
+		} finally {
+			System.clearProperty("jpackage.app-version");
+		}
+	}
+
+	@Test
 	void aLibraryWithNoXOrAiConfigurationWorksAndNeverReachesOut() throws Exception {
 		DesktopServer.Running running = start();
 		String cookie = sessionCookie(running);

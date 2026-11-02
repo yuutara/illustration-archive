@@ -664,6 +664,36 @@ $h = 'D:\Temp\ia-config-20261102\acceptance-home'
 
 未验证：别的用户运行同名进程时读不到路径的真实权限分支（“查询失败”自动分支已测）；R3.5 的无 Java、真实缺 WebView2、离线失败与 SmartScreen。默认 C 盘实际安装按用户指示排除；B 级体验仍由用户验收。
 
+## 交付包（R3.2，2026-11-02）
+
+计划与验收出口见 [DESKTOP_ROADMAP](DESKTOP_ROADMAP.md#r32-交付包计划2026-11-02版本与协议已定)。开发方 A 级通过，待用户提交后从提交构建候选，再交 Codex C 级。
+
+```powershell
+.\scripts\build-release.ps1 -Version 0.6.0 -Commit <提交> -JavaHome "$HOME\.jdks\ms-21.0.11" -Compiler <ISCC.exe> -Bootstrapper <MicrosoftEdgeWebview2Setup.exe> -WorkDir <仓库外的新目录> -MavenArgs '-Dmaven.repo.local=C:\Users\YuanYuChou\.m2\repository'
+.\scripts\test-delivery.ps1 -WorkDir <新目录>
+```
+
+从 Claude 或 Codex 宿主里构建时，给这次进程把 `TEMP` / `TMP` 设到 D 盘，原因见[构建与运行](#构建与运行)里的 AF_UNIX 说明。产物：`<WorkDir>\delivery\IllustrationArchive-<版本>\` 是交付文件夹；`<WorkDir>\build-record.txt` 记录提交号、JDK、Inno 和 Bootstrapper 哈希，含本机信息，不交付。发新版要先改 `packaging/delivery/使用说明.txt` 第一行的版本号并提交。
+
+- **版本来源**：设置页读 `jpackage.app-version` 系统属性，由 jpackage 写进 `.cfg`，读不到时显示“开发版”。
+- **从提交构建**：`git archive` 导出到 `WorkDir\source`，构建脚本都在副本里运行，原仓库的 `target\classes` 不受影响。`build-release.ps1` 用的是工作区里这一份，其余脚本来自被导出的提交。
+- **`.gitattributes`**：`packaging/delivery/**` 固定 CRLF，所以交付的文本和构建机的 `core.autocrlf` 无关。
+- **第三方名单**：`license-maven-plugin` 的结果不等于实际随包内容。Boot 打包时去掉 8 个空 starter，又加入 POM 里没有的 `spring-boot-jarmode-tools`。所以 `build-third-party-notice.ps1` 以 `app\lib` 为准：JAR 没被描述或版本不符就拒绝，没随包的不列，jarmode 单独登记。新的许可证名称必须先加进脚本的映射表，这样新许可在打包前一定有人读过。
+- **许可证全文**：27 个 JAR 内没有全文（Netty、SWT、Logback、H2 等），只列名字不够。Apache-2.0、EPL-2.0、MPL-2.0 官方全文存在 `packaging/delivery/licenses/`；SLF4J 的 MIT 和 MySQL 的 GPLv2 + FOSS Exception 构建时从 JAR 读取，读不到就拒绝。Logback、H2、Jakarta Annotations 的多重许可在文件里写明选用的一项。
+- **组装**：`assemble-delivery.ps1` 先全部检查，再在临时目录组装并改名，失败不留半成品；同名文件夹已存在就拒绝。Inno 写入 EXE 的版本字符串带尾部空格，比较前要去掉，这一点是完整构建才暴露的，`test-delivery.ps1` 已复现。
+- **微软声明**：`使用说明.txt` 和 `第三方许可.txt` 都带 SmartScreen 声明，这是 WebView2 Runtime 条款第 9 条的要求；`test-delivery.ps1` 钉住了这一点。
+
+已验证（2026-11-02，Inno Setup 7.1.1，JDK 21.0.11）：
+
+| 项 | 结果 |
+| --- | --- |
+| 设置页版本 | `DesktopXIntegrationTest#settingsShowTheVersionThePackagedAppWasBuiltWith` 通过：无属性显示“开发版”，有属性显示属性值。宿主内运行要加 `-DargLine=-Djdk.net.unixdomain.tmpdir=<D 盘目录>` |
+| 回归 | `test-delivery.ps1` 70/70，无 Java 构建，几十秒：输入检查、校验值（含真实 `sha256sum -c`）、说明文件、第三方名单、`build-release.ps1` 的入口检查 |
+| 完整试构建 | 一次性克隆里的提交，`build-release.ps1 -Version 0.6.0` 退出 0；`.cfg`、`.jpackage.xml`、程序 EXE、Setup 都是 `0.6.0`；347 个文件，包内扫描通过；101 个 JAR 全部覆盖；`sha256sum -c` 3 项 OK。这是试运行，不是候选，已删除；证据 `D:\Temp\ia-r32-20261102\result.md` |
+| 未重跑 | `.iss` 与 `build-installer.ps1` 未改，不重跑 66 项安装回归；只改一处读取版本和一个测试，不重跑 Java / JS 全量 |
+
+未验证：真实窗口里设置页显示的版本（按 `.cfg` 和代码判断，留给 C 级）；0.6.0 的实际安装和覆盖升级；使用说明逐条对照实际行为。微软条款正文没有写明 Bootstrapper 是否算在“the software”内，分发依据是分发文档的“package it with your WebView2 app”。这些是公开发布前的判断，不在本包。
+
 ## 已知问题与后续候选
 
 - `LegacyMigrationTest` 的目录改名在 Windows 上偶发 `AccessDenied`：2026-11-02 与打包任务并行时失败一次，单独重跑 3 次和空闲时的全量都通过，判断是文件被短暂占用。真实迁移遇到时会报错退出，不会写坏数据，重试即可；这次没有改。

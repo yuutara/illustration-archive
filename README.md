@@ -12,6 +12,8 @@ Illustration Archive 解决的是“把散落在本地的插画文件整理成�
 
 最新发布为 `v0.5.0`。项目正在产品化为普通用户双击即用的 Windows 桌面应用（内置 H2，不需要 MySQL、Java 或命令行），路线见 [DESKTOP_ROADMAP](docs/DESKTOP_ROADMAP.md)；下文主要介绍原服务器运行方式。当前状态与近期健康基线见 [PROJECT_STATE](docs/PROJECT_STATE.md)，X Likes 同步设计见 [同步一致性说明](docs/X_LIKES_SYNC_CONSISTENCY.md)，历史阶段与验收记录见 [PROJECT_HISTORY](docs/PROJECT_HISTORY.md)。
 
+本项目按 [MIT 协议](LICENSE) 开源。
+
 ## 项目截图
 
 ### 图库首页

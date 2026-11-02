@@ -115,8 +115,8 @@ public class DesktopController {
 
 	@GetMapping("/api/desktop/settings")
 	public SettingsView settings() {
-		String version = DesktopController.class.getPackage().getImplementationVersion();
-		return new SettingsView(home.toString(), version == null ? "开发版" : version, settings.proxy(),
+		// jpackage writes the release number here; the jar's manifest only has Maven's version.
+		return new SettingsView(home.toString(), System.getProperty("jpackage.app-version", "开发版"), settings.proxy(),
 				geminiKeys.saved(), evidence.aiVerifiedAt(), settings.closeAction());
 	}
 

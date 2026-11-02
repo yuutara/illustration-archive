@@ -1,0 +1,73 @@
+插画档案 第三方许可
+
+本文件按实际打包的程序文件生成，列出插画档案本身和随包第三方组件的许可。
+
+
+一、插画档案
+
+{{LICENSE}}
+
+
+二、Java 运行环境
+
+程序内置经 jlink 裁剪的 OpenJDK 运行环境：{{JAVA_NAME}}。
+许可为 GPLv2 + Classpath Exception，各模块的许可证全文和第三方声明在安装目录的 runtime\legal 文件夹。
+源码由 JDK 发行方公开提供，Microsoft Build of OpenJDK 见 https://github.com/microsoft/openjdk
+
+
+三、Microsoft Edge WebView2
+
+安装程序内置微软的 Evergreen Bootstrapper（MicrosoftEdgeWebview2Setup.exe，版本 {{BOOTSTRAPPER_VERSION}}），文件来自微软，未经修改。只有电脑上缺少 WebView2 运行环境时才运行，并从微软下载运行环境。
+
+WebView2 运行环境由微软提供，受 Microsoft Edge WebView2 Runtime 软件许可条款约束：
+https://developer.microsoft.com/microsoft-edge/webview2/
+使用本软件中的 WebView2，即表示你同意微软的这些条款。本软件与微软没有关联，也未获得微软认可。
+
+本软件使用的 WebView2 包含 Microsoft Defender SmartScreen，它会收集最终用户的信息并发送给微软，说明见：
+https://aka.ms/privacy
+https://learn.microsoft.com/en-us/microsoft-edge/privacy-whitepaper#smartscreen
+
+
+四、Java 库
+
+共 {{LIBRARY_COUNT}} 个，全部按原样随包分发，未经修改。每行依次是：许可、名称、Maven 坐标、项目网址。“ / ”表示可以任选其一的多重许可。
+
+{{LIBRARIES}}
+
+
+五、多重许可的选择与源码
+
+多重许可的库，本软件选用：Logback 按 EPL-2.0，H2 按 MPL-2.0，Jakarta Annotations 按 EPL-2.0。
+
+EPL、MPL、GPL 许可的库，源码可从上表的项目网址获取，也可按 Maven 坐标在 Maven Central 查找。
+MySQL Connector/J 的源码：https://github.com/mysql/mysql-connector-j
+
+
+六、许可证全文
+
+Apache-2.0、EPL-2.0、MPL-2.0 各一份，适用于上表中使用该许可的库。Apache-2.0 的库若有 NOTICE 文件，保留在对应 JAR 内。
+
+
+---------- Apache License 2.0 ----------
+
+{{APACHE_2}}
+
+
+---------- Eclipse Public License 2.0 ----------
+
+{{EPL_2}}
+
+
+---------- Mozilla Public License 2.0 ----------
+
+{{MPL_2}}
+
+
+---------- SLF4J（MIT） ----------
+
+{{SLF4J}}
+
+
+---------- MySQL Connector/J（GPLv2 + Universal FOSS Exception，含其第三方声明） ----------
+
+{{MYSQL}}

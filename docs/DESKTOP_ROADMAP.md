@@ -21,6 +21,7 @@
 | 切页、弹层进出场、X 收藏动效 | — | 2026-10-31 新增（`motion.css`） | **待用户验收** |
 | 系统托盘、关闭时询问与记忆 | 2026-10-31 新增 | 询问框、设置页 | 隔离图库上已实测；**托盘菜单“退出”的点击、注销 / 关机待用户验收** |
 | 安装器（R3.1） | — | — | 自动检查通过；Codex C 级已签收（`f5ea537`）；B 级待用户验收 |
+| 交付包（R3.2） | — | 设置页显示打包版本 | 开发方自动检查通过，详见 [DESKTOP_POC](DESKTOP_POC.md#交付包r322026-11-02)；待提交后从提交构建候选，再走 Codex C 级 |
 | 签名、自动更新、备份恢复界面 | 无 | 无 | 后续 |
 
 ## 关键决定
@@ -216,6 +217,65 @@ R3.1 只补安装 / 升级识别必需的版本参数；候选包命名、对外
 
 官方依据（2026-11-02 核对）：[微软 WebView2 分发与检测](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)、[Inno 安装权限](https://jrsoftware.org/ishelp/topic_setup_privilegesrequired.htm)、[固定 AppId](https://jrsoftware.org/ishelp/topic_setup_appid.htm)、[AppMutex 前提](https://jrsoftware.org/ishelp/topic_setup_appmutex.htm)、[UTC 时间戳](https://jrsoftware.org/ishelp/topic_setup_timestampsinutc.htm)、[卸载删除边界](https://jrsoftware.org/ishelp/topic_uninstalldeletesection.htm)。
 
+#### R3.2 交付包计划（2026-11-02，版本与协议已定）
+
+目标是从一个指定提交做出一份说得清来源的交付文件夹：拿到的人知道这是哪个版本、文件是否完整、数据在哪、有哪些限制。本包只在本机生成文件，不打 tag、不上传、不做公开发布判断。
+
+**现状核对**
+
+| 问题 | 依据 | 处理 |
+| --- | --- | --- |
+| 设置页的版本与安装器不一致 | `DesktopController` 读 JAR 清单，打包后的清单固定是 `0.0.1-SNAPSHOT`（按代码和清单判断，未开窗口看）；jpackage 已把真实版本写进 `.cfg` 的 `-Djpackage.app-version` | 改读这个系统属性，读不到时显示“开发版” |
+| 构建不绑定提交 | R3.1 首轮出现过交接副本与提交不一致；`.build.txt` 没有提交号 | 从指定提交导出源码后构建，不用工作区 |
+| `.build.txt` 含本机路径 | 记录了镜像的绝对路径 | 只留在构建记录里，不进交付文件夹 |
+| 项目自身没有许可证 | 仓库无 `LICENSE`。随包的 MySQL 驱动是 GPLv2 + Universal FOSS Exception，例外只覆盖 OSI 或 FSF 认可的协议 | 用户已定 MIT（2026-11-02），署名 `yuutara` |
+| 第三方声明不全 | JDK 的 `runtime/legal` 已随包；`app\lib` 101 个 JAR 中 65 个清单没写许可证；27 个 JAR 内没有许可证全文 | 用 `license-maven-plugin` 按 POM 生成，只在构建时调用，不进 `pom.xml` 依赖；有未知许可证就拒绝构建；`第三方许可.txt` 附许可证全文 |
+| 微软条款的要求（2026-11-02 核对） | WebView2 Runtime 条款第 9 条要求告知用户含 SmartScreen 并向微软发送信息；条款正文没有提到 Bootstrapper，微软分发文档写明可随应用打包 | 说明和许可文件都写明这段声明。条款第 2 条还要求分发者承担赔偿责任、让用户接受同等保护，公开发布前要由用户判断 |
+
+**交付物**
+
+```text
+IllustrationArchive-<版本>\
+  IllustrationArchive-Setup-<版本>.exe
+  使用说明.txt
+  第三方许可.txt
+  SHA256SUMS.txt
+```
+
+- 不交付 `IllustrationArchive-win64.zip`：文件名没有版本，也没有快捷方式和 WebView2 检查。`build-desktop.ps1` 照常生成，只作内部产物。
+- `.iss` 和 `build-installer.ps1` 不改，已签收的安装逻辑不动。说明不进安装向导：只收到 EXE 的人也能在设置页看到数据位置、备份和卸载的说明。
+- `SHA256SUMS.txt` 用 `sha256sum` 兼容格式，覆盖另外三个文件。校验值与 EXE 同渠道传递时只能发现文件损坏，不能发现调包，应用也没有签名，说明里如实写。
+
+**版本规则**
+
+- 用户已定 `0.6.0`（2026-11-02）。`v0.5.0` 是旧服务端形态的封版，桌面版是下一个明显阶段；测试用的 `0.5.10x` 都比它低，不会挡住升级；`1.0.0` 留到 R3.3–R3.5 和 B 级集中验收之后。
+- 一个包发给任何人后，这个版本号就锁定，再打包必须加号。发出前重打由提交号和 SHA-256 区分。
+- 安装器拒绝降级，所以发出去的号只能往上走。`pom.xml` 的 `0.0.1-SNAPSHOT` 不改，也不用它推断版本。
+
+**使用说明的内容**
+
+第一行写版本号，与构建参数不一致就拒绝构建。正文给普通用户，约 60 行，只写已验证的事实：怎么安装、SmartScreen 提示怎么处理且为什么出现；测试环境是 Windows 11 x64；缺 WebView2 时要联网；关窗与退出的区别；数据位置，手动备份恢复；`config` 含未加密凭据，分享备份前要删；升级会自动升级图库，之后不能回退旧版；卸载不删图库；仅限本机使用，不要暴露到网络；X 要自己的开发者应用、费用自负；Gemini 要自己的 Key、图片发给 Google、免费额度的数据条款、不支持的地区和年龄要求；本版已知限制。
+
+**实施顺序与文件**
+
+1. 设置页版本：改 `DesktopController`，补一个针对性测试。
+2. 说明模板：新增 `packaging/delivery/使用说明.txt`（带 BOM 的 UTF-8）。
+3. 许可：新增根目录 `LICENSE`（MIT），README 加一行说明。`scripts/build-third-party-notice.ps1` 生成 `第三方许可.txt`：开头附本项目的 MIT 全文，核对覆盖 `app\lib` 全部 JAR，补上 JDK、WebView2 Bootstrapper 的说明和许可证全文。插件固定 `2.7.1`。
+4. `scripts/assemble-delivery.ps1`：由已有的 Setup、说明和许可组装文件夹并生成校验值，检查版本一致、文件齐全、文本里没有本机路径。不跑 Java 构建，所以能快速测试。
+5. `scripts/build-release.ps1`：接收版本、提交号、JDK、ISCC、Bootstrapper 和一个仓库外的新目录，用 `git archive` 导出提交，在副本里依次跑现有的两个构建脚本和第 4 步，另写一份不交付的构建记录（提交号、JDK、Inno、Bootstrapper 哈希）。
+6. `scripts/test-delivery.ps1`：用假 Setup 回归输入检查和校验值；再从真实提交完整构建一次候选包。
+7. 交接：用户提交后，把提交号和候选文件夹写进 `NEXT.md` 交 Codex。
+
+**验收出口**
+
+| 级别 | 本包应提供的证据 |
+| --- | --- |
+| A：开发方 | 版本测试、PowerShell 解析、`test-delivery.ps1`、校验值重算、完整构建一次；`.iss` 与 `build-installer.ps1` 未改时不重跑 66 项安装回归和 Java / JS 全量 |
+| C：Codex（打包候选） | 候选确实来自指定提交；EXE、Setup、卸载项、设置页四处版本一致；校验值与实际文件一致；包内无凭据和本机路径；在合成 home 上从 `0.5.102` 覆盖升级，数据保留；使用说明逐条对照实际行为。R3.1 已通过的安装路径复用 |
+| B：用户 | 读一遍使用说明的措辞，看设置页版本。只列一次，不阻塞后续包 |
+
+本包不含：公开发布、tag、上传 GitHub Release、签名、自动更新、改 `pom.xml` 版本、移除 AWS SDK、备份恢复和旧版导入界面。R3.5 的无 Java、真实缺 WebView2、离线和 SmartScreen 实测继续保留，所以说明里这些内容只能写官方行为和预期，不能写成已在干净环境验证。
+
 ### 第四轮：好用
 
 1. 官方数据归档导入（免费的 ID 清单）。
@@ -226,3 +286,4 @@ R3.1 只补安装 / 升级识别必需的版本参数；候选包命名、对外
 ## 待用户决定
 
 - 公开发布时，上文 X 内容同步义务如何处理。
+- 公开发布时，WebView2 条款第 2 条的赔偿责任和用户条款要求如何处理。
