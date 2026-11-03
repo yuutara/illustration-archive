@@ -395,6 +395,45 @@ ZIP 是图库副本，不是脱敏材料：即使没有凭据，数据库和图�
 | B：用户 | 设置页导入的文案、预览与反馈，用指向隔离副本的桌面快捷方式；只登记一次 |
 | D：不在本包 | 从真实 MySQL 导入、替换真实图库，需另行授权 |
 
+#### R3.5 干净环境验收预案（2026-11-03，环境未就绪）
+
+目标是确认最终安装包换到普通 Windows 11 x64 电脑后，仍能安装、启动、升级并保留图库，补齐开发机上无法证明的运行环境与下载提示。用户已选择规划 R3.5；本轮只读盘点与规划，不包含新建 / 启动虚拟机、下载系统、登录账号或改网络。环境确认通过前不进入验收。
+
+**环境盘点与选择**
+
+- 本机 Windows 11 家庭中文版 x64（22631），内存约 32 GB，D 盘余约 204 GB；已有 VMware Workstation Pro 16.2.4，`vmrun -T ws list` 为 0 台运行中虚拟机。在 VMware 用户清单和 `D:\Virtual Machines` 中只发现 CentOS，尚未找到 Windows 客体或系统 ISO；不代表其他位置一定没有。
+- VMware 软件不是一台已装好的 Windows 测试机。家庭版不支持官方 Windows Sandbox；不为本包升级宿主系统、安装另一套虚拟化软件或重建虚拟网络。
+- 可选：复用已有 Windows 测试机的独立副本；在 D 盘新建专用 Windows 11 虚拟机；使用可完整还原的备用电脑。也可暂缓环境准备，保留未验证项。用户尚未选择，不自动创建。
+- 新建方案的预算估计：宿主 D 盘预留约 80–100 GB（含系统、ISO 与快照余量），运行时分配约 6–8 GB 内存，首次准备约几十分钟到两小时；实际占用取决于镜像和快照。现有 VMware 授权未核对；微软提供需登记的 90 天 Windows 11 Enterprise 评估，账号步骤由用户操作，不据此承诺永久免费。
+- 本轮证据：`D:\Temp\ia-r35-plan-20261103\result.md`。当前只能确认资源和工具存在，不能确认 Windows 能启动或能恢复。
+
+**进入验收前的条件**
+
+1. 确认系统来源 / 使用许可及 Windows 11 x64 的正常硬件条件，使用独立合成用户和图库；不带入真实账号、凭据或已登录验收 home。不通过绕过 TPM 等系统要求来制造测试环境。
+2. 在专用客体上记录 OS、系统 Java / `JAVA_HOME`、WebView2 检测值、应用 / 数据目录基线。Windows 11 通常自带 WebView2，不能把“新装系统”等同于“缺少 Runtime”；须另有真实缺失状态，不能仅隐藏注册表或改检测结果。无法提供时，该分支保持 `UNVERIFIED`。
+3. 若选虚拟机，留一份关机状态的完整副本，再建覆盖所有测试虚拟磁盘的安装前快照，不共享宿主真实数据目录；在客体创建测试标记、安装候选并写入合成图库，恢复后确认标记 / 应用 / 数据回到基线，且 Windows 能再次启动。备用电脑需等效的整机备份与恢复演练。只对本包专用环境演练，不还原现有 CentOS。证据先导出快照外，保留虚拟磁盘、快照链及必要的加密解锁材料。
+4. 宿主的代理、TUN、DNS、路由、防火墙、节点和 IP 保持现状。现有 VMnet1 / VMnet8 不是本包新增；NAT 不等于自动继承宿主代理或 Claude 进程规则。联网方式尚未确定，未获具体授权不改变网络来让虚拟机出网，也不在客体登录 Claude / X / Gemini。纯离线客体可先覆盖本地分支；联网 Runtime 与 SmartScreen 另等安全出网条件，不以停宿主代理测试离线。
+
+**候选与验证范围**
+
+- R3.2 的 `3755d29` / `0.6.0` 是旧候选，早于备份恢复和旧版导入。验收前从覆盖 R3.4 签收修复 `806f7a5` 的明确提交重新构建完整交付包；当前基线 `d01a24f`，沿用用户已定的内部候选版本 `0.6.0`。在仓库外用 `build-release.ps1`，记录提交、工具版本和 SHA-256，不运行原仓库 `clean` 或镜像构建。
+- 执行包扫描、交付校验和 `test-delivery.ps1`；复用已通过的 R3.1–R3.4 逻辑、事务与故障证据，不无故重跑全量 Java / JS。新缺陷交 Claude 修复、另存提交，只复验受影响路径。
+- 程序实际安装仍仅在 D 盘：客体须提供 D 盘并显式选择安装目录；默认 C 盘路径只观察、不实际安装。全新客体可使用默认合成 home 来验证普通启动，不连接宿主原图库。默认安装目录的实际落盘仍属未验证范围。
+
+| 路径 | 证据与通过条件 |
+| --- | --- |
+| 无系统 Java、有 WebView2 | 安装前记录系统未装 Java；从实际快捷方式启动最终包，进程使用随包 Runtime，窗口 / 本机 HTTP 正常；合成图片导入、保存、退出、重开一致 |
+| 真实缺 WebView2，离线 | 在预先隔离的专用客体运行真实 Setup / Bootstrapper，给出失败及重试 / 取消；安装日志可解释，程序文件和 home 未被修改，无共享 Runtime 伪造或假安装器 |
+| 同一缺失基线，联网 | 保持宿主网络不变且已确认客体安全出网后，真实 Bootstrapper 从微软完成安装，重新检测 Runtime，继续安装并启动；不能用预装完整 Runtime 代替 |
+| 缺 WebView2 的应用回退 | 在真实缺失客体直接启动镜像，核对现有 Edge 回退与退出窗口；环境或 Edge 条件不足则单列 `UNVERIFIED`，不与安装器路径混算 |
+| 覆盖升级、卸载后重装 | 用已有低版本在客体创建合成图库，记录业务字段、ID、媒体哈希与假配置；退出后升级到最终包，重启核对。卸载前后停机 home 完整清单 / 哈希一致，重装能再打开；不重跑无关故障矩阵 |
+| SmartScreen | 保持系统安全保护，记录真实下载来源、来源标记、候选哈希、系统版本及实际提示 / 阻断。普通文件复制或手写来源标记不算完整下载链路；无获准下载入口则保留未验证，不自行上传 / 发布。提示受信誉与策略影响，不要求每次固定出现，也不关闭保护强行通过 |
+| 环境恢复 | 结束退出应用，导出证据，再恢复安装前基线并核对；未授权不删除虚拟机、备份或验收 home |
+
+真实 GUI 由 Codex 按 AGENTS 委派 `ui_acceptance`，主代理统一交互控制权；目前没有启动 GUI 验收。报告逐项 `PASS / FAIL / UNVERIFIED`，分开记录自动检查、真实环境与尚缺条件。环境准备不等于通过 R3.5；未覆盖项继续保留，用户 B / D 项、MySQL V8 专项及公开发布不由本包关闭。
+
+官方依据（2026-11-03 核对）：[Sandbox 支持版本](https://learn.microsoft.com/en-us/windows/security/application-security/application-isolation/windows-sandbox/)、[Windows 11 要求](https://learn.microsoft.com/en-us/windows/whats-new/windows-11-requirements)、[90 天评估](https://www.microsoft.com/en-us/evalcenter/evaluate-windows-11-enterprise)、[WebView2 分发与检测](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)、[VMware 网络类型](https://knowledge.broadcom.com/external/article/309842/understanding-networking-types-in-hosted.html)、[SmartScreen 信誉](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation)。
+
 ### 第四轮：好用
 
 1. 官方数据归档导入（免费的 ID 清单）。
