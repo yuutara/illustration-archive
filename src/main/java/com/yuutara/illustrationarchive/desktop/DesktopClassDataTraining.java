@@ -13,10 +13,11 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Packaging step, not a feature: runs the server once in an empty temporary library and touches what a launch uses,
- * so that the JVM, started by build-desktop.ps1 with {@code -XX:ArchiveClassesAtExit}, can save those classes. The app
- * then starts in about half the time. The archive is made here and only read at run time because recording it is
- * slow: left to a first launch, that launch would take a minute. It makes no network calls beyond this loopback port.
+ * Not a feature: runs the server once in an empty temporary library and touches what a launch uses, so that a JVM
+ * started with {@code -XX:ArchiveClassesAtExit} can save those classes; the app then starts in about half the time.
+ * The build no longer runs it: JDK 21 checks an archive against the absolute jar paths it was recorded with, so one
+ * made on the build machine is ignored everywhere else. It would have to run on the user's machine, for example
+ * after installing. It makes no network calls beyond this loopback port.
  */
 public final class DesktopClassDataTraining {
 

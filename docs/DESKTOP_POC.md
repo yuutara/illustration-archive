@@ -51,7 +51,7 @@ IllustrationArchive.exe (jpackage 启动器 + 自带 Java 21 运行时)
 
 产物（`dist/` 已被 Git 忽略）：
 
-- `dist\IllustrationArchive\IllustrationArchive.exe`：双击运行；整个文件夹约 195 MB（应用约 46 MB，其余为 jlink 运行时，含 `java.exe` 和 CDS 基础归档）。第一次退出时生成约 40 MB 的 `app\app.jsa`，之后启动更快。
+- `dist\IllustrationArchive\IllustrationArchive.exe`：双击运行；整个文件夹约 195 MB（应用约 46 MB，其余为 jlink 运行时，含 `java.exe` 和 CDS 基础归档）。
 - `dist\IllustrationArchive-win64.zip`：约 93 MB，解压后即可运行，目标机无需安装 Java。
 
 脚本不执行 `mvn clean`（运行中的本地实例可能占用 `target\` 下的文件），只删除 `target\classes` 和旧 jar；测试需单独运行。`dist` 里的应用正在运行时，脚本会拒绝覆盖，可用 `-OutputDir` 输出到别的目录。`-AppVersion` 写入 EXE 和镜像元数据，默认 `0.0.1`；要打安装器时必须显式传入，见[安装器](#安装器r312026-11-02)。
@@ -645,12 +645,12 @@ $h = 'D:\Temp\ia-config-20261102\acceptance-home'
 | 回归 | `test-installer.ps1` 66/66，约 1 分钟：输入检查 15 项；安装、同版重装、`1.10` 覆盖 `1.9`、拒绝降级、运行中升级 / 卸载阻断、其他路径不误拦、文件被占用、未落盘报 9、目录重叠、WebView2 各分支、卸载保留图库 |
 | 变异测试 | 逐个破坏 11 处保护（`ignoreversion`、退出码 9、运行检查、卸载阻断、按文本比版本、允许降级、`pv` 为零、目录包含关系、清单路径越界、查询失败当未运行、信 Bootstrapper 退出码），全部被回归抓到 |
 | 版本贯通 | 源码副本实际构建 `0.5.101`、`0.5.102`：EXE、`.jpackage.xml` 和安装器版本一致 |
-| 真实包自查（隔离 home，D 盘目录，不算 C 级） | 347 个文件字节一致，102 个 JAR 时间戳未变；启动后 8863 个类来自动态 CDS 归档；前台和托盘态升级都退出 7、卸载都退出 1；正常退出后卸载干净，home 未变 |
+| 真实包自查（隔离 home，D 盘目录，不算 C 级） | 347 个文件字节一致，102 个 JAR 时间戳未变；启动后 8863 个类来自动态 CDS 归档（只因构建目录还在，见 R32-C1）；前台和托盘态升级都退出 7、卸载都退出 1；正常退出后卸载干净，home 未变 |
 | AUMID | SWT 3.135 字节码确认直接用 `Display.setAppName` 的值，与快捷方式的 `IllustrationArchive` 一致 |
 
 **Codex C 级首轮（2026-11-02，目标 `ffd1983`）：未签收。** 证据与命令：`D:\Temp\ia-r31-codex-20261102\result.md`。交接副本的安装脚本与提交存在差异，后续从当前提交重新编译安装器（复用既有镜像，不重建 Java）；源码及候选哈希见证据目录 `candidate-provenance.json`。
 
-- 已通过：D 盘 GUI 首装、同版重装、真实 101→102 覆盖、降级拒绝、运行中升级 / 卸载的“重试 / 取消”、HKCU 卸载项和实际快捷方式目标 / AUMID、卸载后重装。两个版本的程序文件全部同字节，102 个应用 JAR 时间戳匹配；102 动态 CDS 实际加载 8825 类。合成 2 作品的业务字段、媒体和假配置保留；停机时重装 / 升级前后整个 home 321 文件一致，卸载 / 再装前后 327 文件一致。
+- 已通过：D 盘 GUI 首装、同版重装、真实 101→102 覆盖、降级拒绝、运行中升级 / 卸载的“重试 / 取消”、HKCU 卸载项和实际快捷方式目标 / AUMID、卸载后重装。两个版本的程序文件全部同字节，102 个应用 JAR 时间戳匹配；102 动态 CDS 实际加载 8825 类（同样因为构建目录还在，见 R32-C1）。合成 2 作品的业务字段、媒体和假配置保留；停机时重装 / 升级前后整个 home 321 文件一致，卸载 / 再装前后 327 文件一致。
 - **R31-C1 / P1（已修复并复验关闭）**：`build-installer.ps1` 原来无条件删除 `<OutputDir>\installer-stage`；输入镜像正好位于该目录时，会被删除后才报错。现在每次新建唯一目录，只清理自己建的内容。新增 3 项回归共 66/66，旧代码变异能抓到；Codex 同情形复验 7 个输入文件及调用方预存文件均保留，构建成功无临时残留，普通真实镜像构建也通过。
 - **R31-C2 / P1（正常用户启动复验通过，移除阻塞）**：首轮宿主内默认 TEMP 下启动报 `Invalid argument: connect`。同一 JRE、同一 TEMP 路径对照：
   - 从 Claude 或 Codex 宿主进程树启动：socket 目录在 `AppData`（Local、Roaming、Temp）下失败，在 `%USERPROFILE%` 或 D 盘通过。
@@ -666,7 +666,7 @@ $h = 'D:\Temp\ia-config-20261102\acceptance-home'
 
 ## 交付包（R3.2，2026-11-02）
 
-计划与验收出口见 [DESKTOP_ROADMAP](DESKTOP_ROADMAP.md#r32-交付包计划2026-11-02版本与协议已定)。开发方 A 级通过，待用户提交后从提交构建候选，再交 Codex C 级。
+计划与验收出口见 [DESKTOP_ROADMAP](DESKTOP_ROADMAP.md#r32-交付包计划2026-11-02版本与协议已定)。开发方 A 级通过；Codex C 级首轮未签收 `2bbfe9f` 的 `0.6.0` 候选，余下构建路径残留缺陷，见下文。
 
 ```powershell
 .\scripts\build-release.ps1 -Version 0.6.0 -Commit <提交> -JavaHome "$HOME\.jdks\ms-21.0.11" -Compiler <ISCC.exe> -Bootstrapper <MicrosoftEdgeWebview2Setup.exe> -WorkDir <仓库外的新目录> -MavenArgs '-Dmaven.repo.local=C:\Users\YuanYuChou\.m2\repository'
@@ -692,13 +692,26 @@ $h = 'D:\Temp\ia-config-20261102\acceptance-home'
 | 完整试构建 | 一次性克隆里的提交，`build-release.ps1 -Version 0.6.0` 退出 0；`.cfg`、`.jpackage.xml`、程序 EXE、Setup 都是 `0.6.0`；347 个文件，包内扫描通过；101 个 JAR 全部覆盖；`sha256sum -c` 3 项 OK。这是试运行，不是候选，已删除；证据 `D:\Temp\ia-r32-20261102\result.md` |
 | 未重跑 | `.iss` 与 `build-installer.ps1` 未改，不重跑 66 项安装回归；只改一处读取版本和一个测试，不重跑 Java / JS 全量 |
 
-未验证：真实窗口里设置页显示的版本（按 `.cfg` 和代码判断，留给 C 级）；0.6.0 的实际安装和覆盖升级；使用说明逐条对照实际行为。微软条款正文没有写明 Bootstrapper 是否算在“the software”内，分发依据是分发文档的“package it with your WebView2 app”。这些是公开发布前的判断，不在本包。
+**Codex C 级首轮（2026-11-02，目标 `2bbfe9f`）：未签收，交回 Claude 修复一项 P2。** 结果与命令：`D:\Temp\ia-r32-codex-20261102\result.md`。
+
+- 已通过：380 个导出源码文件与提交一致，264 个打包类/资源与编译输出一致；三项校验值、101 个库的许可清单覆盖通过；EXE、Setup、卸载项和真实设置窗口均显示 `0.6.0`。合成 home 从 `0.5.102` 覆盖升级后，2 作品业务字段、媒体哈希和假配置一致，安装前后停机 home 13 文件及目录不变。使用说明已逐节核对；真实新版窗口、数据目录及 2 作品显示通过。
+- **R32-C1 / P2**：`app/app.jsa` 带有 102 条构建目录绝对路径，实际安装后文件与候选同字节；现有 `check-desktop-package.ps1` 未覆盖此项，仍报告 347 文件通过。需从 CDS 训练/路径记录的根因消除残留，补针对性扫描和回归，新提交后重建候选；不直接替换二进制字符串，也不未经说明移除 CDS。复验须确认修复后的归档仍实际使用。
+- GUI 已委派 `ui_acceptance`；中途按用户要求暂停，恢复后补完新版真实窗口。正常退出并卸载，程序目录/HKCU 项消失，最终停机 home 224 文件及目录不变，合成数据与证据保留。未重跑全量测试或 R3.1 安装矩阵，未动原图库或真实外部集成。Console/Network 未采集。
+
+**R32-C1 修复（2026-11-03，用户选定去掉应用归档）**：证据 `D:\Temp\ia-r32-c1\result.md`。
+
+- **根因比报告的更大**：JDK 21 校验动态归档时，要求训练时记录的每个 JAR 绝对路径在运行时仍然存在，不做目录重定位。用真实启动器实测：原地训练原地运行，8944 类来自归档；训练目录改名后从新位置运行，0 类，日志 `Required classpath entry does not exist`。所以打包时生成的 `app.jsa` 只在构建机、且构建目录还在时有效。R3.1 的“移动目录、解压后都有效”和两轮 C 级在安装目录看到的 8825–8863 类，都是因为构建目录恰好还在，用户电脑上一直是普通启动。
+- **走不通的替代**：在 `app` 目录用相对路径训练，归档里没有本机路径，但 JVM 按当前工作目录解析相对路径，启动器的工作目录不固定，归档整体作废；用 `subst` 映射成中性盘符训练，映射撤掉后同样作废。
+- **修复**：`build-desktop.ps1` 不再训练 `app.jsa`，jpackage 也不再传 `-XX:SharedArchiveFile`。jlink 生成的 JDK 基础归档 `runtime\lib\server\classes.jsa` 保留，它不记录构建路径，移到别处仍然加载。用户启动速度不变（本来就没有应用归档），程序目录小约 56 MB；构建机上从约 3 秒变成普通启动。jar 固定时间戳保留，静态资源不用 `Last-Modified` 的处理照旧。`DesktopClassDataTraining` 和它的测试保留，安装时生成归档要用它。
+- **包内扫描**：`check-desktop-package.ps1` 读每个文件的字节，查镜像目录、源码目录和用户目录，覆盖 UTF-8、ANSI 代码页、UTF-16（含奇数偏移）、正反斜杠和大小写。真实候选只报出 `app\app.jsa`，全镜像约 2 秒。`test-delivery.ps1` 加 10 项，共 80/80。
+
+微软条款正文没有写明 Bootstrapper 是否算在“the software”内，分发依据是分发文档的“package it with your WebView2 app”。这些是公开发布前的判断，不在本包；B/D 与 R3.5 保留项未关闭。
 
 ## 已知问题与后续候选
 
 - `LegacyMigrationTest` 的目录改名在 Windows 上偶发 `AccessDenied`：2026-11-02 与打包任务并行时失败一次，单独重跑 3 次和空闲时的全量都通过，判断是文件被短暂占用。真实迁移遇到时会报错退出，不会写坏数据，重试即可；这次没有改。
 - Flyway 12.4 提示 H2 2.4.240 高于其验证版本，当前功能未受影响。
-- 体积：CDS 归档约占 56 MB；可移除桌面模式用不到的 AWS SDK 依赖。
+- 启动：应用 CDS 归档只能在用户电脑上生成（见 R32-C1），可在安装后训练，约需 1–3 分钟，换来约 3 秒启动；体积上还可移除桌面模式用不到的 AWS SDK 依赖。
 - 由其他 MSIX 打包应用启动本应用时，可能遇到与 R31-C2 相同的启动失败，目前只在 Claude、Codex 宿主上实测过。JDK 21 没有关闭 AF_UNIX 管道的开关，只能把 socket 放到 `AppData` 以外，但这要在用户目录多放一个文件夹，换来的只是这个非默认启动路径，暂不做。
 - 未覆盖：签名、自动更新、大图库下的 H2 性能。
 - 导入校验只读图片头：文件头完好但内容截断的图片仍会通过。

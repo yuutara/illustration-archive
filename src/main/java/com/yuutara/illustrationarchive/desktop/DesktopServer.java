@@ -132,7 +132,7 @@ public final class DesktopServer {
 		properties.put("spring.lifecycle.timeout-per-shutdown-phase", "15s");
 		// The window's profile outlives each update: without this, a new EXE can run the previous version's pages.
 		properties.put("spring.web.resources.cache.cachecontrol.no-cache", "true");
-		// Spring would answer that check from the jar's timestamp, which the build fixes for the CDS archive, so every
+		// Spring would answer that check from the jar's timestamp, which the build fixes to one value, so every
 		// version would look unchanged and the window would keep the pages it cached first.
 		properties.put("spring.web.resources.cache.use-last-modified", "false");
 		properties.put(ACCESS_TOKEN_PROPERTY, accessToken);

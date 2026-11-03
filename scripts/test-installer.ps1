@@ -83,7 +83,7 @@ using System.Reflection;
 class FakeRuntime { static string Build = "$Version"; static void Main() { System.Console.Write(Build); } }
 "@ exe
     Get-ChildItem -LiteralPath (Join-Path $image 'app') -Recurse -Filter *.jar | ForEach-Object { $_.LastWriteTimeUtc = $stamp }
-    # The real app.jsa and launcher are read-only.
+    # The real launcher is read-only; app.jsa stands in for any other read-only file.
     foreach ($name in 'app\app.jsa', 'IllustrationArchive.exe') { (Get-Item -LiteralPath (Join-Path $image $name)).IsReadOnly = $true }
     $image
 }
@@ -251,7 +251,7 @@ function Test-InstallerRuns {
     Report 'files match the image' (Test-SameBytes (& $imageOf '1.9' 'app\illustration-archive.jar') (& $installed 'app\illustration-archive.jar'))
     Report 'jar keeps its UTC timestamp' ((Get-Item -LiteralPath (& $installed 'app\illustration-archive.jar')).LastWriteTimeUtc -eq $stamp)
     Report 'start menu shortcut exists' (Test-Path -LiteralPath $shortcut)
-    # Why the script needs no read-only handling, although app.jsa and the launcher are read-only in the image.
+    # Why the script needs no read-only handling, although the launcher is read-only in the image.
     Report 'read-only in the image is not carried over' (-not (Get-Item -LiteralPath (& $installed 'app\app.jsa')).IsReadOnly)
     Set-Content -LiteralPath (& $installed 'app\not-ours.txt') -Value 'someone else put this here'
 

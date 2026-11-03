@@ -1,8 +1,8 @@
 # Fails if a built app image holds anything that belongs to the developer or a user: local configuration,
-# credentials, a library, logs or media. build-desktop.ps1 runs this before making the zip.
+# credentials, a library, logs, media or a path of the build machine. build-desktop.ps1 runs this before making the zip.
 param(
     [Parameter(Mandatory)][string]$Image,
-    # Optional marker planted in fake configuration, to prove its value reached no file, including app.jsa.
+    # Optional marker planted in fake configuration, to prove its value reached no file, binary ones included.
     [string]$Sentinel = ''
 )
 $ErrorActionPreference = 'Stop'
@@ -26,11 +26,38 @@ function Test-Bytes([byte[]]$bytes, [string]$text) {
     return [Text.Encoding]::Latin1.GetString($bytes).Contains($text, [StringComparison]::Ordinal)
 }
 
+# Folders of the machine that built the image. Tools record paths in binary files too (a JVM class data archive keeps
+# the class path it was trained with), so every file's bytes are searched, in the encodings Windows programs use.
+[Text.Encoding]::RegisterProvider([Text.CodePagesEncodingProvider]::Instance)
+$ansi = [Text.Encoding]::GetEncoding([Globalization.CultureInfo]::CurrentCulture.TextInfo.ANSICodePage)
+$machineFolders = @($root, (Split-Path -Parent $PSScriptRoot), $env:USERPROFILE) | Where-Object { $_ } |
+    ForEach-Object { $_.TrimEnd('\') } | Sort-Object -Unique
+$machinePaths = $machineFolders | ForEach-Object { $_; $_.Replace('\', '/') }
+# Seen through Latin-1, a path written as UTF-8 or in the ANSI code page is a plain string to search for.
+$machineBytes = $machinePaths | ForEach-Object {
+    [Text.Encoding]::Latin1.GetString([Text.Encoding]::UTF8.GetBytes($_))
+    [Text.Encoding]::Latin1.GetString($ansi.GetBytes($_))
+} | Sort-Object -Unique
+
+function Find-MachinePath([byte[]]$bytes) {
+    $latin = [Text.Encoding]::Latin1.GetString($bytes)
+    foreach ($text in $machineBytes) { if ($latin.Contains($text, [StringComparison]::OrdinalIgnoreCase)) { return $text } }
+    # UTF-16 can start at an odd offset.
+    foreach ($start in 0, 1) {
+        if ($bytes.Length -le $start) { continue }
+        $wide = [Text.Encoding]::Unicode.GetString($bytes, $start, $bytes.Length - $start)
+        foreach ($text in $machinePaths) { if ($wide.Contains($text, [StringComparison]::OrdinalIgnoreCase)) { return $text } }
+    }
+}
+
 foreach ($file in $files) {
     $relative = $file.FullName.Substring($root.Length + 1)
     if ($file.Name -match $forbiddenName) { $problems.Add("file: $relative") }
     if ($relative -match $forbiddenFolder) { $problems.Add("folder: $relative") }
-    if ($Sentinel -and $file.Extension -ne '.jar' -and (Test-Bytes ([IO.File]::ReadAllBytes($file.FullName)) $Sentinel)) {
+    $bytes = [IO.File]::ReadAllBytes($file.FullName)
+    $found = Find-MachinePath $bytes
+    if ($found) { $problems.Add("build machine path in: $relative ($found)") }
+    if ($Sentinel -and $file.Extension -ne '.jar' -and (Test-Bytes $bytes $Sentinel)) {
         $problems.Add("sentinel in: $relative")
     }
     if ($file.Extension -ne '.jar') { continue }

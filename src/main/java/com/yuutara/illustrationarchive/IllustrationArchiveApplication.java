@@ -16,7 +16,7 @@ public class IllustrationArchiveApplication {
 		if (args.length > 0 && LegacyMigration.COMMAND.equals(args[0])) {
 			System.exit(LegacyMigration.run(args, System.out));
 		}
-		// Run by build-desktop.ps1 while packaging; see DesktopClassDataTraining.
+		// Records a class data archive; no build step runs it at present, see DesktopClassDataTraining.
 		if (args.length > 0 && DesktopClassDataTraining.COMMAND.equals(args[0])) {
 			DesktopClassDataTraining.run();
 			System.exit(0);

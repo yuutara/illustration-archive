@@ -66,7 +66,7 @@ try {
     # The java launcher picks the @125pct and similar files next to the named image by display scale.
     Copy-Item packaging\icon\splash*.png $inputDir
 
-    # jpackage's own runtime has no base CDS archive, which the application archive below is built on.
+    # jpackage's own runtime has no base CDS archive. That one works wherever the app is installed.
     $runtime = Join-Path $root 'target\desktop-runtime'
     Remove-Item $runtime -Recurse -Force -ErrorAction SilentlyContinue
     & $jlink --add-modules $modules --generate-cds-archive --no-man-pages --no-header-files --output $runtime
@@ -77,8 +77,8 @@ try {
     Remove-Item $image -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory $dist -Force | Out-Null
 
-    # The flag switches main() to the desktop launcher. app.jsa is made below; if it ever stops fitting, the
-    # JVM ignores it and starts a few seconds slower.
+    # The flag switches main() to the desktop launcher. There is no application class data archive: JDK 21 checks
+    # one against the absolute jar paths it was trained with, so an archive made here only works on this machine.
     & $jpackage --type app-image `
         --name IllustrationArchive `
         --app-version $AppVersion `
@@ -89,21 +89,15 @@ try {
         --input $inputDir `
         --main-jar $jar.Name `
         --java-options '-splash:$APPDIR/splash.png' `
-        --java-options '-XX:SharedArchiveFile=$APPDIR/app.jsa' `
         --java-options '-Dillustration-archive.desktop=true' `
         --java-options '-Dfile.encoding=UTF-8' `
         --dest $dist
     if ($LASTEXITCODE -ne 0) { throw 'jpackage failed.' }
 
-    # The archive remembers each jar's timestamp. A zip keeps only whole, even seconds, so the jars get such
-    # a time first; otherwise unzipping would invalidate the archive.
+    # One fixed time for every jar, so two builds compare file by file. Even seconds, because a zip keeps no finer.
     $appDir = Join-Path $image 'app'
     $stamp = [datetime]::new(2026, 1, 1, 0, 0, 0, [DateTimeKind]::Utc)
     Get-ChildItem $appDir -Recurse -Filter *.jar | ForEach-Object { $_.LastWriteTimeUtc = $stamp }
-    # Slow, about a minute: recording class data is why this happens here and not on a user's first launch.
-    & (Join-Path $image 'runtime\bin\java.exe') "-XX:ArchiveClassesAtExit=$appDir\app.jsa" '-Dfile.encoding=UTF-8' `
-        -jar (Join-Path $appDir $jar.Name) --train-class-data
-    if ($LASTEXITCODE -ne 0) { throw 'Class data training failed.' }
 
     & (Join-Path $PSScriptRoot 'check-desktop-package.ps1') -Image $image
 

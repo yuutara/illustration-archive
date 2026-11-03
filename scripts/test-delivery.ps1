@@ -261,6 +261,52 @@ Expect-Refused 'a licence text that is no longer in its jar is refused' 'has no 
 $empty = New-Item -ItemType Directory (Join-Path $work 'image-empty\app\lib') -Force
 Expect-Refused 'an image with no libraries is refused' 'no libraries' { Invoke-Notice (Join-Path $work 'image-empty') $list }
 
+# The package scan finds build machine paths in binary files
+
+$checkPackage = Join-Path $PSScriptRoot 'check-desktop-package.ps1'
+[Text.Encoding]::RegisterProvider([Text.CodePagesEncodingProvider]::Instance)
+$ansi = [Text.Encoding]::GetEncoding([Globalization.CultureInfo]::CurrentCulture.TextInfo.ANSICodePage)
+
+function New-ScanImage([string]$Name) {
+    $scanImage = Join-Path $work "scan\$Name 图库\IllustrationArchive"
+    New-Item -ItemType Directory (Join-Path $scanImage 'app\lib') -Force | Out-Null
+    New-FakeJar (Join-Path $scanImage 'app\lib\only.jar')
+    [IO.File]::WriteAllBytes((Join-Path $scanImage 'app\app.jsa'), [byte[]](0..255))
+    $scanImage
+}
+
+# Bytes that hold $Text, the way a program would have written it, between unrelated binary data.
+function Set-Archive([string]$ScanImage, [byte[]]$Payload, [int]$Offset = 0) {
+    $bytes = [byte[]]::new(64 + $Offset + $Payload.Length + 64)
+    [Array]::Copy($Payload, 0, $bytes, 64 + $Offset, $Payload.Length)
+    [IO.File]::WriteAllBytes((Join-Path $ScanImage 'app\app.jsa'), $bytes)
+}
+
+Report 'the package scan passes a clean image' $(try { & $checkPackage -Image (New-ScanImage 'clean') 6>$null; $true } catch { $false })
+$neutral = New-ScanImage 'neutral'
+Set-Archive $neutral ([Text.Encoding]::UTF8.GetBytes('Z:\app\lib/only.jar;lib/other.jar'))
+Report 'the package scan passes paths that are not this machine''s' $(try { & $checkPackage -Image $neutral 6>$null; $true } catch { $false })
+
+$cases = [ordered]@{
+    'the image folder as UTF-8'           = { param($i) [Text.Encoding]::UTF8.GetBytes("$i\app\lib/only.jar") }
+    'the image folder in the ANSI code page' = { param($i) $ansi.GetBytes("$i\app\only.jar") }
+    'the image folder with forward slashes' = { param($i) [Text.Encoding]::UTF8.GetBytes(($i.Replace('\', '/')) + '/app') }
+    'the image folder in other letter case' = { param($i) [Text.Encoding]::UTF8.GetBytes($i.ToLowerInvariant()) }
+    'the image folder as UTF-16'          = { param($i) [Text.Encoding]::Unicode.GetBytes($i) }
+    'the user profile folder'             = { param($i) [Text.Encoding]::UTF8.GetBytes("$env:USERPROFILE\.m2\repository") }
+    'the source folder'                   = { param($i) [Text.Encoding]::UTF8.GetBytes((Split-Path -Parent $PSScriptRoot) + '\target\desktop-input') }
+}
+$number = 0
+foreach ($case in $cases.GetEnumerator()) {
+    $number++
+    $scanImage = New-ScanImage "case $number"
+    Set-Archive $scanImage (& $case.Value $scanImage)
+    Expect-Refused "the package scan finds $($case.Key)" 'build machine path in: app\\app\.jsa|must not ship' { & $checkPackage -Image $scanImage }
+}
+$odd = New-ScanImage 'odd'
+Set-Archive $odd ([Text.Encoding]::Unicode.GetBytes($odd)) 1
+Expect-Refused 'the package scan finds UTF-16 at an odd offset' 'must not ship' { & $checkPackage -Image $odd }
+
 # build-release.ps1 refuses bad input before it builds anything
 
 function Invoke-Release([string]$Ver = '9.8.7', [string]$Commit = 'HEAD', [string]$Dir = (Join-Path $work "release-$(New-Guid)")) {
