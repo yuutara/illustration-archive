@@ -8,8 +8,8 @@
 
 - 最新发布：`v0.5.0`（`396ed46`）。阶段：**Windows 桌面产品化**，路线见 [DESKTOP_ROADMAP](DESKTOP_ROADMAP.md)。版本号与发布由用户决定。
 - 开发分支：`poc/windows-desktop`。`origin/master` 为 `a4f434c`，本地 `master` 停在 `a40ece5`。分支现状以 Git 为准。
-- Flyway：V1–V8，MySQL 与 H2 各一份。真实图库仍是 V7，下次用新版启动时自动升级；MySQL 版 V8 未运行过。
-- 验证（2026-11-03，JDK 21）：上次全量通过 Java 549 tests / 19 skipped、JS 397/397；修复后全量 558 tests / 19 skipped，有 1 个已知 `LegacyMigrationTest` 偶发 AccessDenied（单跑通过）；本轮独立相关测试 126/126、故障与时序探针 7/7。
+- Flyway：V1–V8，MySQL 与 H2 各一份。真实图库仍是 V7，下次用新版启动时自动升级；MySQL V8 仅在临时合成 schema 跑过，专项 C 级未关闭。
+- 验证（2026-11-03，JDK 21）：R3.4 开发全量 Java 569 / 20 skipped、JS 402/402；Codex 独立相关测试 98/98，临时 MySQL V7/V8 数据、四步回退与打包 GUI 通过；凭据 / 参数遮蔽有 2 项阻塞缺陷。
 
 ## 已签收
 
@@ -37,7 +37,7 @@
 | 真实 token 过期刷新 | D | 用户 + Codex | 不手工改 token 或过期时间 |
 | 真实 Gemini 调用 | D | 用户 | 未授权 |
 | 原图库首次升级到 V8 | D | 用户 | 未授权，V7 备份已保留 |
-| MySQL 版 V8 | C | Codex | 从未在 MySQL 上运行 |
+| MySQL 版 V8 | C | Codex | 临时合成 schema 已运行迁移与读取，专项未关闭 |
 | X 全范围扫描 | D | Codex | Recent ACTIVE / History MORE，费用已授权 |
 | 安装向导、快捷方式、安装后双击 | B | 用户 | Codex 验完后，用桌面“插画档案 安装验收”和“安装后启动”；不要从开始菜单打开（会进原图库并升级），验完卸载 |
 | 使用说明的措辞、设置页版本 | B | 用户 | 发布前集中查看 |
@@ -55,7 +55,7 @@
 
 ## 下一步
 
-1. R3.4 旧版导入已开发并提交 `e0a477c`（2026-11-03），基线见 [DESKTOP_ROADMAP](DESKTOP_ROADMAP.md#r34-旧版导入计划)；Java 全量 569 / 20 skipped、JS 402/402 通过，临时 MySQL 8.4.11 上 16/16（`D:\Temp\ia-r34-mysql-20261103-174712`）；下一步 Codex C 级（见 NEXT.md）。MySQL 验收只用临时 Docker 容器，不新增真实数据授权。R3.3 `22184f0` 已签收，证据 `D:\Temp\ia-r33-recheck-20261103\result.md`。
+1. R3.4 `e0a477c` C 级暂不签收：R34-C1 合法 URL 的密码进入预览，C2 单独参数值进入错误响应 / 日志；交 Claude 修复后新增提交再复验（见 NEXT.md）。正常 V7/V8 打包导入、源库只读与故障回退已通过，证据 `D:\Temp\ia-r34-c-20261103\result.md`；仅使用临时 Docker MySQL，容器 / 卷已删除，不新增真实数据授权。细节见 [DESKTOP_POC](DESKTOP_POC.md#从旧版导入r342026-11-03)。
 2. R3.2 C 级已签收 `3755d29`，R32-C1 关闭；签收记录已提交 `e6f723b`，`0.6.0` 候选保留，发布与推送由用户决定（[DESKTOP_POC](DESKTOP_POC.md#交付包r322026-11-02)）。未排期候选：启动与本地安全小加固、依赖补丁更新、V0.5 遗留 P1。
 
 ## 文档导航
