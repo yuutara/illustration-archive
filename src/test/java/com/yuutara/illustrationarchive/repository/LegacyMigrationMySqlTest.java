@@ -3,8 +3,8 @@ package com.yuutara.illustrationarchive.repository;
 import com.yuutara.illustrationarchive.desktop.DesktopServer;
 import com.yuutara.illustrationarchive.desktop.LegacyMigrationProbe;
 import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.io.TempDir;
@@ -12,9 +12,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import javax.sql.DataSource;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.UUID;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -31,32 +33,40 @@ class LegacyMigrationMySqlTest {
 	@TempDir
 	Path workspace;
 
+	private final String url = System.getenv("GALLERY_MYSQL_TEST_URL");
+	private final String username = System.getenv("GALLERY_MYSQL_TEST_USERNAME");
+	private final String password = System.getenv("GALLERY_MYSQL_TEST_PASSWORD");
 	private DisposableSchema schema;
-	private DataSource source;
+	private String schemaUrl;
 
-	@BeforeEach
-	void createSchema() {
-		String url = System.getenv("GALLERY_MYSQL_TEST_URL");
-		String username = System.getenv("GALLERY_MYSQL_TEST_USERNAME");
-		String password = System.getenv("GALLERY_MYSQL_TEST_PASSWORD");
-		var match = Pattern.compile("^jdbc:mysql://[^/]+/(illustration_archive_gallery_test_[0-9]+)(?:\\?.*)?$").matcher(url);
+	/** A schema of its own, migrated up to {@code version} (all of them when null). */
+	private DataSource createSchema(String version) {
+		Matcher match = Pattern.compile("^jdbc:mysql://[^/]+/(illustration_archive_gallery_test_[0-9]+)(?:\\?.*)?$").matcher(url);
 		assertTrue(match.matches(), "Only a dedicated test schema name is allowed.");
 		String name = "illustration_archive_migration_test_" + UUID.randomUUID().toString().substring(0, 8);
 		schema = new DisposableSchema(new JdbcTemplate(new DriverManagerDataSource(url.replace("/" + match.group(1), "/"), username, password)), name);
-		source = schema.createThen(() -> {
-			DataSource created = new DriverManagerDataSource(url.replace("/" + match.group(1), "/" + name), username, password);
-			Flyway.configure().dataSource(created).locations("classpath:db/migration").load().migrate();
+		schemaUrl = url.replace("/" + match.group(1), "/" + name);
+		return schema.createThen(() -> {
+			DataSource created = new DriverManagerDataSource(schemaUrl, username, password);
+			var flyway = Flyway.configure().dataSource(created).locations("classpath:db/migration");
+			if (version != null) {
+				flyway.target(MigrationVersion.fromVersion(version));
+			}
+			flyway.load().migrate();
 			return created;
 		});
 	}
 
 	@AfterEach
 	void dropSchema() {
-		schema.dropIfCreated();
+		if (schema != null) {
+			schema.dropIfCreated();
+		}
 	}
 
 	@Test
 	void realDriverTypesArriveUnchangedAndTheSourceIsNotWritten() throws Exception {
+		DataSource source = createSchema(null);
 		JdbcTemplate jdbc = new JdbcTemplate(source);
 		Path media = workspace.resolve("media");
 		LegacyMigrationProbe.seed(jdbc, media);
@@ -77,5 +87,37 @@ class LegacyMigrationMySqlTest {
 		assertEquals(Boolean.TRUE, copied.queryForObject("SELECT coverage_to_end FROM x_like_sync_state WHERE id = 2", Boolean.class));
 		assertArrayEquals(new byte[32], copied.queryForObject("SELECT token_sha256 FROM x_like_sync_seen_token", byte[].class));
 		assertEquals(sourceRows, jdbc.queryForObject("SELECT COUNT(*) FROM illustration", Long.class));
+	}
+
+	/** What Settings does: read the old config file, connect through the real driver, copy a V7 source into {@code incoming}. */
+	@Test
+	void aV7SourceReadFromItsConfigFileIsUpgradedOnlyInTheCopy() throws Exception {
+		DataSource source = createSchema("7");
+		JdbcTemplate jdbc = new JdbcTemplate(source);
+		Path media = workspace.resolve("media");
+		LegacyMigrationProbe.seedV7(jdbc, media);
+		var history = jdbc.queryForList("SELECT * FROM flyway_schema_history ORDER BY installed_rank");
+		Path config = Files.writeString(workspace.resolve("application-local.properties"), String.join("\n",
+				"ILLUSTRATION_ARCHIVE_DB_URL=" + schemaUrl, "ILLUSTRATION_ARCHIVE_DB_USERNAME=" + username,
+				"ILLUSTRATION_ARCHIVE_DB_PASSWORD=" + (password == null ? "" : password),
+				"ILLUSTRATION_ARCHIVE_STORAGE_ROOT=" + media.toString().replace('\\', '/'), ""));
+
+		Path incoming = Files.createDirectories(workspace.resolve("incoming"));
+		var result = LegacyMigrationProbe.prepare(config, incoming);
+
+		assertEquals("7", result.schemaBefore());
+		assertEquals("8", result.schemaAfter());
+		assertTrue(result.problems().isEmpty(), result.problems().toString());
+		JdbcTemplate copied = new JdbcTemplate(new DriverManagerDataSource("jdbc:h2:file:"
+				+ incoming.resolve("data").resolve("archive") + DesktopServer.H2_COMPATIBILITY, "sa", ""));
+		assertEquals(4294967296L, copied.queryForObject("SELECT likes_order FROM x_like_item WHERE id = 31", Long.class));
+		assertEquals(LocalDateTime.parse("2026-09-03T01:02:03.456"),
+				copied.queryForObject("SELECT discovered_at FROM x_like_item WHERE id = 31", LocalDateTime.class));
+		assertEquals(0, copied.queryForObject("SELECT COUNT(*) FROM x_like_sync_account", Integer.class));
+		assertTrue(Files.isRegularFile(incoming.resolve("media").resolve("2026-10").resolve("work.png")));
+		assertEquals(history, jdbc.queryForList("SELECT * FROM flyway_schema_history ORDER BY installed_rank"),
+				"MySQL stays at V7");
+		assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE()"
+				+ " AND table_name = 'x_like_sync_account'", Integer.class));
 	}
 }

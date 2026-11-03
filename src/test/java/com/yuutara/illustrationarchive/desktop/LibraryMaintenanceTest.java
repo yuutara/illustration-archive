@@ -64,6 +64,12 @@ class LibraryMaintenanceTest {
 	private volatile LibraryRestore.Mover mover = Files::move;
 	/** What happens elsewhere while the save dialog is open. */
 	private volatile Runnable whileSaving = () -> { };
+	/** The old app's config the open dialog answers with, and the media folder asked for when it is relative. */
+	private Path legacyConfig;
+	private Path legacyMedia;
+	private final List<String> mediaAskedFor = new ArrayList<>();
+	/** How the old app's config is read; tests replace MySQL with an H2 source. */
+	private volatile LibraryMaintenance.LegacySources sources = LegacyMigration.Source::read;
 
 	@BeforeEach
 	void start() throws Exception {
@@ -81,6 +87,17 @@ class LibraryMaintenanceTest {
 			public Optional<Path> openBackup() {
 				return Optional.ofNullable(openFrom);
 			}
+
+			@Override
+			public Optional<Path> openLegacyConfig() {
+				return Optional.ofNullable(legacyConfig);
+			}
+
+			@Override
+			public Optional<Path> chooseLegacyMedia(String configured) {
+				mediaAskedFor.add(configured);
+				return Optional.ofNullable(legacyMedia);
+			}
 		}, new LibraryMaintenance.Screen() {
 			@Override
 			public synchronized void stage(LibraryMaintenance.Kind kind, String text, double fraction, boolean cancellable) {
@@ -91,7 +108,7 @@ class LibraryMaintenanceTest {
 			public void finished(LibraryMaintenance.Outcome outcome) {
 				outcomes.add(outcome);
 			}
-		}, "test", (from, to) -> mover.move(from, to));
+		}, "test", (from, to) -> mover.move(from, to), config -> sources.read(config));
 		server.start(false);
 		cookie = openSession();
 	}
@@ -383,6 +400,224 @@ class LibraryMaintenanceTest {
 		assertTrue(outcome.message().contains("X 授权正在进行"), outcome.message());
 		assertEquals(LibraryMaintenance.Phase.READY, maintenance.restoreView().phase(), "the checked backup can be tried again");
 		assertEquals("WAITING", body(send("GET", "/api/x-auth/status", null)).get("status").get("state").asString());
+	}
+
+	/* ---------------- Import from the old app ---------------- */
+
+	/** An old library at V7 in H2, standing in for MySQL, with its media; the config file only has to exist. */
+	private JdbcTemplate oldLibrary(String storageRoot) throws Exception {
+		javax.sql.DataSource old = LegacyMigrationTest.h2Source("7");
+		JdbcTemplate oldJdbc = new JdbcTemplate(old);
+		Path oldMedia = Files.createDirectories(workspace.resolve("old-media"));
+		LegacyMigrationTest.seedArchive(oldJdbc, oldMedia, false);
+		legacyConfig = Files.writeString(workspace.resolve("application-local.properties"), "replaced by the test source");
+		sources = config -> new LegacyMigration.Source("mysql.example:3306", "illustration_archive",
+				storageRoot == null ? oldMedia.toString() : storageRoot, old, List.of("pw-secret"));
+		return oldJdbc;
+	}
+
+	@Test
+	void anImportFromSettingsReplacesTheWholeLibraryWithTheOldOneUpgradedAndKeepsThePreviousOne() throws Exception {
+		importPng("red.png", Color.RED);
+		assertEquals(201, send("POST", "/api/tags", "{\"name\":\"导入前才有\"}").statusCode());
+		assertEquals(204, send("PUT", "/api/desktop/settings/proxy", "{\"address\":\"127.0.0.1:7890\"}").statusCode());
+		Map<Path, byte[]> config = files(home.resolve("config"));
+		JdbcTemplate old = oldLibrary(null);
+		List<String> v7Tables = LegacyMigrationTest.TABLES.subList(0, LegacyMigrationTest.TABLES.size() - 1);
+		var oldRows = LegacyMigrationTest.everyRow(old, v7Tables);
+		var oldHistory = old.queryForList("SELECT * FROM flyway_schema_history");
+		Map<Path, byte[]> oldMedia = files(workspace.resolve("old-media"));
+
+		JsonNode checking = body(send("POST", "/api/desktop/import/check", null));
+		assertEquals("IMPORT", checking.get("kind").asString());
+		JsonNode ready = awaitPhase("READY");
+		assertEquals("IMPORT", ready.get("kind").asString());
+		JsonNode preview = ready.get("importPreview");
+		assertEquals("mysql.example:3306 / illustration_archive", preview.get("source").asString());
+		assertEquals("7", preview.get("schemaBefore").asString());
+		assertEquals("8", preview.get("schemaAfter").asString());
+		assertEquals(1, preview.get("incoming").get("works").asLong());
+		assertEquals(1, preview.get("incoming").get("inbox").asLong());
+		assertEquals(1, preview.get("current").get("works").asLong(), "what would be replaced is shown beside it");
+		assertEquals(1, preview.get("current").get("tags").asLong());
+		assertEquals(0, preview.get("problemCount").asInt());
+		String id = ready.get("id").asString();
+		assertTrue(Files.isDirectory(home.resolve("recovery").resolve(id).resolve("incoming").resolve("data")),
+				"the copy waits beside the library, on its disk");
+		assertEquals(409, send("POST", "/api/desktop/backup", null).statusCode(), "one operation at a time");
+		assertEquals(409, send("POST", "/api/desktop/restore/apply", "{\"id\":\"" + id + "\"}").statusCode(),
+				"a checked import is not a backup to restore");
+
+		assertEquals(202, send("POST", "/api/desktop/import/apply", "{\"id\":\"" + id + "\"}").statusCode());
+		LibraryMaintenance.Outcome imported = outcome();
+
+		assertTrue(imported.succeeded(), imported.message());
+		assertEquals(LibraryMaintenance.Kind.IMPORT, imported.kind());
+		assertTrue(imported.message().contains("X 登录不会导入"), imported.message());
+		assertEquals(oldRows, LegacyMigrationTest.everyRow(jdbc(), v7Tables), "the library is now the old one, ids included");
+		assertEquals(0, jdbc().queryForObject("SELECT COUNT(*) FROM x_like_sync_account", Integer.class));
+		assertEquals(0, jdbc().queryForObject("SELECT COUNT(*) FROM tag WHERE name = '导入前才有'", Integer.class));
+		HttpResponse<String> original = send("GET", "/api/assets/21/content", null);
+		assertEquals(200, original.statusCode(), "imported originals are served");
+		assertEquals("image-bytes", original.body());
+		Map<Path, byte[]> after = files(home.resolve("config"));
+		assertEquals(config.keySet(), after.keySet());
+		config.forEach((file, bytes) -> assertArrayEquals(bytes, after.get(file), file + " must not change"));
+		assertEquals(home.resolve("recovery").resolve(id).resolve("previous"), imported.location());
+		assertEquals(1, LegacyMigrationTest.library(imported.location()).queryForObject(
+				"SELECT COUNT(*) FROM tag WHERE name = '导入前才有'", Integer.class), "the replaced library is kept as it was");
+		assertEquals(oldRows, LegacyMigrationTest.everyRow(old, v7Tables), "the old library is only read");
+		assertEquals(oldHistory, old.queryForList("SELECT * FROM flyway_schema_history"), "and stays at V7");
+		Map<Path, byte[]> oldMediaAfter = files(workspace.resolve("old-media"));
+		assertEquals(oldMedia.keySet(), oldMediaAfter.keySet());
+		oldMedia.forEach((file, bytes) -> assertArrayEquals(bytes, oldMediaAfter.get(file)));
+		assertEquals("IDLE", body(send("GET", "/api/desktop/restore", null)).get("phase").asString());
+		old.execute("DROP ALL OBJECTS");
+	}
+
+	@Test
+	void missingOrChangedOldMediaAreListedAndCannotBeImported() throws Exception {
+		importPng("red.png", Color.RED);
+		JdbcTemplate old = oldLibrary(null);
+		Files.delete(workspace.resolve("old-media").resolve("2026-10").resolve("work.png"));
+
+		body(send("POST", "/api/desktop/import/check", null));
+		JsonNode failed = awaitPhase("FAILED");
+
+		assertEquals("IMPORT", failed.get("kind").asString());
+		assertTrue(failed.get("message").asString().contains("不能导入"), failed.toString());
+		assertEquals(1, failed.get("importPreview").get("problemCount").asInt());
+		assertEquals("缺少文件：2026-10/work.png", failed.get("importPreview").get("problems").get(0).asString());
+		assertNoOperationLeft();
+		assertEquals(1, jdbc().queryForObject("SELECT COUNT(*) FROM illustration", Integer.class));
+		assertEquals(409, send("POST", "/api/desktop/import/apply", "{\"id\":\"20000101-000000-0000\"}").statusCode());
+		old.execute("DROP ALL OBJECTS");
+	}
+
+	@Test
+	void aRelativeMediaFolderIsAskedForAndACancelledCheckLeavesNothing() throws Exception {
+		JdbcTemplate old = oldLibrary("storage");
+
+		JsonNode closed = body(send("POST", "/api/desktop/import/check", null));
+		assertEquals("IDLE", closed.get("phase").asString(), "closing the folder dialog cancels");
+		assertEquals(List.of("storage"), mediaAskedFor, "the configured path is shown, not guessed");
+		assertNoOperationLeft();
+
+		legacyMedia = workspace.resolve("old-media");
+		body(send("POST", "/api/desktop/import/check", null));
+		JsonNode ready = awaitPhase("READY");
+		assertEquals(legacyMedia.toString(), ready.get("importPreview").get("mediaRoot").asString());
+
+		JsonNode cancelled = body(send("POST", "/api/desktop/restore/cancel", "{\"id\":\"" + ready.get("id").asString() + "\"}"));
+		assertEquals("IDLE", cancelled.get("phase").asString());
+		assertNoOperationLeft();
+		saveTo = backups.resolve("after-cancel.zip");
+		assertEquals(200, send("POST", "/api/desktop/backup", null).statusCode(), "the slot is free again");
+		assertTrue(outcome().succeeded());
+		old.execute("DROP ALL OBJECTS");
+	}
+
+	@Test
+	void aSwitchThatFailsPutsThePreviousLibraryBack() throws Exception {
+		importPng("red.png", Color.RED);
+		JdbcTemplate old = oldLibrary(null);
+		body(send("POST", "/api/desktop/import/check", null));
+		String id = awaitPhase("READY").get("id").asString();
+		// Data and media out work; bringing the old library's data in fails, so both are moved back.
+		AtomicInteger renames = new AtomicInteger();
+		mover = (from, to) -> {
+			if (renames.incrementAndGet() == 3) {
+				throw new java.nio.file.AccessDeniedException(from.toString());
+			}
+			Files.move(from, to);
+		};
+
+		maintenance.apply(LibraryMaintenance.Kind.IMPORT, id);
+		LibraryMaintenance.Outcome outcome = outcome();
+
+		assertFalse(outcome.succeeded());
+		assertTrue(outcome.libraryOpen(), outcome.message());
+		assertTrue(outcome.message().contains("已退回原来的图库"), outcome.message());
+		assertEquals(1, jdbc().queryForObject("SELECT COUNT(*) FROM illustration", Integer.class));
+		assertEquals(0, jdbc().queryForObject("SELECT COUNT(*) FROM illustration WHERE id = 11", Integer.class));
+		old.execute("DROP ALL OBJECTS");
+	}
+
+	@Test
+	void anImportWaitsWhileAnXLoginIsInProgress() throws Exception {
+		JdbcTemplate old = oldLibrary(null);
+		body(send("POST", "/api/desktop/import/check", null));
+		String id = awaitPhase("READY").get("id").asString();
+		startLogin();
+
+		HttpResponse<String> refused = send("POST", "/api/desktop/import/apply", "{\"id\":\"" + id + "\"}");
+
+		assertEquals(409, refused.statusCode());
+		assertTrue(refused.body().contains("X 授权正在进行"), refused.body());
+		assertEquals("READY", body(send("GET", "/api/desktop/restore", null)).get("phase").asString());
+		old.execute("DROP ALL OBJECTS");
+	}
+
+	@Test
+	void theOldPasswordAndUrlParametersReachNoResponseLogOrFile() throws Exception {
+		int closed = freePort();
+		legacyConfig = Files.writeString(workspace.resolve("application-local.properties"), """
+				ILLUSTRATION_ARCHIVE_DB_URL=jdbc:mysql://user-in-url:pass-in-url@127.0.0.1:%d/illustration_archive?useSSL=false&password=param-secret
+				ILLUSTRATION_ARCHIVE_DB_USERNAME=someone
+				ILLUSTRATION_ARCHIVE_DB_PASSWORD=file-secret-123
+				ILLUSTRATION_ARCHIVE_STORAGE_ROOT=%s
+				""".formatted(closed, workspace.toString().replace('\\', '/')));
+		List<String> secrets = List.of("file-secret-123", "pass-in-url", "param-secret");
+
+		HttpResponse<String> started = send("POST", "/api/desktop/import/check", null);
+		assertEquals(200, started.statusCode(), started.body());
+		JsonNode failed = awaitPhase("FAILED");
+		// Only the config file itself may hold them; it is the user's own and is only read.
+		Files.delete(legacyConfig);
+
+		String shown = failed.toString();
+		assertTrue(failed.get("message").asString().contains("没能读取旧版图库的数据库"), shown);
+		for (String secret : secrets) {
+			assertFalse(shown.contains(secret), shown);
+		}
+		server.stop();
+		((ch.qos.logback.classic.LoggerContext) org.slf4j.LoggerFactory.getILoggerFactory()).reset();
+		assertTrue(Files.readString(home.resolve("logs").resolve("desktop.log"), StandardCharsets.UTF_8)
+				.contains("A library could not be prepared"), "the failure itself was logged");
+		try (Stream<Path> tree = Files.walk(workspace)) {
+			for (Path file : tree.filter(Files::isRegularFile).toList()) {
+				String content = new String(Files.readAllBytes(file), StandardCharsets.ISO_8859_1);
+				for (String secret : secrets) {
+					assertFalse(content.contains(secret), secret + " found in " + file);
+				}
+			}
+		}
+	}
+
+	@Test
+	void anOldAppStoringItsMediaInS3IsRefusedBeforeAnythingIsCopied() throws Exception {
+		legacyConfig = Files.writeString(workspace.resolve("application-local.properties"), """
+				ILLUSTRATION_ARCHIVE_DB_URL=jdbc:mysql://127.0.0.1:1/illustration_archive
+				ILLUSTRATION_ARCHIVE_DB_USERNAME=someone
+				ILLUSTRATION_ARCHIVE_STORAGE_ROOT=/data/storage
+				ILLUSTRATION_ARCHIVE_STORAGE_TYPE=s3
+				""");
+
+		HttpResponse<String> refused = send("POST", "/api/desktop/import/check", null);
+
+		assertEquals(409, refused.statusCode());
+		assertTrue(refused.body().contains("S3"), refused.body());
+		assertEquals("IDLE", body(send("GET", "/api/desktop/restore", null)).get("phase").asString());
+		assertTrue(mediaAskedFor.isEmpty());
+	}
+
+	private void assertNoOperationLeft() throws IOException {
+		Path recovery = home.resolve("recovery");
+		if (Files.isDirectory(recovery)) {
+			try (Stream<Path> operations = Files.list(recovery)) {
+				assertEquals(List.of(), operations.toList(), "no prepared library is left behind");
+			}
+		}
 	}
 
 	private void startLogin() {

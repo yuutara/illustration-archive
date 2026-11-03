@@ -1,6 +1,7 @@
 package com.yuutara.illustrationarchive.desktop;
 
 import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.MigrationVersion;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -13,9 +14,14 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
+import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.stream.Stream;
 
@@ -27,6 +33,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** The copy logic against an H2 source; {@code LegacyMigrationMySqlTest} repeats the essentials on real MySQL. */
 class LegacyMigrationTest {
 
+	/** Every table a V8 library has, for row-by-row comparison. */
+	static final List<String> TABLES = List.of("author", "tag", "illustration", "asset", "illustration_tag",
+			"x_like_item", "x_like_media", "x_like_sync_state", "x_like_sync_seen_token", "x_like_sync_account");
+
 	@TempDir
 	Path workspace;
 
@@ -36,9 +46,7 @@ class LegacyMigrationTest {
 
 	@BeforeEach
 	void seed() throws Exception {
-		source = new DriverManagerDataSource("jdbc:h2:mem:legacy-" + UUID.randomUUID()
-				+ DesktopServer.H2_COMPATIBILITY + ";DB_CLOSE_DELAY=-1", "sa", "");
-		Flyway.configure().dataSource(source).locations("classpath:db/migration-h2").load().migrate();
+		source = h2Source(null);
 		sourceJdbc = new JdbcTemplate(source);
 		media = Files.createDirectories(workspace.resolve("old-media"));
 		seedArchive(sourceJdbc, media);
@@ -49,7 +57,24 @@ class LegacyMigrationTest {
 		sourceJdbc.execute("DROP ALL OBJECTS");
 	}
 
+	/** An in-memory H2 standing in for the old MySQL, built up to {@code version} (all of them when null). */
+	static DataSource h2Source(String version) {
+		DataSource created = new DriverManagerDataSource("jdbc:h2:mem:legacy-" + UUID.randomUUID()
+				+ DesktopServer.H2_COMPATIBILITY + ";DB_CLOSE_DELAY=-1", "sa", "");
+		var flyway = Flyway.configure().dataSource(created).locations("classpath:db/migration-h2");
+		if (version != null) {
+			flyway.target(MigrationVersion.fromVersion(version));
+		}
+		flyway.load().migrate();
+		return created;
+	}
+
 	static void seedArchive(JdbcTemplate jdbc, Path media) throws Exception {
+		seedArchive(jdbc, media, true);
+	}
+
+	/** @param account also the sync account row, which only exists from V8 on */
+	static void seedArchive(JdbcTemplate jdbc, Path media, boolean account) throws Exception {
 		byte[] image = "image-bytes".getBytes(StandardCharsets.UTF_8);
 		Path file = media.resolve("2026-10").resolve("work.png");
 		Files.createDirectories(file.getParent());
@@ -74,7 +99,33 @@ class LegacyMigrationTest {
 		jdbc.update("INSERT INTO x_like_sync_state (id, next_token, max_results, status, updated_at, matched_count, coverage_to_end)"
 				+ " VALUES (2, 'cursor', 25, 'ACTIVE', '2026-09-03 01:02:03', 3, TRUE)");
 		jdbc.update("INSERT INTO x_like_sync_seen_token (sync_id, token_sha256) VALUES (2, ?)", (Object) new byte[32]);
-		jdbc.update("INSERT INTO x_like_sync_account (id, owner_x_user_id, updated_at) VALUES (1, '42', '2026-09-03 01:02:03')");
+		if (account) {
+			jdbc.update("INSERT INTO x_like_sync_account (id, owner_x_user_id, updated_at) VALUES (1, '42', '2026-09-03 01:02:03')");
+		}
+	}
+
+	/** Every row of {@code table}, in a stable order, with values made comparable (bytes as hex, times as wall clock). */
+	static List<Map<String, Object>> rows(JdbcTemplate jdbc, String table) {
+		return jdbc.queryForList("SELECT * FROM " + table + " ORDER BY 1, 2").stream().map(row -> {
+			Map<String, Object> plain = new TreeMap<>();
+			row.forEach((column, value) -> plain.put(column.toLowerCase(Locale.ROOT), switch (value) {
+				case byte[] bytes -> HexFormat.of().formatHex(bytes);
+				case Timestamp time -> time.toLocalDateTime();
+				case null -> "NULL";
+				default -> value;
+			}));
+			return plain;
+		}).toList();
+	}
+
+	static Map<String, List<Map<String, Object>>> everyRow(JdbcTemplate jdbc, List<String> tables) {
+		Map<String, List<Map<String, Object>>> all = new LinkedHashMap<>();
+		tables.forEach(table -> all.put(table, rows(jdbc, table)));
+		return all;
+	}
+
+	static JdbcTemplate library(Path home) {
+		return new JdbcTemplate(new DriverManagerDataSource(LibraryBackup.url(home.resolve("data")), "sa", ""));
 	}
 
 	@Test
@@ -84,24 +135,17 @@ class LegacyMigrationTest {
 
 		assertEquals(1L, result.rows().get("illustration"));
 		assertEquals(1L, result.rows().get("x_like_sync_seen_token"));
+		assertEquals("8", result.schemaBefore());
+		assertEquals("8", result.schemaAfter());
 		assertEquals(1, result.files());
 		assertTrue(result.problems().isEmpty());
 		assertEquals("image-bytes", Files.readString(target.resolve("media").resolve("2026-10").resolve("work.png")));
 		assertEquals("thumb", Files.readString(target.resolve("media").resolve("thumbnails").resolve("2026-10").resolve("work.png")));
 
-		DataSource copied = new DriverManagerDataSource("jdbc:h2:file:" + target.resolve("data").resolve("archive")
-				+ DesktopServer.H2_COMPATIBILITY, "sa", "");
-		JdbcTemplate jdbc = new JdbcTemplate(copied);
-		assertEquals("标题", jdbc.queryForObject("SELECT title FROM illustration WHERE id = 11", String.class));
-		assertEquals(LocalDateTime.parse("2026-09-01T08:30:00"),
-				jdbc.queryForObject("SELECT created_at FROM illustration WHERE id = 11", LocalDateTime.class));
-		assertEquals(11L, jdbc.queryForObject("SELECT imported_illustration_id FROM x_like_item WHERE x_post_id = '1001'", Long.class));
+		JdbcTemplate jdbc = library(target);
+		assertEquals(everyRow(sourceJdbc, TABLES), everyRow(jdbc, TABLES), "every row of every table, ids included");
 		assertEquals(LocalDateTime.parse("2026-09-03T01:02:03.456"),
 				jdbc.queryForObject("SELECT discovered_at FROM x_like_item WHERE id = 31", LocalDateTime.class));
-		assertEquals(4294967296L, jdbc.queryForObject("SELECT likes_order FROM x_like_item WHERE id = 31", Long.class));
-		assertEquals("cursor", jdbc.queryForObject("SELECT next_token FROM x_like_sync_state WHERE id = 2", String.class));
-		assertEquals(Boolean.TRUE, jdbc.queryForObject("SELECT coverage_to_end FROM x_like_sync_state WHERE id = 2", Boolean.class));
-		assertEquals(32, jdbc.queryForObject("SELECT token_sha256 FROM x_like_sync_seen_token", byte[].class).length);
 		assertEquals("42", jdbc.queryForObject("SELECT owner_x_user_id FROM x_like_sync_account WHERE id = 1", String.class),
 				"copied progress keeps its owner");
 
@@ -114,6 +158,35 @@ class LegacyMigrationTest {
 	}
 
 	@Test
+	void aV7SourceIsUpgradedInTheCopyAndNeverInTheSource() throws Exception {
+		DataSource v7 = h2Source("7");
+		JdbcTemplate v7Jdbc = new JdbcTemplate(v7);
+		Path v7Media = Files.createDirectories(workspace.resolve("v7-media"));
+		seedArchive(v7Jdbc, v7Media, false);
+		List<String> v7Tables = TABLES.subList(0, TABLES.size() - 1);
+		var before = everyRow(v7Jdbc, v7Tables);
+		var history = v7Jdbc.queryForList("SELECT * FROM flyway_schema_history");
+		Path target = workspace.resolve("v7-home");
+		try {
+			LegacyMigration.Result result = LegacyMigration.execute(v7, v7Media, target, false);
+
+			assertEquals("7", result.schemaBefore());
+			assertEquals("8", result.schemaAfter());
+			assertFalse(result.rows().containsKey("x_like_sync_account"), "a table V7 does not have is not read");
+			JdbcTemplate copied = library(target);
+			assertEquals(before, everyRow(copied, v7Tables));
+			assertEquals(0, copied.queryForObject("SELECT COUNT(*) FROM x_like_sync_account", Integer.class),
+					"V7 progress has no owner yet; the first sync asks");
+			assertEquals("8", copied.queryForObject(
+					"SELECT MAX(CAST(version AS INT)) FROM flyway_schema_history WHERE success = TRUE", String.class));
+			assertEquals(before, everyRow(v7Jdbc, v7Tables), "the source is only read");
+			assertEquals(history, v7Jdbc.queryForList("SELECT * FROM flyway_schema_history"), "and is not upgraded");
+		} finally {
+			v7Jdbc.execute("DROP ALL OBJECTS");
+		}
+	}
+
+	@Test
 	void checkWritesNothingButStillReportsProblems() throws Exception {
 		Files.delete(media.resolve("2026-10").resolve("work.png"));
 		List<Path> before = tree();
@@ -122,7 +195,7 @@ class LegacyMigrationTest {
 
 		assertEquals(1L, result.rows().get("asset"));
 		assertEquals(0, result.files());
-		assertEquals(List.of("Missing file: 2026-10/work.png"), result.problems());
+		assertEquals(List.of("缺少文件：2026-10/work.png"), result.problems());
 		assertEquals(before, tree());
 	}
 
@@ -131,7 +204,7 @@ class LegacyMigrationTest {
 		Path target = Files.createDirectories(workspace.resolve("existing"));
 		Files.writeString(target.resolve("mine.txt"), "keep me");
 
-		assertThrows(IllegalStateException.class, () -> LegacyMigration.execute(source, media, target, false));
+		assertThrows(MaintenanceException.class, () -> LegacyMigration.execute(source, media, target, false));
 
 		assertEquals("keep me", Files.readString(target.resolve("mine.txt")));
 		assertEquals(1, Files.list(target).count());
@@ -143,7 +216,7 @@ class LegacyMigrationTest {
 		Files.writeString(media.resolve("2026-10").resolve("work.png"), "tampered");
 		Path target = workspace.resolve("new-home");
 
-		IllegalStateException refused = assertThrows(IllegalStateException.class,
+		MaintenanceException refused = assertThrows(MaintenanceException.class,
 				() -> LegacyMigration.execute(source, media, target, false));
 
 		assertTrue(refused.getMessage().contains("SHA-256"), refused.getMessage());
@@ -162,21 +235,86 @@ class LegacyMigrationTest {
 
 		LegacyMigration.Result result = LegacyMigration.check(source, media);
 
-		assertEquals(List.of("Storage key leaves the media root: ../secret.txt"), result.problems());
+		assertEquals(List.of("存储路径超出了媒体文件夹：../secret.txt"), result.problems());
 		assertEquals(0, result.files());
 	}
 
 	@Test
-	void aSchemaThatIsNotAtTheSameMigrationIsRefused() throws Exception {
-		sourceJdbc.update("UPDATE flyway_schema_history SET success = FALSE WHERE version = '8'");
+	void aNewerFailedOrIncompleteSchemaIsRefusedAndNothingIsLeft() throws Exception {
 		Path target = workspace.resolve("new-home");
+		sourceJdbc.update("INSERT INTO flyway_schema_history (installed_rank, version, description, type, script, checksum,"
+				+ " installed_by, execution_time, success) VALUES (99, '9', 'future', 'SQL', 'V9__future.sql', 1, 'sa', 1, TRUE)");
+		assertRefused(target, "更新版本");
 
-		IllegalStateException refused = assertThrows(IllegalStateException.class,
+		sourceJdbc.update("DELETE FROM flyway_schema_history WHERE version = '9'");
+		sourceJdbc.update("UPDATE flyway_schema_history SET success = FALSE WHERE version = '8'");
+		assertRefused(target, "没有完成的升级");
+
+		sourceJdbc.update("UPDATE flyway_schema_history SET success = TRUE WHERE version = '8'");
+		sourceJdbc.update("DELETE FROM flyway_schema_history WHERE version = '5'");
+		assertRefused(target, "对不上");
+
+		sourceJdbc.execute("DROP TABLE flyway_schema_history");
+		assertRefused(target, "升级记录");
+	}
+
+	private void assertRefused(Path target, String reason) {
+		MaintenanceException refused = assertThrows(MaintenanceException.class,
 				() -> LegacyMigration.execute(source, media, target, false));
-
-		assertTrue(refused.getMessage().contains("migration 7"), refused.getMessage());
+		assertTrue(refused.getMessage().contains(reason), refused.getMessage());
 		assertFalse(Files.exists(target));
 		assertNoStagingLeft();
+	}
+
+	@Test
+	void notEnoughSpaceForTheMediaIsRefusedBeforeAnythingIsCopied() throws Exception {
+		Path home = Files.createDirectories(workspace.resolve("home"));
+		sourceJdbc.update("UPDATE asset SET file_size = ? WHERE id = 21", 1L << 56);
+		LegacyMigration.Source old = new LegacyMigration.Source("db.example:3306", "archive", media.toString(), source,
+				List.of());
+
+		MaintenanceException refused = assertThrows(MaintenanceException.class, () -> LibraryRestore.prepare(home,
+				incoming -> LegacyMigration.prepare(old, media, incoming, (stage, fraction) -> { })));
+
+		assertTrue(refused.getMessage().contains("磁盘空间不够"), refused.getMessage());
+		try (Stream<Path> operations = Files.list(home.resolve(LibraryRestore.RECOVERY))) {
+			assertEquals(0, operations.count(), "no prepared library is left");
+		}
+	}
+
+	@Test
+	void theConfigFileOnlyGivesAMySqlSourceWithLocalMediaAndNeverRepeatsItsSecrets() throws Exception {
+		Path config = workspace.resolve("application-local.properties");
+		Files.writeString(config, """
+				ILLUSTRATION_ARCHIVE_DB_URL=jdbc:mysql://someone:url-pass@db.example:3307/illustration_archive?useSSL=false&password=inurl
+				ILLUSTRATION_ARCHIVE_DB_USERNAME=someone
+				ILLUSTRATION_ARCHIVE_DB_PASSWORD=do-not-print-me
+				ILLUSTRATION_ARCHIVE_STORAGE_ROOT=storage
+				X_CLIENT_SECRET=not-read
+				""");
+
+		LegacyMigration.Source read = LegacyMigration.Source.read(config);
+
+		assertEquals("db.example:3307 / illustration_archive", read.describe());
+		assertEquals("storage", read.configuredMediaRoot());
+		assertTrue(read.mediaRoot().isEmpty(), "a relative media folder is not guessed");
+		String redacted = read.redact("x do-not-print-me y ?useSSL=false&password=inurl z someone:url-pass@ password=other");
+		assertFalse(redacted.contains("do-not-print-me"), redacted);
+		assertFalse(redacted.contains("inurl"), redacted);
+		assertFalse(redacted.contains("url-pass"), redacted);
+		assertFalse(redacted.contains("other"), redacted);
+		assertFalse(read.toString().contains("someone"), read.toString());
+
+		String rest = "ILLUSTRATION_ARCHIVE_DB_USERNAME=u\nILLUSTRATION_ARCHIVE_STORAGE_ROOT=D:/media\n";
+		Map<String, String> refusals = Map.of(
+				"ILLUSTRATION_ARCHIVE_DB_URL=jdbc:h2:file:./data\n" + rest, "不是 MySQL",
+				"ILLUSTRATION_ARCHIVE_DB_URL=jdbc:mysql://db/a\nILLUSTRATION_ARCHIVE_STORAGE_TYPE=s3\n" + rest, "S3",
+				"ILLUSTRATION_ARCHIVE_DB_URL=jdbc:mysql://db/a\nILLUSTRATION_ARCHIVE_DB_USERNAME=u\n", "STORAGE_ROOT");
+		for (Map.Entry<String, String> refusal : refusals.entrySet()) {
+			Files.writeString(config, refusal.getKey());
+			MaintenanceException refused = assertThrows(MaintenanceException.class, () -> LegacyMigration.Source.read(config));
+			assertTrue(refused.getMessage().contains(refusal.getValue()), refused.getMessage());
+		}
 	}
 
 	@Test
@@ -199,9 +337,11 @@ class LegacyMigrationTest {
 		assertFalse(output.contains("inurl"), output);
 	}
 
-	private void assertNoStagingLeft() throws Exception {
+	private void assertNoStagingLeft() {
 		try (Stream<Path> entries = Files.list(workspace)) {
 			assertTrue(entries.noneMatch(path -> path.getFileName().toString().contains(".migrating-")));
+		} catch (java.io.IOException failed) {
+			throw new IllegalStateException(failed);
 		}
 	}
 

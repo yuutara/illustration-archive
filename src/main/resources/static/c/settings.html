@@ -133,6 +133,19 @@
                 <button class="btn" id="restore-check-cancel" type="button">取消</button>
             </div>
             <p class="set-note">备份和恢复时图库会暂停使用，由一个小窗口显示进度，完成后自动回到这里。恢复会替换整个图库，恢复前的图库原样保留在数据文件夹的 <code>recovery</code> 里。备份里有你的全部作品，请像保管图库一样保管它。</p>
+
+            <h3 class="set-subhead">从旧版导入</h3>
+            <p>把旧版服务端（MySQL）里的图库复制过来，替换整个当前图库。选择旧版的配置文件 <code>application-local.properties</code>，应用只读其中的数据库地址、用户名、密码和原图文件夹；旧版的数据库和原图只读不改，密码不会保存。</p>
+            <p class="set-error" id="import-error" role="alert" hidden></p>
+            <div class="set-actions">
+                <button class="btn" id="import-choose" type="button">从旧版导入…</button>
+            </div>
+            <div class="set-progress" id="import-check" role="status" hidden>
+                <p id="import-stage">正在读取旧版图库…</p>
+                <div class="set-bar" id="import-bar"><span id="import-fill"></span></div>
+                <button class="btn" id="import-check-cancel" type="button">取消</button>
+            </div>
+            <p class="set-note">先在后台复制并核对一份（图库照常可用），看过内容再决定是否替换。只支持原图存放在本机文件夹里的旧版；S3 上的不行。</p>
         </div>
     </section>
 
@@ -153,6 +166,22 @@
         <div class="sheet-foot">
             <button class="btn" id="restore-cancel" type="button">取消</button>
             <button class="btn btn-danger" id="restore-ok" type="button">恢复整个图库</button>
+        </div>
+    </section>
+</div>
+
+<div class="sheet-backdrop" id="import-confirm" hidden>
+    <section class="sheet sheet-small sheet-restore" id="import-dialog" role="alertdialog" aria-modal="true" tabindex="-1"
+             aria-labelledby="import-title" aria-describedby="import-facts import-warning import-kept">
+        <h2 id="import-title">用旧版图库替换整个当前图库？</h2>
+        <dl class="restore-facts" id="import-facts"></dl>
+        <ul class="import-problems" id="import-problems" hidden></ul>
+        <p class="close-warning" id="import-warning">导入会用旧版图库替换整个当前图库，不会合并：当前图库里的作品、标签和整理进度都会换成旧版的。</p>
+        <p id="import-kept">当前图库会先原样保留在数据文件夹的 <code>recovery</code> 里。本应用的 X 登录、API Key 和设置不变；旧版的 X 登录不会导入，导入的同步进度会在第一次同步时核对属于哪个 X 账号。</p>
+        <p class="set-error" id="import-confirm-error" role="alert" hidden></p>
+        <div class="sheet-foot">
+            <button class="btn" id="import-cancel" type="button">取消</button>
+            <button class="btn btn-danger" id="import-ok" type="button">替换为旧版图库</button>
         </div>
     </section>
 </div>

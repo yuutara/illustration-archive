@@ -375,7 +375,7 @@ Codex 只读 Review 指出两点，均只改 `DesktopServer` 的桌面启动参�
 
 ### MySQL 数据迁移（2026-10-30）
 
-设计见 [路线文档](DESKTOP_ROADMAP.md#数据迁移只读旧库写新目录)。用包内运行时执行，在仓库根目录：
+设计见 [路线文档](DESKTOP_ROADMAP.md#数据迁移只读旧库写到旁边再替换)。用包内运行时执行，在仓库根目录：
 
 ```powershell
 # 试跑：内存数据库 + 只读媒体，一个文件都不写
@@ -387,7 +387,7 @@ Codex 只读 Review 指出两点，均只改 `DesktopServer` 的桌面启动参�
 & dist\IllustrationArchive\runtime\bin\java.exe -jar dist\IllustrationArchive\app\illustration-archive-0.0.1-SNAPSHOT.jar --migrate-from-mysql --config=config\application-local.properties --execute
 ```
 
-退出码：0 成功，2 有媒体问题（用 `--allow-problems` 才会继续），1 失败。`--target=<目录>` 可换目标。密码不会打印。
+退出码：0 成功，2 有媒体问题（用 `--allow-problems` 才会继续），1 失败。`--target=<目录>` 可换目标。密码不会打印。自 R3.4 起支持 V7 来源（只在副本里升级），输出多一行 `schema`；相对的原图文件夹仍按运行目录解析（设置页则让用户选）。普通用户用设置页的“从旧版导入”。
 
 **要在普通终端里运行，不要从 Claude 桌面版里运行。** Claude 桌面版是 MSIX 应用，它启动的进程写 `%LOCALAPPDATA%` 时会被重定向到 `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Local\`，这个进程自己看得到，从资源管理器启动的应用看不到。
 

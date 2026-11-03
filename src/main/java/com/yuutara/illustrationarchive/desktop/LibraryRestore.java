@@ -67,6 +67,9 @@ final class LibraryRestore {
 	record Candidate(String id, String fileName, LibraryBackup.Manifest manifest, String schemaBefore, String schemaAfter) {
 	}
 
+	private record Checked(LibraryBackup.Manifest manifest, String schemaBefore, String schemaAfter) {
+	}
+
 	private record Move(Path from, Path to) {
 	}
 
@@ -79,11 +82,41 @@ final class LibraryRestore {
 	private LibraryRestore() {
 	}
 
+	/** Fills {@code incoming} with a whole library, {@code data} and {@code media}, while the current one stays in use. */
+	interface Filler<T> {
+
+		T fill(Path incoming) throws MaintenanceException, IOException;
+	}
+
+	/** A library waiting in {@code <home>/recovery/<id>/incoming} to replace the current one. */
+	record Prepared<T>(String id, T value) {
+	}
+
 	/**
 	 * Unpacks and checks a backup beside the library, which stays as it is and may stay in use. A backup at an older
 	 * schema is upgraded here, in the unpacked copy; the ZIP is only read.
 	 */
 	static Candidate prepare(Path home, Path backup, LibraryBackup.Progress progress) throws MaintenanceException {
+		Prepared<Checked> prepared = prepare(home, incoming -> {
+			LibraryBackup.Manifest manifest = LibraryBackup.read(backup, incoming, progress, "正在解包并校验备份…", 0, 0.85);
+			Files.createDirectories(incoming.resolve("media"));
+			progress.update("正在检查备份里的数据库…", 0.9);
+			String[] schema = check(incoming.resolve("data"), manifest);
+			if (progress.cancelled()) {
+				throw MaintenanceException.cancelled();
+			}
+			return new Checked(manifest, schema[0], schema[1]);
+		});
+		Checked checked = prepared.value();
+		return new Candidate(prepared.id(), backup.getFileName().toString(), checked.manifest(), checked.schemaBefore(),
+				checked.schemaAfter());
+	}
+
+	/**
+	 * Creates an operation beside the library and has {@code filler} put the replacement in its {@code incoming}
+	 * folder, which is on the same disk as {@code data} and {@code media}. Nothing is left behind unless it succeeds.
+	 */
+	static <T> Prepared<T> prepare(Path home, Filler<T> filler) throws MaintenanceException {
 		Path recovery = recoveryFolder(home);
 		String id = ID_TIME.format(LocalDateTime.now()) + "-" + HexFormat.of().toHexDigits((short) RANDOM.nextInt());
 		Path operation = recovery.resolve(id);
@@ -94,18 +127,12 @@ final class LibraryRestore {
 			journal.write(State.PREPARING, 0);
 			Path incoming = Files.createDirectory(operation.resolve("incoming"));
 			Files.createDirectory(operation.resolve("previous"));
-			LibraryBackup.Manifest manifest = LibraryBackup.read(backup, incoming, progress, "正在解包并校验备份…", 0, 0.85);
-			Files.createDirectories(incoming.resolve("media"));
-			progress.update("正在检查备份里的数据库…", 0.9);
-			String[] schema = check(incoming.resolve("data"), manifest);
-			if (progress.cancelled()) {
-				throw MaintenanceException.cancelled();
-			}
+			T value = filler.fill(incoming);
 			journal.write(State.READY, 0);
 			ready = true;
-			return new Candidate(id, backup.getFileName().toString(), manifest, schema[0], schema[1]);
+			return new Prepared<>(id, value);
 		} catch (IOException failed) {
-			throw new MaintenanceException("准备恢复时出错：" + LibraryBackup.reason(failed), failed);
+			throw new MaintenanceException("准备替换图库时出错：" + LibraryBackup.reason(failed), failed);
 		} finally {
 			if (!ready) {
 				deleteTree(operation);
@@ -176,7 +203,7 @@ final class LibraryRestore {
 				.max(Comparator.naturalOrder()).map(MigrationVersion::getVersion).orElse("0");
 	}
 
-	/** Drops a prepared backup that will not be used. */
+	/** Drops a prepared library that will not be used. */
 	static void discard(Path home, String id) {
 		Path operation = operation(home, id);
 		try {
@@ -207,16 +234,16 @@ final class LibraryRestore {
 		try {
 			journal.load();
 		} catch (IOException unreadable) {
-			throw new MaintenanceException("读不到这份备份的准备记录，没有恢复。", unreadable);
+			throw new MaintenanceException("读不到这次替换的准备记录，图库没有改动。", unreadable);
 		}
 		if (journal.state() != State.READY) {
-			throw new MaintenanceException("这份备份没有准备好，没有恢复。");
+			throw new MaintenanceException("要替换进来的图库没有准备好，图库没有改动。");
 		}
 		for (int step = 0; step < moves.size(); step++) {
 			journal.present(step, Files.exists(moves.get(step).from(), LinkOption.NOFOLLOW_LINKS));
 		}
 		if (!journal.present(2) || !journal.present(3)) {
-			throw new MaintenanceException("暂存的备份不完整，没有恢复。");
+			throw new MaintenanceException("暂存的图库不完整，图库没有改动。");
 		}
 		// Counted here rather than read back from the folders: a rename that threw did not happen.
 		int done = 0;
@@ -234,7 +261,7 @@ final class LibraryRestore {
 		} catch (IOException failed) {
 			log.warn("Switching to the restored library failed; undoing.", failed);
 			undo(operation, moves, journal, done, mover);
-			throw new MaintenanceException("替换图库时出错，已退回恢复前的图库：" + LibraryBackup.reason(failed)
+			throw new MaintenanceException("替换图库时出错，已退回原来的图库：" + LibraryBackup.reason(failed)
 					+ "。可能有文件正被其他程序占用。", failed);
 		}
 	}
@@ -291,10 +318,10 @@ final class LibraryRestore {
 			}
 			journal.write(State.ROLLED_BACK, 0);
 		} catch (IOException failed) {
-			throw MaintenanceException.stuck("没能退回恢复前的图库：" + LibraryBackup.reason(failed)
+			throw MaintenanceException.stuck("没能退回原来的图库：" + LibraryBackup.reason(failed)
 					+ "。为避免覆盖数据，应用不会继续打开图库。请保留文件夹 " + operation + " 并查看日志，下次启动时会再试一次退回。", failed);
 		}
-		// Only the unpacked copy of the backup, which the ZIP still holds.
+		// Only the copy that was to come in; its source (the ZIP, or the old library) still holds it.
 		deleteTree(operation.resolve("incoming"));
 	}
 
@@ -354,7 +381,7 @@ final class LibraryRestore {
 				case PREPARING, READY -> discard(home, id);
 				case SWITCHING, SWITCHED, ROLLING_BACK -> {
 					rollBack(home, id);
-					note = "上次从备份恢复没有完成，已回到恢复前的图库。";
+					note = "上次替换图库（从备份恢复或从旧版导入）没有完成，已回到原来的图库。";
 				}
 				default -> { }
 			}

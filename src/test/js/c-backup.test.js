@@ -53,6 +53,7 @@ async function setup({ views = [{ phase: "IDLE" }], answer = () => [200, {}] } =
         querySelector: () => main
     });
     element("restore-confirm").hidden = true;
+    element("import-confirm").hidden = true;
     const sent = [];
     const timers = [];
     let read = 0;
@@ -166,4 +167,86 @@ test("the server's own mode has no backup and hides the section", async () => {
     vm.runInContext(source, context);
     await settle();
     assert.equal(element("backup").hidden, true);
+});
+
+const IMPORT_PREVIEW = {
+    source: "127.0.0.1:3306 / illustration_archive", mediaRoot: "D:\IllustrationArchiveData",
+    schemaBefore: "7", schemaAfter: "8",
+    incoming: { works: 31, assets: 36, authors: 18, tags: 10, inbox: 425, files: 36, bytes: 73 * 1024 * 1024 },
+    current: { works: 2, assets: 2, authors: 1, tags: 3, inbox: 0, files: 0, bytes: 0 },
+    problems: [], problemCount: 0
+};
+const IMPORT_READY = { phase: "READY", kind: "IMPORT", id: "20261103-160000-cd34", stage: null, fraction: 1, importPreview: IMPORT_PREVIEW };
+
+test("the page says what an import reads, replaces and keeps", () => {
+    assert.match(html, /id="import-choose"[^>]*>从旧版导入…</);
+    assert.match(html, /替换整个当前图库，不会合并/);
+    assert.match(html, /旧版的 X 登录不会导入/);
+    assert.match(html, /id="import-cancel"[^>]*>取消</);
+});
+
+test("an import is checked in the background and then asks, showing both libraries side by side", async () => {
+    const checking = { phase: "CHECKING", kind: "IMPORT", stage: "正在复制并核对媒体文件…", fraction: 0.5 };
+    const app = await setup({ views: [{ phase: "IDLE" }, checking, IMPORT_READY], answer: () => [200, checking] });
+    app.element("import-choose").fire("click");
+    await settle();
+    assert.deepEqual(app.sent[0], ["/api/desktop/import/check", "POST", undefined]);
+    assert.equal(app.element("import-check").hidden, false, "the import shows its own progress");
+    assert.equal(app.element("restore-check").hidden, true);
+    assert.equal(app.element("import-fill").style.width, "50%");
+    assert.equal(app.element("restore-choose").disabled, true, "one operation at a time");
+
+    await app.tick();
+    await app.tick();
+    assert.equal(app.element("import-confirm").hidden, false);
+    assert.equal(app.element("restore-confirm").hidden, true, "not the backup dialog");
+    assert.equal(app.document.activeElement, app.element("import-cancel"), "the focus starts on 取消");
+    const facts = app.element("import-facts").children.map((node) => node.textContent).join("|");
+    assert.match(facts, /MySQL 127\.0\.0\.1:3306 \/ illustration_archive/);
+    assert.match(facts, /31 件作品、36 张图片或视频.*原图共 73\.0 MB/);
+    assert.match(facts, /2 件作品、2 张图片或视频.*将被替换/);
+    assert.match(facts, /旧版为 V7，只在复制出的图库里升级到 V8，旧版数据库不变/);
+    assert.equal(app.sent.length, 1, "nothing is replaced until the user confirms");
+});
+
+test("confirming an import sends only its id, and cancelling drops the copy", async () => {
+    const applied = await setup({ views: [IMPORT_READY], answer: () => [202, null] });
+    applied.element("import-ok").fire("click");
+    await settle();
+    assert.deepEqual(applied.sent, [["/api/desktop/import/apply", "POST", '{"id":"20261103-160000-cd34"}']]);
+    assert.equal(applied.element("import-ok").disabled, true);
+
+    const cancelled = await setup({ views: [IMPORT_READY], answer: () => [200, { phase: "IDLE" }] });
+    cancelled.element("import-confirm").fire("keydown", { key: "Escape" });
+    await settle();
+    assert.deepEqual(cancelled.sent, [["/api/desktop/restore/cancel", "POST", '{"id":"20261103-160000-cd34"}']]);
+    assert.equal(cancelled.element("import-confirm").hidden, true);
+});
+
+test("media problems are listed with no way to import, and stay until the user closes them", async () => {
+    const problems = ["缺少文件：2026-10/a.png", "内容与记录的 SHA-256 不符：2026-10/b.png"];
+    const failed = {
+        phase: "FAILED", kind: "IMPORT", message: "旧版图库里有 25 个媒体文件缺失或内容与记录不符，不能导入。",
+        importPreview: { ...IMPORT_PREVIEW, problems, problemCount: 25 }
+    };
+    const app = await setup({ views: [failed, { phase: "IDLE" }], answer: () => [200, { phase: "IDLE" }] });
+    assert.equal(app.element("import-confirm").hidden, false);
+    assert.equal(app.element("import-ok").hidden, true, "there is nothing to confirm");
+    assert.equal(app.element("import-cancel").textContent, "知道了");
+    const listed = app.element("import-problems").children.map((node) => node.textContent);
+    assert.deepEqual(listed, [...problems, "……另有 23 个"]);
+    assert.deepEqual(app.sent, [["/api/desktop/restore/cancel", "POST", '{"id":null}']], "acknowledged once");
+
+    app.element("import-cancel").fire("click");
+    await settle();
+    assert.equal(app.element("import-confirm").hidden, true);
+    assert.equal(app.sent.length, 1, "closing the list sends nothing more");
+    assert.equal(app.element("import-choose").disabled, false);
+});
+
+test("a refused import is explained beside the import button", async () => {
+    const app = await setup({ views: [{ phase: "FAILED", kind: "IMPORT", message: "没能读取旧版图库的数据库：Communications link failure" }] });
+    assert.match(app.element("import-error").textContent, /没有导入：没能读取旧版图库的数据库/);
+    assert.equal(app.element("import-confirm").hidden, true, "no dialog without a preview");
+    assert.equal(app.sent[0][0], "/api/desktop/restore/cancel");
 });

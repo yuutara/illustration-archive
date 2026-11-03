@@ -10,9 +10,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Backup and restore from Settings. Files are chosen in native dialogs on the launcher's side, so the page never
- * names a path; a restore is confirmed by the id the check returned, which stands for exactly the backup checked.
- * The launcher connects its {@link LibraryMaintenance} each time it starts the server.
+ * Backup, restore and import from the old app, from Settings. Files are chosen in native dialogs on the launcher's
+ * side, so the page never names a path; a restore or import is confirmed by the id the check returned, which stands
+ * for exactly what was checked. {@code GET /api/desktop/restore} follows whichever of the two is being checked or
+ * waits, and its cancel serves both. The launcher connects its {@link LibraryMaintenance} each time it starts the
+ * server.
  */
 @RestController
 @Profile(DesktopServer.PROFILE)
@@ -67,6 +69,18 @@ public class MaintenanceController {
 		return ResponseEntity.accepted().build();
 	}
 
+	@PostMapping("/api/desktop/import/check")
+	public LibraryMaintenance.RestoreView checkImport() throws MaintenanceException {
+		return maintenance().checkImport();
+	}
+
+	@PostMapping("/api/desktop/import/apply")
+	public ResponseEntity<Void> applyImport(@RequestBody OperationRequest request) throws MaintenanceException {
+		requireNoLoginInProgress();
+		maintenance().apply(LibraryMaintenance.Kind.IMPORT, request.id());
+		return ResponseEntity.accepted().build();
+	}
+
 	/** Stopping the server would end an X login halfway, after the user may already have approved it on X. */
 	private void requireNoLoginInProgress() throws MaintenanceException {
 		if (authorization.status().state() == XAuthorizationService.State.WAITING) {
@@ -77,7 +91,7 @@ public class MaintenanceController {
 	private LibraryMaintenance maintenance() throws MaintenanceException {
 		LibraryMaintenance connected = maintenance;
 		if (connected == null) {
-			throw new MaintenanceException("备份和恢复只能在桌面应用里使用。");
+			throw new MaintenanceException("备份、恢复和导入只能在桌面应用里使用。");
 		}
 		return connected;
 	}

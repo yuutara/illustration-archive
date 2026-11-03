@@ -133,7 +133,10 @@
 .sheet-small.sheet-restore p { margin-top: 12px; font-size: 13px; line-height: 1.6; }
 .sheet-restore .set-error { color: var(--danger); }
 .sheet-restore code { padding: 1px 5px; border-radius: 4px; color: var(--ink); background: var(--paper-2); font: 12px/1.5 Consolas, monospace; }
-#restore-confirm .btn:disabled { opacity: .6; cursor: progress; }
+#restore-confirm .btn:disabled, #import-confirm .btn:disabled { opacity: .6; cursor: progress; }
+/* 旧版图库的媒体问题：可滚动的短列表，路径等宽 */
+.import-problems { max-height: 9.6em; overflow-y: auto; margin: 12px 0 0; padding: 8px 12px 8px 28px; border-radius: 6px; background: var(--paper-2); color: var(--ink-2); font: 12px/1.6 Consolas, monospace; overflow-wrap: anywhere; }
+.import-problems[hidden], #import-confirm [hidden] { display: none; }
 
 /* ---------------- 看图器 · AI 分析 ---------------- */
 

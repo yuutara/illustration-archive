@@ -3,27 +3,38 @@ package com.yuutara.illustrationarchive.desktop;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.function.UnaryOperator;
 
 /**
- * Runs backups and restores against the running app. It belongs to the launcher rather than to Spring: a backup or a
- * restore needs a closed library, so it stops the server and starts it again, and has to outlive each context.
+ * Runs backups, restores and imports from the old app against the running app. It belongs to the launcher rather
+ * than to Spring: each needs a closed library, so it stops the server and starts it again, and has to outlive each
+ * context.
  *
  * <p>One operation at a time per library. A backup starts once the user picked where it goes: the requests in
  * progress finish ({@link MaintenanceGate}), the server stops, the ZIP is written, the server starts again. A restore
  * is first unpacked and checked while the library stays in use; the user then sees what the backup holds and confirms,
  * and only then does the server stop for the switch. If the restored library does not open, the previous one is put
- * back. While the server is down, {@link Screen} is all the user sees, so it is told every stage.
+ * back. An import from the old server app works the same way: the old library is copied and checked beside the
+ * current one ({@link LegacyMigration}), and confirming swaps it in like a restore. While the server is down,
+ * {@link Screen} is all the user sees, so it is told every stage.
  */
 final class LibraryMaintenance {
 
 	static final Duration DRAIN_TIMEOUT = Duration.ofSeconds(60);
+	/** How many media problems an import preview lists; the count says how many there are in all. */
+	static final int SHOWN_PROBLEMS = 20;
 	private static final Logger log = LoggerFactory.getLogger(LibraryMaintenance.class);
 
 	interface Server {
@@ -53,6 +64,18 @@ final class LibraryMaintenance {
 		Optional<Path> saveBackup(String suggestedName);
 
 		Optional<Path> openBackup();
+
+		/** The old server app's {@code application-local.properties}. */
+		Optional<Path> openLegacyConfig();
+
+		/** The old app's media folder, asked for when its config names it by a relative path. */
+		Optional<Path> chooseLegacyMedia(String configured);
+	}
+
+	/** Reads the old app's config file; the app always uses {@link LegacyMigration.Source#read}. */
+	interface LegacySources {
+
+		LegacyMigration.Source read(Path config) throws MaintenanceException;
 	}
 
 	/** Shown while the server is down, and at the end. */
@@ -63,7 +86,7 @@ final class LibraryMaintenance {
 		void finished(Outcome outcome);
 	}
 
-	enum Kind { BACKUP, RESTORE }
+	enum Kind { BACKUP, RESTORE, IMPORT }
 
 	/**
 	 * @param location the new backup, or the folder that keeps the replaced library
@@ -82,10 +105,38 @@ final class LibraryMaintenance {
 			LibraryBackup.Summary summary) {
 	}
 
-	/** The restore as the Settings page shows it: being checked, waiting for confirmation, or refused. */
-	record RestoreView(Phase phase, String id, String stage, double fraction, Preview preview, String message) {
+	/**
+	 * An old library checked for importing, beside the current one it would replace.
+	 *
+	 * @param source the MySQL host and database, never the user name, password or URL parameters
+	 * @param current what the library holds now, or null when it could not be counted
+	 * @param problems the first of the media files that are missing or changed; {@code problemCount} is all of them
+	 */
+	record ImportPreview(String source, String mediaRoot, String schemaBefore, String schemaAfter,
+			LibraryBackup.Summary incoming, LibraryBackup.Summary current, List<String> problems, int problemCount) {
+	}
 
-		static final RestoreView IDLE = new RestoreView(Phase.IDLE, null, null, 0, null, null);
+	/**
+	 * A restore or an import as the Settings page shows it: being checked, waiting for confirmation, or refused. Only
+	 * one at a time; {@code kind} says which, and the preview of that kind is set.
+	 */
+	record RestoreView(Phase phase, Kind kind, String id, String stage, double fraction, Preview preview,
+			ImportPreview importPreview, String message) {
+
+		static final RestoreView IDLE = new RestoreView(Phase.IDLE, null, null, null, 0, null, null, null);
+	}
+
+	/** A checked library waiting in {@code recovery/<id>/incoming}, and what it must hold once it is open. */
+	private record Pending(Kind kind, String id, long works, long assets) {
+	}
+
+	/** @param pending null when the check refused the library and nothing waits to be applied */
+	private record Checked(Pending pending, RestoreView view) {
+	}
+
+	private interface Check {
+
+		Checked run(LibraryBackup.Progress progress) throws MaintenanceException;
 	}
 
 	private final Path home;
@@ -94,29 +145,34 @@ final class LibraryMaintenance {
 	private final Screen screen;
 	private final String appVersion;
 	private final LibraryRestore.Mover mover;
+	private final LegacySources sources;
 	private boolean claimed;
 	private boolean maintaining;
 	private RestoreView restore = RestoreView.IDLE;
-	private LibraryRestore.Candidate candidate;
+	private Pending pending;
 	private volatile boolean cancel;
 	private volatile Kind kind = Kind.BACKUP;
 
 	LibraryMaintenance(Path home, Server server, Dialogs dialogs, Screen screen, String appVersion) {
-		this(home, server, dialogs, screen, appVersion, LibraryRestore::rename);
+		this(home, server, dialogs, screen, appVersion, LibraryRestore::rename, LegacyMigration.Source::read);
 	}
 
-	/** @param mover the switch's renames; tests make one fail, the app always uses {@link LibraryRestore#rename} */
+	/**
+	 * @param mover the switch's renames; tests make one fail, the app always uses {@link LibraryRestore#rename}
+	 * @param sources reads the old app's config; tests point it at an H2 database, the app always reads MySQL
+	 */
 	LibraryMaintenance(Path home, Server server, Dialogs dialogs, Screen screen, String appVersion,
-			LibraryRestore.Mover mover) {
+			LibraryRestore.Mover mover, LegacySources sources) {
 		this.home = home;
 		this.server = server;
 		this.dialogs = dialogs;
 		this.screen = screen;
 		this.appVersion = appVersion;
 		this.mover = mover;
+		this.sources = sources;
 	}
 
-	/** True while the server is or may be down for a backup or restore; quitting then has to wait. */
+	/** True while the server is or may be down for a backup, restore or import; quitting then has to wait. */
 	synchronized boolean maintaining() {
 		return maintaining;
 	}
@@ -125,12 +181,12 @@ final class LibraryMaintenance {
 		return restore;
 	}
 
-	/** Cancels what can still be cancelled: waiting for requests, writing a backup, or checking a restore. */
+	/** Cancels what can still be cancelled: waiting for requests, writing a backup, or checking a restore or import. */
 	void cancel() {
 		cancel = true;
 	}
 
-	/** The app is quitting: a check stops, and a checked backup nobody confirmed is dropped. */
+	/** The app is quitting: a check stops, and a checked backup or old library nobody confirmed is dropped. */
 	void close() {
 		cancel = true;
 		RestoreView view = restoreView();
@@ -186,17 +242,111 @@ final class LibraryMaintenance {
 	}
 
 	private void startCheck(Path backup) {
+		startCheck(Kind.RESTORE, "正在打开备份…", progress -> {
+			LibraryRestore.Candidate prepared = LibraryRestore.prepare(home, backup, progress);
+			LibraryBackup.Manifest manifest = prepared.manifest();
+			LibraryBackup.Summary summary = manifest.summary();
+			return new Checked(new Pending(Kind.RESTORE, prepared.id(), summary.works(), summary.assets()),
+					new RestoreView(Phase.READY, Kind.RESTORE, prepared.id(), null, 1, new Preview(prepared.fileName(),
+							manifest.createdAt(), manifest.appVersion(), prepared.schemaBefore(), prepared.schemaAfter(),
+							summary), null, null));
+		}, Function.identity(), UnaryOperator.identity());
+	}
+
+	/**
+	 * Asks for the old server app's config file and, when it names the media folder by a relative path, for that
+	 * folder; then copies and checks the old library in the background. {@link #restoreView} follows the check.
+	 */
+	RestoreView checkImport() throws MaintenanceException {
+		claim();
+		try {
+			Optional<Path> config = dialogs.openLegacyConfig();
+			if (config.isEmpty()) {
+				release();
+				return restoreView();
+			}
+			LegacyMigration.Source source = sources.read(config.get());
+			Optional<Path> media = source.mediaRoot();
+			if (media.isEmpty()) {
+				media = dialogs.chooseLegacyMedia(source.configuredMediaRoot());
+				if (media.isEmpty()) {
+					release();
+					return restoreView();
+				}
+			}
+			if (!Files.isDirectory(media.get())) {
+				throw new MaintenanceException("找不到旧版的媒体文件夹：" + media.get() + "。请确认它还在，或在旧版配置里改成实际的位置。");
+			}
+			startImport(source, media.get());
+			return restoreView();
+		} catch (MaintenanceException | RuntimeException refused) {
+			release();
+			throw refused;
+		}
+	}
+
+	private void startImport(LegacyMigration.Source source, Path media) {
+		startCheck(Kind.IMPORT, "正在连接旧版图库的数据库…", progress -> {
+			LibraryRestore.Prepared<LegacyMigration.Result> prepared = LibraryRestore.prepare(home, incoming -> {
+				LegacyMigration.Result copied = LegacyMigration.prepare(source, media, incoming, progress);
+				if (progress.cancelled()) {
+					throw MaintenanceException.cancelled();
+				}
+				return copied;
+			});
+			LegacyMigration.Result result = prepared.value();
+			Map<String, Long> rows = result.rows();
+			List<String> problems = result.problems();
+			ImportPreview preview = new ImportPreview(source.describe(), media.toString(), result.schemaBefore(),
+					result.schemaAfter(), new LibraryBackup.Summary(rows.getOrDefault("illustration", 0L),
+							rows.getOrDefault("asset", 0L), rows.getOrDefault("author", 0L), rows.getOrDefault("tag", 0L),
+							rows.getOrDefault("x_like_item", 0L), result.files(), result.bytes()),
+					currentLibrary(), List.copyOf(problems.subList(0, Math.min(SHOWN_PROBLEMS, problems.size()))),
+					problems.size());
+			if (!problems.isEmpty()) {
+				// Settings never imports a library with missing or changed files, so the copy is of no further use.
+				LibraryRestore.discard(home, prepared.id());
+				return new Checked(null, new RestoreView(Phase.FAILED, Kind.IMPORT, null, null, 0, null, preview,
+						"旧版图库里有 " + problems.size() + " 个媒体文件缺失或内容与记录不符，不能导入。当前图库没有任何改动。"));
+			}
+			return new Checked(new Pending(Kind.IMPORT, prepared.id(), preview.incoming().works(), preview.incoming().assets()),
+					new RestoreView(Phase.READY, Kind.IMPORT, prepared.id(), null, 1, null, preview, null));
+		}, source::scrub, source::redact);
+	}
+
+	/** @return what the library holds now, or null when the server cannot say */
+	private LibraryBackup.Summary currentLibrary() {
+		if (!server.running()) {
+			return null;
+		}
+		try {
+			return new LibraryBackup.Summary(server.count("illustration"), server.count("asset"), server.count("author"),
+					server.count("tag"), server.count("x_like_item"), 0, 0);
+		} catch (RuntimeException unavailable) {
+			log.warn("The current library could not be counted for the import preview.", unavailable);
+			return null;
+		}
+	}
+
+	/**
+	 * Runs a check in the background while the library stays in use; {@link #restoreView} follows its stages.
+	 *
+	 * @param forLog what the log may see of a failure; for an import, without the password or URL parameters
+	 * @param forUser the same for the message the page shows
+	 */
+	private void startCheck(Kind checking, String firstStage, Check check, Function<Throwable, Throwable> forLog,
+			UnaryOperator<String> forUser) {
 		cancel = false;
 		synchronized (this) {
-			restore = new RestoreView(Phase.CHECKING, null, "正在打开备份…", -1, null, null);
+			restore = new RestoreView(Phase.CHECKING, checking, null, firstStage, -1, null, null, null);
 		}
-		thread("desktop-restore-check", () -> {
+		thread("desktop-" + checking.name().toLowerCase(Locale.ROOT) + "-check", () -> {
 			try {
-				LibraryRestore.Candidate prepared = LibraryRestore.prepare(home, backup, new LibraryBackup.Progress() {
+				Checked checked = check.run(new LibraryBackup.Progress() {
 					@Override
 					public void update(String stage, double fraction) {
 						synchronized (LibraryMaintenance.this) {
-							restore = new RestoreView(Phase.CHECKING, null, stage, fraction, null, null);
+							restore = new RestoreView(Phase.CHECKING, checking, null, stage, fraction, null, null, null);
 						}
 					}
 
@@ -206,29 +356,28 @@ final class LibraryMaintenance {
 					}
 				});
 				synchronized (this) {
-					candidate = prepared;
-					LibraryBackup.Manifest manifest = prepared.manifest();
-					restore = new RestoreView(Phase.READY, prepared.id(), null, 1, new Preview(prepared.fileName(),
-							manifest.createdAt(), manifest.appVersion(), prepared.schemaBefore(), prepared.schemaAfter(),
-							manifest.summary()), null);
-					// The slot stays taken until the user restores or cancels.
+					pending = checked.pending();
+					restore = checked.view();
+					// A checked library keeps the slot until the user applies or cancels it; a refusal frees it.
+					claimed = pending != null;
 				}
 			} catch (MaintenanceException | RuntimeException refused) {
-				if (!(refused instanceof MaintenanceException maintenance && maintenance.isCancelled())) {
-					log.warn("A backup could not be prepared for restoring.", refused);
+				boolean cancelled = refused instanceof MaintenanceException maintenance && maintenance.isCancelled();
+				if (!cancelled) {
+					log.warn("A library could not be prepared to replace the current one.", forLog.apply(refused));
 				}
 				synchronized (this) {
-					restore = refused instanceof MaintenanceException maintenance && maintenance.isCancelled() ? RestoreView.IDLE
-							: new RestoreView(Phase.FAILED, null, null, 0, null, message(refused));
+					restore = cancelled ? RestoreView.IDLE
+							: new RestoreView(Phase.FAILED, checking, null, null, 0, null, null, forUser.apply(message(refused)));
 					claimed = false;
 				}
 			}
 		});
 	}
 
-	/** Cancels the check in progress, drops a checked backup, or clears a refusal. */
+	/** Cancels the check in progress, drops a checked backup or old library, or clears a refusal. */
 	void cancelRestore(String id) {
-		LibraryRestore.Candidate dropped = null;
+		Pending dropped = null;
 		synchronized (this) {
 			switch (restore.phase()) {
 				case CHECKING -> cancel = true;
@@ -236,8 +385,8 @@ final class LibraryMaintenance {
 					if (maintaining || !restore.id().equals(id)) {
 						return;
 					}
-					dropped = candidate;
-					candidate = null;
+					dropped = pending;
+					pending = null;
 					restore = RestoreView.IDLE;
 					claimed = false;
 				}
@@ -252,21 +401,27 @@ final class LibraryMaintenance {
 
 	/** Replaces the library with the checked backup the user confirmed. */
 	void restore(String id) throws MaintenanceException {
-		LibraryRestore.Candidate confirmed;
+		apply(Kind.RESTORE, id);
+	}
+
+	/** Replaces the library with the checked backup or old library the user confirmed. */
+	void apply(Kind applying, String id) throws MaintenanceException {
+		Pending confirmed;
 		synchronized (this) {
-			if (restore.phase() != Phase.READY || maintaining || !restore.id().equals(id)) {
-				throw new MaintenanceException("这份备份已经不在等待恢复，请重新选择。");
+			if (restore.phase() != Phase.READY || restore.kind() != applying || maintaining || !restore.id().equals(id)) {
+				throw new MaintenanceException(applying == Kind.IMPORT ? "这份旧版图库已经不在等待导入，请重新选择。"
+						: "这份备份已经不在等待恢复，请重新选择。");
 			}
-			confirmed = candidate;
+			confirmed = pending;
 			// Under the same lock as the check, so a second click cannot start a second switch.
 			maintaining = true;
 		}
-		begin(Kind.RESTORE, () -> runRestore(confirmed));
+		begin(applying, () -> runSwitch(confirmed));
 	}
 
 	private synchronized void claim() throws MaintenanceException {
 		if (claimed) {
-			throw new MaintenanceException("另一项备份或恢复正在进行，请等它结束。");
+			throw new MaintenanceException("另一项备份、恢复或导入正在进行，请等它结束。");
 		}
 		claimed = true;
 	}
@@ -292,7 +447,7 @@ final class LibraryMaintenance {
 			}
 			synchronized (this) {
 				maintaining = false;
-				// A restore that never reached the switch keeps its checked backup for another try.
+				// A switch that never started keeps its checked library for another try.
 				claimed = restore.phase() == Phase.READY;
 			}
 			screen.finished(outcome);
@@ -324,62 +479,73 @@ final class LibraryMaintenance {
 				+ " 个文件，共 " + LibraryBackup.size(summary.bytes()) + "。" + reopened, target, server.running());
 	}
 
-	private Outcome runRestore(LibraryRestore.Candidate confirmed) {
+	/** Swaps the checked library in and opens it; if it does not check out, the previous one is put back. */
+	private Outcome runSwitch(Pending confirmed) {
+		Kind switching = confirmed.kind();
+		String verb = switching == Kind.IMPORT ? "导入" : "恢复";
 		String refused = quiesce();
 		if (refused != null) {
-			return new Outcome(Kind.RESTORE, false, refused, null, server.running());
+			return new Outcome(switching, false, refused, null, server.running());
 		}
 		stage("正在替换图库…", -1, false);
 		Path previous;
 		try {
 			previous = LibraryRestore.switchTo(home, confirmed.id(), mover);
 		} catch (MaintenanceException failed) {
-			log.warn("The restore could not switch libraries.", failed);
+			log.warn("Switching libraries failed.", failed);
 			forget(confirmed);
 			if (failed.isStuck()) {
 				// The undo did not finish either: opening now would start an empty library where the old one belongs.
-				return new Outcome(Kind.RESTORE, false, failed.getMessage(), null, false, true);
+				return new Outcome(switching, false, failed.getMessage(), null, false, true);
 			}
 			String reopenProblem = reopen();
-			return new Outcome(Kind.RESTORE, false, failed.getMessage()
+			return new Outcome(switching, false, failed.getMessage()
 					+ (reopenProblem == null ? "" : "\n\n但图库没能重新打开：" + reopenProblem), null, server.running());
 		}
-		stage("正在打开恢复后的图库…", -1, false);
-		String problem = openRestored(confirmed);
+		stage("正在打开" + verb + "后的图库…", -1, false);
+		String problem = openSwitched(confirmed);
 		forget(confirmed);
 		if (problem == null) {
-			return new Outcome(Kind.RESTORE, true, "已从备份恢复整个图库。\n恢复前的图库原样保留在：" + previous
-					+ "\n确认不再需要后，可以自己删除这个文件夹。", previous, true);
+			return new Outcome(switching, true, succeeded(switching, previous), previous, true);
 		}
-		log.warn("The restored library did not open: {}", problem);
-		stage("恢复后的图库没能打开，正在退回恢复前的图库…", -1, false);
+		log.warn("The library switched in did not open: {}", problem);
+		stage(verb + "后的图库没能打开，正在退回" + verb + "前的图库…", -1, false);
 		if (server.running()) {
 			server.stop();
 		}
 		try {
 			LibraryRestore.rollBack(home, confirmed.id());
 		} catch (MaintenanceException stuck) {
-			log.error("Rolling back the restore failed.", stuck);
-			return new Outcome(Kind.RESTORE, false, "恢复后的图库没能打开（" + problem + "）。\n" + stuck.getMessage(), null, false,
-					true);
+			log.error("Rolling back the switch failed.", stuck);
+			return new Outcome(switching, false, verb + "后的图库没能打开（" + problem + "）。\n" + stuck.getMessage(), null,
+					false, true);
 		}
 		String reopenProblem = reopen();
-		return new Outcome(Kind.RESTORE, false, "恢复后的图库没能打开（" + problem + "），已退回恢复前的图库"
-				+ (reopenProblem == null ? "，可以继续使用。" : "。\n但恢复前的图库也没能打开：" + reopenProblem), null, server.running());
+		return new Outcome(switching, false, verb + "后的图库没能打开（" + problem + "），已退回" + verb + "前的图库"
+				+ (reopenProblem == null ? "，可以继续使用。" : "。\n但" + verb + "前的图库也没能打开：" + reopenProblem), null,
+				server.running());
+	}
+
+	private static String succeeded(Kind switched, Path previous) {
+		if (switched == Kind.RESTORE) {
+			return "已从备份恢复整个图库。\n恢复前的图库原样保留在：" + previous + "\n确认不再需要后，可以自己删除这个文件夹。";
+		}
+		return "已从旧版导入整个图库。\n导入前的图库原样保留在：" + previous + "\n确认不再需要后，可以自己删除这个文件夹。"
+				+ "\n\n旧版的 X 登录不会导入，本应用的 X 登录和设置保持不变；还没有登录 X 时，请在设置里授权。"
+				+ "导入的同步进度会在第一次同步时核对属于哪个 X 账号。";
 	}
 
 	/**
-	 * Starts on the restored library with the gate closed, and opens it only once the library checked out and is
+	 * Starts on the switched-in library with the gate closed, and opens it only once the library checked out and is
 	 * recorded as kept. Until then a request from any tab would write to a library that may still be rolled back.
 	 *
-	 * @return null once the restored library runs, holds what the backup listed, and is recorded as kept
+	 * @return null once the library runs, holds what was checked, and is recorded as kept
 	 */
-	private String openRestored(LibraryRestore.Candidate confirmed) {
+	private String openSwitched(Pending confirmed) {
 		try {
 			server.start(true);
-			LibraryBackup.Summary listed = confirmed.manifest().summary();
-			if (server.count("illustration") != listed.works() || server.count("asset") != listed.assets()) {
-				return "作品数量与备份不符";
+			if (server.count("illustration") != confirmed.works() || server.count("asset") != confirmed.assets()) {
+				return "作品数量与" + (confirmed.kind() == Kind.IMPORT ? "检查时的旧版图库" : "备份") + "不符";
 			}
 			LibraryRestore.confirm(home, confirmed.id());
 			server.gate().open();
@@ -389,9 +555,9 @@ final class LibraryMaintenance {
 		}
 	}
 
-	private synchronized void forget(LibraryRestore.Candidate used) {
-		if (candidate == used) {
-			candidate = null;
+	private synchronized void forget(Pending used) {
+		if (pending == used) {
+			pending = null;
 			restore = RestoreView.IDLE;
 		}
 	}

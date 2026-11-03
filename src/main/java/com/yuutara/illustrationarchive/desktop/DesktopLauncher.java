@@ -2,6 +2,7 @@ package com.yuutara.illustrationarchive.desktop;
 
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.program.Program;
+import org.eclipse.swt.widgets.DirectoryDialog;
 import org.eclipse.swt.widgets.Display;
 import org.eclipse.swt.widgets.FileDialog;
 import org.eclipse.swt.widgets.MessageBox;
@@ -32,7 +33,8 @@ import java.util.function.Supplier;
  * ending the session: the tray icon and WebView2 go first, then the Spring context closes, so requests drain, the
  * connection pool closes (and with it the H2 file), and the port is released before the process ends.
  *
- * <p>The launcher also owns backups and restores ({@link LibraryMaintenance}), which stop and start the server while
+ * <p>The launcher also owns backups, restores and imports from the old app ({@link LibraryMaintenance}), which stop
+ * and start the server while
  * the window stays: the server comes back on the same token, so the window's session stays valid. Before the server
  * first starts, a restore that was interrupted is undone; a library that does not open can be restored from a backup.
  */
@@ -303,13 +305,20 @@ public final class DesktopLauncher {
 			maintenanceWindow.close();
 		}
 		boolean backup = outcome.kind() == LibraryMaintenance.Kind.BACKUP;
-		String title = backup ? (outcome.succeeded() ? "备份完成" : "没有完成备份")
-				: (outcome.succeeded() ? "恢复完成" : "没有恢复");
+		String title = switch (outcome.kind()) {
+			case BACKUP -> outcome.succeeded() ? "备份完成" : "没有完成备份";
+			case RESTORE -> outcome.succeeded() ? "恢复完成" : "没有恢复";
+			case IMPORT -> outcome.succeeded() ? "导入完成" : "没有导入";
+		};
 		List<MaintenanceWindow.Action> actions = new ArrayList<>();
 		if (outcome.succeeded() && outcome.location() != null) {
 			Path location = outcome.location();
-			actions.add(new MaintenanceWindow.Action(backup ? "打开所在文件夹" : "打开恢复前的图库",
-					() -> reveal(location, backup)));
+			String open = switch (outcome.kind()) {
+				case BACKUP -> "打开所在文件夹";
+				case RESTORE -> "打开恢复前的图库";
+				case IMPORT -> "打开导入前的图库";
+			};
+			actions.add(new MaintenanceWindow.Action(open, () -> reveal(location, backup)));
 		}
 		actions.add(new MaintenanceWindow.Action("完成", () -> maintenanceWindow().close()));
 		maintenanceWindow().result(title, outcome.message(), actions, actions.size() - 1);
@@ -429,13 +438,41 @@ public final class DesktopLauncher {
 		public Optional<Path> openBackup() {
 			return onUiThread(() -> chooseBackup(dialogParent()));
 		}
+
+		@Override
+		public Optional<Path> openLegacyConfig() {
+			return onUiThread(() -> {
+				FileDialog dialog = new FileDialog(dialogParent(), SWT.OPEN);
+				dialog.setText("选择旧版的配置文件 application-local.properties");
+				dialog.setFilterNames(new String[] {"旧版配置 (application-local.properties)", "配置文件 (*.properties)"});
+				dialog.setFilterExtensions(new String[] {"application-local.properties", "*.properties"});
+				dialog.setFilterPath(documents().toString());
+				return Optional.ofNullable(dialog.open()).map(Path::of);
+			});
+		}
+
+		@Override
+		public Optional<Path> chooseLegacyMedia(String configured) {
+			return onUiThread(() -> {
+				DirectoryDialog dialog = new DirectoryDialog(dialogParent());
+				dialog.setText("选择旧版的媒体文件夹");
+				dialog.setMessage("旧版配置里的媒体文件夹写的是相对位置“" + configured + "”，应用不猜它在哪里。"
+						+ "请选择旧版实际存放原图的文件夹（里面有按月份分的子文件夹和 thumbnails）。");
+				dialog.setFilterPath(documents().toString());
+				return Optional.ofNullable(dialog.open()).map(Path::of);
+			});
+		}
 	}
 
 	private final class Screen implements LibraryMaintenance.Screen {
 
 		@Override
 		public void stage(LibraryMaintenance.Kind kind, String text, double fraction, boolean cancellable) {
-			String title = kind == LibraryMaintenance.Kind.BACKUP ? "正在备份图库" : "正在恢复图库";
+			String title = switch (kind) {
+				case BACKUP -> "正在备份图库";
+				case RESTORE -> "正在恢复图库";
+				case IMPORT -> "正在导入旧版图库";
+			};
 			display.asyncExec(() -> maintenanceWindow().progress(title, text, fraction, cancellable ? maintenance::cancel : null));
 		}
 
