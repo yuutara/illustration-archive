@@ -19,6 +19,7 @@
     <script src="c-close.js" defer></script>
     <script src="c-x-model.js" defer></script>
     <script src="c-settings.js" defer></script>
+    <script src="c-backup.js" defer></script>
 </head>
 <body>
 <header class="masthead masthead-page">
@@ -116,7 +117,23 @@
         <div class="set-actions">
             <button class="btn" id="data-open" type="button">打开数据文件夹</button>
         </div>
-        <p class="set-note">作品、数据库和设置都在这个文件夹里，程序本身不含你的数据。<b>备份</b>：关闭应用后复制整个文件夹。<b>恢复</b>：关闭应用，把备份放回原位。删除程序不会删除图库。<code>config</code> 里有你的 X 登录凭据和 API Key，没有加密，分享备份前请先删除这个子文件夹。</p>
+        <p class="set-note">作品、数据库和设置都在这个文件夹里，程序本身不含你的数据，删除程序不会删除图库。<code>config</code> 里有你的 X 登录凭据和 API Key，没有加密；手动复制这个文件夹给别人时请先删除它。</p>
+
+        <div id="backup">
+            <h3 class="set-subhead">备份与恢复</h3>
+            <p>备份是一个 ZIP 文件，包含作品、作者、标签、X 收藏的整理进度和全部原图；不包含 X 登录、API Key 和应用设置。</p>
+            <p class="set-error" id="backup-error" role="alert" hidden></p>
+            <div class="set-actions" id="backup-actions">
+                <button class="btn btn-ink" id="backup-create" type="button">创建备份…</button>
+                <button class="btn" id="restore-choose" type="button">从备份恢复…</button>
+            </div>
+            <div class="set-progress" id="restore-check" role="status" hidden>
+                <p id="restore-stage">正在检查备份…</p>
+                <div class="set-bar" id="restore-bar"><span id="restore-fill"></span></div>
+                <button class="btn" id="restore-check-cancel" type="button">取消</button>
+            </div>
+            <p class="set-note">备份和恢复时图库会暂停使用，由一个小窗口显示进度，完成后自动回到这里。恢复会替换整个图库，恢复前的图库原样保留在数据文件夹的 <code>recovery</code> 里。备份里有你的全部作品，请像保管图库一样保管它。</p>
+        </div>
     </section>
 
     <section class="set-section">
@@ -124,6 +141,21 @@
         <p>版本 <span id="version"></span></p>
     </section>
 </main>
+
+<div class="sheet-backdrop" id="restore-confirm" hidden>
+    <section class="sheet sheet-small sheet-restore" id="restore-dialog" role="alertdialog" aria-modal="true" tabindex="-1"
+             aria-labelledby="restore-title" aria-describedby="restore-facts restore-warning restore-kept">
+        <h2 id="restore-title">从备份恢复整个图库？</h2>
+        <dl class="restore-facts" id="restore-facts"></dl>
+        <p class="close-warning" id="restore-warning">恢复会用这个备份替换整个图库，备份之后新增或修改的作品、标签和整理进度会从图库中消失。</p>
+        <p id="restore-kept">当前图库会先原样保留在数据文件夹的 <code>recovery</code> 里。X 登录、API Key 和应用设置不变，恢复后不会自动同步或分析。</p>
+        <p class="set-error" id="restore-error" role="alert" hidden></p>
+        <div class="sheet-foot">
+            <button class="btn" id="restore-cancel" type="button">取消</button>
+            <button class="btn btn-danger" id="restore-ok" type="button">恢复整个图库</button>
+        </div>
+    </section>
+</div>
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 

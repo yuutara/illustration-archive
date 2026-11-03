@@ -1,10 +1,12 @@
 package com.yuutara.illustrationarchive.desktop;
 
 import com.yuutara.illustrationarchive.IllustrationArchiveApplication;
+import com.zaxxer.hikari.HikariDataSource;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.web.server.context.WebServerApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 
+import javax.sql.DataSource;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -84,7 +86,14 @@ public final class DesktopServer {
 
 	/** {@code overrides} is the one way past the pinned values below; tests use it to reach a fake X server. */
 	static Running start(Path home, int port, boolean headless, Map<String, String> overrides) {
-		String accessToken = HexFormat.of().formatHex(randomBytes());
+		return start(home, port, headless, newAccessToken(), overrides);
+	}
+
+	/**
+	 * The launcher keeps one token while it runs, so a restart for a backup or restore leaves the window's session
+	 * cookie valid.
+	 */
+	static Running start(Path home, int port, boolean headless, String accessToken, Map<String, String> overrides) {
 		SpringApplication application = new SpringApplication(IllustrationArchiveApplication.class);
 		application.setAdditionalProfiles(PROFILE);
 		application.setHeadless(headless);
@@ -94,6 +103,21 @@ public final class DesktopServer {
 		ConfigurableApplicationContext context = application.run(arguments(properties));
 		int actualPort = ((WebServerApplicationContext) context).getWebServer().getPort();
 		return new Running(context, actualPort, accessToken);
+	}
+
+	/**
+	 * Closes the server: requests drain, then the beans, the connection pool and with it the H2 file.
+	 *
+	 * @return true once the pool is closed, so nothing in the app holds the database open
+	 */
+	static boolean stop(Running running) {
+		DataSource dataSource = running.context().getBean(DataSource.class);
+		running.context().close();
+		return dataSource instanceof HikariDataSource pool && pool.isClosed();
+	}
+
+	static String newAccessToken() {
+		return HexFormat.of().formatHex(randomBytes());
 	}
 
 	static Map<String, String> properties(Path home, int port, String accessToken) {

@@ -67,6 +67,10 @@ final class DesktopControls {
 		shell.pack();
 	}
 
+	Shell shell() {
+		return shell;
+	}
+
 	void activate() {
 		shell.setMinimized(false);
 		shell.forceActive();

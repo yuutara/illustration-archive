@@ -1,9 +1,12 @@
 package com.yuutara.illustrationarchive.desktop;
 
 import org.eclipse.swt.SWT;
+import org.eclipse.swt.program.Program;
 import org.eclipse.swt.widgets.Display;
+import org.eclipse.swt.widgets.FileDialog;
 import org.eclipse.swt.widgets.MessageBox;
 import org.eclipse.swt.widgets.Shell;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.io.IOException;
 import java.net.HttpURLConnection;
@@ -16,13 +19,22 @@ import java.nio.channels.FileLock;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 /**
  * Starts the app: the splash image and a hidden window while the server comes up, then the window appears. This
  * thread runs the window's event loop, and quitting ends it, whether that comes from the window, the tray or Windows
  * ending the session: the tray icon and WebView2 go first, then the Spring context closes, so requests drain, the
  * connection pool closes (and with it the H2 file), and the port is released before the process ends.
+ *
+ * <p>The launcher also owns backups and restores ({@link LibraryMaintenance}), which stop and start the server while
+ * the window stays: the server comes back on the same token, so the window's session stays valid. Before the server
+ * first starts, a restore that was interrupted is undone; a library that does not open can be restored from a backup.
  */
 public final class DesktopLauncher {
 
@@ -34,19 +46,34 @@ public final class DesktopLauncher {
 	private static final int REVEAL_ANYWAY_MILLIS = 15_000;
 	private static final double SERVER_STAGE_CAP = 0.7;
 	private static final double PAGE_STAGE_CAP = 0.92;
+	private static final int CHECK_POLL_MILLIS = 200;
 
 	private final Path home;
 	private final FileLock instanceLock;
 	private final Display display;
+	private final String accessToken = DesktopServer.newAccessToken();
+	private final LibraryMaintenance maintenance;
 	private volatile DesktopServer.Running running;
+	private volatile int port = PREFERRED_PORT;
 	private volatile boolean stopping;
 	private DesktopWindow window;
 	private DesktopControls controls;
+	/** The app's pages have been opened once; until then a server that comes up still has to show the window. */
+	private boolean shown;
+	private boolean quitAfterMaintenance;
+	private MaintenanceWindow maintenanceWindow;
+	private String startFailure;
 
 	private DesktopLauncher(Path home, FileLock instanceLock, Display display) {
 		this.home = home;
 		this.instanceLock = instanceLock;
 		this.display = display;
+		this.maintenance = new LibraryMaintenance(home, new Server(), new Dialogs(), new Screen(), appVersion());
+	}
+
+	static String appVersion() {
+		// jpackage writes the release number here; the jar's manifest only has Maven's version.
+		return System.getProperty("jpackage.app-version", "开发版");
 	}
 
 	public static void main(String[] args) {
@@ -101,6 +128,19 @@ public final class DesktopLauncher {
 	}
 
 	private void run() {
+		// Before anything opens the database. Where the record and the folders disagree, nothing starts at all.
+		try {
+			String recovered = LibraryRestore.recover(home);
+			if (recovered != null) {
+				DesktopSplash.close();
+				showMessage(SWT.ICON_WARNING, recovered);
+			}
+		} catch (MaintenanceException stuck) {
+			DesktopSplash.close();
+			showMessage(SWT.ICON_ERROR, stuck.getMessage());
+			shutDown();
+			return;
+		}
 		DesktopSplash.status("正在准备图库…", SERVER_STAGE_CAP);
 		// Windows asks this before a sign-out or shutdown; a window in the tray would otherwise die mid-run.
 		display.addListener(SWT.Close, event -> stop());
@@ -128,26 +168,32 @@ public final class DesktopLauncher {
 
 	private void startServer() {
 		try {
-			DesktopServer.Running started = DesktopServer.start(home, choosePort(), false);
+			DesktopServer.Running started = launch();
 			if (stopping) {
+				running = null;
 				started.context().close();
 				return;
 			}
-			running = started;
-			started.context().getBean(DesktopActivation.class).onShow(() -> display.asyncExec(this::activate));
-			rememberEntry(started);
 			display.asyncExec(() -> show(started));
 		} catch (RuntimeException exception) {
-			Throwable cause = exception;
-			while (cause.getCause() != null) {
-				cause = cause.getCause();
-			}
-			String message = cause.getMessage() == null ? cause.getClass().getName() : cause.getMessage();
+			String message = LibraryMaintenance.message(exception);
 			display.asyncExec(() -> startFailed(message));
 		}
 	}
 
+	/** Starts the server on the library as it is now and connects the launcher to it; any thread but the UI's. */
+	private DesktopServer.Running launch() {
+		DesktopServer.Running started = DesktopServer.start(home, choosePort(port), false, accessToken, Map.of());
+		port = started.port();
+		started.context().getBean(DesktopActivation.class).onShow(() -> display.asyncExec(this::activate));
+		started.context().getBean(MaintenanceController.class).connect(maintenance);
+		running = started;
+		rememberEntry(started);
+		return started;
+	}
+
 	private void show(DesktopServer.Running started) {
+		shown = true;
 		if (window != null) {
 			DesktopSplash.status("正在载入作品…", PAGE_STAGE_CAP);
 			window.load(started.sessionUri());
@@ -158,10 +204,221 @@ public final class DesktopLauncher {
 		}
 	}
 
+	/** The library did not open. Quitting is the default; a backup can take its place. */
 	private void startFailed(String message) {
 		DesktopSplash.close();
-		showMessage(SWT.ICON_ERROR, "启动失败：\n" + message + "\n\n详见日志：" + home.resolve("logs").resolve("desktop.log"));
-		stop();
+		startFailure = message;
+		maintenanceWindow().result("插画档案没能打开图库", message + "\n\n详见日志：" + home.resolve("logs").resolve("desktop.log")
+				+ "\n\n如果是数据库损坏或丢失，可以从本应用生成的备份恢复整个图库；恢复前的图库会原样保留在数据文件夹里。",
+				List.of(new MaintenanceWindow.Action("从备份恢复…", this::restoreAfterFailedStart),
+						new MaintenanceWindow.Action("退出", this::stop)), 1);
+	}
+
+	private void restoreAfterFailedStart() {
+		Optional<Path> chosen = chooseBackup(maintenanceWindow().shell());
+		if (chosen.isEmpty()) {
+			return;
+		}
+		try {
+			maintenance.check(chosen.get());
+		} catch (MaintenanceException busy) {
+			startFailed(busy.getMessage());
+			return;
+		}
+		followCheck();
+	}
+
+	/** The page polls the check for itself; here the window does. */
+	private void followCheck() {
+		LibraryMaintenance.RestoreView view = maintenance.restoreView();
+		MaintenanceWindow current = maintenanceWindow();
+		switch (view.phase()) {
+			case CHECKING -> {
+				current.progress("正在检查备份", view.stage(), view.fraction(), maintenance::cancel);
+				display.timerExec(CHECK_POLL_MILLIS, this::followCheck);
+			}
+			case READY -> current.result("从备份恢复整个图库？", LibraryMaintenance.describe(view.preview()), List.of(
+					new MaintenanceWindow.Action("恢复整个图库", () -> confirmRestore(view.id())),
+					new MaintenanceWindow.Action("取消", () -> {
+						maintenance.cancelRestore(view.id());
+						startFailed(startFailure);
+					})), 1);
+			case FAILED -> {
+				maintenance.cancelRestore(null);
+				startFailed(view.message());
+			}
+			case IDLE -> startFailed(startFailure);
+		}
+	}
+
+	private void confirmRestore(String id) {
+		try {
+			maintenance.restore(id);
+		} catch (MaintenanceException refused) {
+			startFailed(refused.getMessage());
+		}
+	}
+
+	private MaintenanceWindow maintenanceWindow() {
+		if (maintenanceWindow == null || maintenanceWindow.isDisposed()) {
+			Shell parent = shown && window != null ? window.shell() : controls != null ? controls.shell() : null;
+			maintenanceWindow = new MaintenanceWindow(display, parent);
+		}
+		return maintenanceWindow;
+	}
+
+	/** Runs on the UI thread once a backup or restore ended, whether or not the server came back. */
+	private void maintenanceFinished(LibraryMaintenance.Outcome outcome) {
+		if (quitAfterMaintenance) {
+			stop();
+			return;
+		}
+		if (!outcome.libraryOpen()) {
+			startFailed(outcome.message());
+			return;
+		}
+		boolean firstAppearance = !shown;
+		reload();
+		if (firstAppearance && maintenanceWindow != null) {
+			// The app window is about to come to the front; a window it owns stays above it, a free one would not.
+			maintenanceWindow.close();
+		}
+		boolean backup = outcome.kind() == LibraryMaintenance.Kind.BACKUP;
+		String title = backup ? (outcome.succeeded() ? "备份完成" : "没有完成备份")
+				: (outcome.succeeded() ? "恢复完成" : "没有恢复");
+		List<MaintenanceWindow.Action> actions = new ArrayList<>();
+		if (outcome.succeeded() && outcome.location() != null) {
+			Path location = outcome.location();
+			actions.add(new MaintenanceWindow.Action(backup ? "打开所在文件夹" : "打开恢复前的图库",
+					() -> reveal(location, backup)));
+		}
+		actions.add(new MaintenanceWindow.Action("完成", () -> maintenanceWindow().close()));
+		maintenanceWindow().result(title, outcome.message(), actions, actions.size() - 1);
+	}
+
+	/** Back to the page the user started from, or, after a start that failed, the window's first appearance. */
+	private void reload() {
+		DesktopServer.Running current = running;
+		if (current == null) {
+			return;
+		}
+		if (!shown) {
+			show(current);
+		} else if (window != null) {
+			window.reload(current.baseUri().resolve("/c/settings.html#data"));
+		} else {
+			controls.ready(current.baseUri().toString());
+		}
+	}
+
+	private void reveal(Path location, boolean selectFile) {
+		try {
+			if (selectFile) {
+				new ProcessBuilder("explorer.exe", "/select," + location).start();
+			} else {
+				Program.launch(location.toString());
+			}
+		} catch (IOException exception) {
+			exception.printStackTrace();
+		}
+	}
+
+	private Optional<Path> chooseBackup(Shell parent) {
+		FileDialog dialog = new FileDialog(parent, SWT.OPEN);
+		dialog.setText("选择要恢复的备份");
+		dialog.setFilterNames(new String[] {"插画档案备份 (*.zip)"});
+		dialog.setFilterExtensions(new String[] {"*.zip"});
+		dialog.setFilterPath(documents().toString());
+		return Optional.ofNullable(dialog.open()).map(Path::of);
+	}
+
+	private static Path documents() {
+		Path documents = Path.of(System.getProperty("user.home"), "Documents");
+		return Files.isDirectory(documents) ? documents : Path.of(System.getProperty("user.home"));
+	}
+
+	private Shell dialogParent() {
+		if (maintenanceWindow != null && !maintenanceWindow.isDisposed()) {
+			return maintenanceWindow.shell();
+		}
+		activate();
+		return window != null ? window.shell() : controls.shell();
+	}
+
+	private <T> T onUiThread(Supplier<T> work) {
+		AtomicReference<T> result = new AtomicReference<>();
+		display.syncExec(() -> result.set(work.get()));
+		return result.get();
+	}
+
+	/** What a backup or restore needs from the server: stop it once idle, start it again, and count rows. */
+	private final class Server implements LibraryMaintenance.Server {
+
+		@Override
+		public boolean running() {
+			return running != null;
+		}
+
+		@Override
+		public MaintenanceGate gate() {
+			return running.context().getBean(MaintenanceGate.class);
+		}
+
+		@Override
+		public boolean stop() {
+			DesktopServer.Running current = running;
+			running = null;
+			forgetEntry();
+			return current == null || DesktopServer.stop(current);
+		}
+
+		@Override
+		public void start() {
+			launch();
+		}
+
+		@Override
+		public long count(String table) {
+			return running.context().getBean(JdbcTemplate.class).queryForObject("SELECT COUNT(*) FROM " + table, Long.class);
+		}
+	}
+
+	/** Native file dialogs, opened on the UI thread for a request that waits for the answer. */
+	private final class Dialogs implements LibraryMaintenance.Dialogs {
+
+		@Override
+		public Optional<Path> saveBackup(String suggestedName) {
+			return onUiThread(() -> {
+				FileDialog dialog = new FileDialog(dialogParent(), SWT.SAVE);
+				dialog.setText("保存备份");
+				dialog.setFilterNames(new String[] {"插画档案备份 (*.zip)"});
+				dialog.setFilterExtensions(new String[] {"*.zip"});
+				dialog.setFilterPath(documents().toString());
+				dialog.setFileName(suggestedName);
+				// The app refuses an existing file itself; Windows' own question would suggest replacing it.
+				dialog.setOverwrite(false);
+				return Optional.ofNullable(dialog.open()).map(Path::of);
+			});
+		}
+
+		@Override
+		public Optional<Path> openBackup() {
+			return onUiThread(() -> chooseBackup(dialogParent()));
+		}
+	}
+
+	private final class Screen implements LibraryMaintenance.Screen {
+
+		@Override
+		public void stage(LibraryMaintenance.Kind kind, String text, double fraction, boolean cancellable) {
+			String title = kind == LibraryMaintenance.Kind.BACKUP ? "正在备份图库" : "正在恢复图库";
+			display.asyncExec(() -> maintenanceWindow().progress(title, text, fraction, cancellable ? maintenance::cancel : null));
+		}
+
+		@Override
+		public void finished(LibraryMaintenance.Outcome outcome) {
+			display.asyncExec(() -> maintenanceFinished(outcome));
+		}
 	}
 
 	private void activate() {
@@ -174,10 +431,17 @@ public final class DesktopLauncher {
 
 	/** Only asked once the window has appeared and put its tray icon up, which is after the server started. */
 	private CloseAction closeAction() {
-		return running.context().getBean(DesktopSettings.class).closeAction();
+		DesktopServer.Running current = running;
+		// Down for a backup or restore: the page cannot answer, so the window asks by itself.
+		return current == null ? CloseAction.ASK : current.context().getBean(DesktopSettings.class).closeAction();
 	}
 
 	private void stop() {
+		if (maintenance.maintaining()) {
+			// The server is down or the library half switched; quitting waits for the outcome.
+			quitAfterMaintenance = true;
+			return;
+		}
 		if (!stopping && window != null) {
 			window.saveState();
 		}
@@ -211,6 +475,14 @@ public final class DesktopLauncher {
 		openInDefaultBrowser(current.sessionUri());
 	}
 
+	private void forgetEntry() {
+		try {
+			Files.deleteIfExists(entryFile(home));
+		} catch (IOException exception) {
+			exception.printStackTrace();
+		}
+	}
+
 	private void rememberEntry(DesktopServer.Running started) {
 		try {
 			Files.createDirectories(entryFile(home).getParent());
@@ -221,9 +493,9 @@ public final class DesktopLauncher {
 		}
 	}
 
-	private static int choosePort() {
-		try (ServerSocket probe = new ServerSocket(PREFERRED_PORT, 1, InetAddress.getLoopbackAddress())) {
-			return PREFERRED_PORT;
+	private static int choosePort(int preferred) {
+		try (ServerSocket probe = new ServerSocket(preferred, 1, InetAddress.getLoopbackAddress())) {
+			return preferred;
 		} catch (IOException busy) {
 			return 0;
 		}
@@ -232,6 +504,7 @@ public final class DesktopLauncher {
 	private void shutDown() {
 		int code = 0;
 		try {
+			maintenance.close();
 			display.dispose();
 			Files.deleteIfExists(entryFile(home));
 			DesktopServer.Running current = running;

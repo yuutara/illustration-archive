@@ -274,6 +274,30 @@ final class DesktopWindow {
 		OS.DwmSetWindowAttribute(shell.handle, DWMWA_CAPTION_COLOR, new int[] {blue << 16 | green << 8 | red}, Integer.BYTES);
 	}
 
+	Shell shell() {
+		return shell;
+	}
+
+	/**
+	 * Shows a page again after the server restarted. Going to the address the window already shows, or one that only
+	 * adds a fragment, would at most scroll, and the page would keep what it showed before; that case reloads.
+	 */
+	void reload(URI page) {
+		String current = browser.getUrl();
+		String target = page.toString();
+		if (withoutFragment(current).equals(withoutFragment(target))) {
+			browser.refresh();
+		} else {
+			load(page);
+		}
+	}
+
+	private static String withoutFragment(String address) {
+		int fragment = address.indexOf('#');
+		return fragment < 0 ? address : address.substring(0, fragment);
+	}
+
+	/** Opens a page of the app; the first call carries the session token, later ones may go to any of its pages. */
 	void load(URI session) {
 		appOrigin = session.getScheme() + "://" + session.getAuthority();
 		browser.setUrl(session.toString());

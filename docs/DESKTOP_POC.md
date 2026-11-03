@@ -712,6 +712,33 @@ $h = 'D:\Temp\ia-config-20261102\acceptance-home'
 
 微软条款正文没有写明 Bootstrapper 是否算在“the software”内，分发依据是分发文档的“package it with your WebView2 app”。这些是公开发布前的判断，不在本包；B/D 与 R3.5 保留项未关闭。
 
+## 备份与恢复（R3.3，2026-11-03）
+
+计划见 [DESKTOP_ROADMAP](DESKTOP_ROADMAP.md#r33-备份恢复计划)。设置 → 数据 → “创建备份…” / “从备份恢复…”；图库打不开时，启动失败窗口也有“从备份恢复…”。没有新 migration，Repository 未改。
+
+| 类 | 作用 |
+| --- | --- |
+| `LibraryBackup` | 格式 1：`data/archive.mv.db` + 数据库引用的原图 + 已有缩略图 + `manifest.json`（大小、SHA-256、Flyway 历史、数量，无本机路径）。白名单收集，`config`、日志、`webview2`、`window`、孤立文件都不进。目的地按真实路径判断不在 home 内（junction 也算），不覆盖已有文件；先写同目录临时文件，完整读回校验后才改名。原图缺失或与入库 SHA-256 不符就失败。`read()` 是唯一入口：路径白名单（拒绝 `..`、绝对 / 盘符 / ADS、设备名、尾点、大小写冲突、重复、清单外条目），按声明大小截断读取，逐项比对哈希，条目与清单大小有上限，解包前查剩余空间 |
+| `LibraryRestore` | `prepare` 在 `<home>/recovery/<id>/incoming` 解包校验，图库照常可用：H2 主次版本一致、清单与真实 Flyway 历史一致、无未知（更新）或失败的 migration；旧 schema 只在暂存副本上 `migrate()`（同时校验 checksum）；数量与原图引用再核一次。`switchTo` 是四次同卷改名（旧 `data`/`media` → `previous`，暂存 → 原位），每步前后落盘 `journal.properties`（整文件替换）；改名失败按已知步数当场回退。`recover` 在启动器取得实例锁后、打开 H2 前运行：未用的暂存删除，未完成或未确认的切换按记录 + 实际目录回退，两者对不上就拒绝启动并给出路径。`previous` 永不自动删除 |
+| `MaintenanceGate` | 过滤器：关闭后所有请求 503，并等已进入的请求返回（导入、删除、整理、X 同步及其文件补偿都在请求内完成）。超时 60 秒或取消就重新打开，图库没被动过。不依赖 Spring graceful shutdown 的超时 |
+| `LibraryMaintenance` | 启动器持有，跨 Spring 重启：一次一项；备份 = 排空 → `DesktopServer.stop`（确认 Hikari 已关）→ 写 ZIP → 重启；恢复 = 检查（后台，页面轮询）→ 用户确认操作号 → 排空 → 停 → 切换 → 启动 → 核对作品数 → `DONE`；新库打不开就停、回退、重开旧库。X 授权进行中拒绝备份和恢复 |
+| `MaintenanceController` | `/api/desktop/backup`、`/api/desktop/restore{,/check,/cancel,/apply}`；文件只在原生对话框里选，页面拿不到路径 |
+| `MaintenanceWindow` | 服务关闭期间的原生进度 / 结果窗口，对应用窗口模态；切换期间关闭按钮无效，只在能保持原样的阶段给“取消” |
+
+- **会话**：启动器整个进程用一个访问令牌，重启后窗口的 Cookie 仍有效，结束后直接回到 `/c/settings.html#data`。退出（托盘、关机）在维护进行中会等结果；崩溃由下次启动的 `recover` 处理。
+- **启动失败**：原来只弹错误框然后退出；现在是原生窗口，默认“退出”，另有“从备份恢复…”。恢复引擎不依赖 Spring，不触发 X / Gemini；新库也打不开时退回原库并如实说明。
+- **取舍**：停机快照，期间图库暂停使用；每次完整备份、整库替换；只接受本工具的 ZIP 和同主次版本的 H2。备份不加密，含全部作品，说明里不称其可安全分享。
+
+验证（2026-11-03，JDK 21.0.11）：
+
+| 项 | 结果 |
+| --- | --- |
+| 全量 | Java 549 tests，0 failures，19 skipped（默认关闭的 MySQL / S3）；JS 397/397。宿主内要加 `-DargLine=-Djava.io.tmpdir=<D 盘> -Djdk.net.unixdomain.tmpdir=<D 盘>` 并关闭沙箱 |
+| `LibraryBackupTest` 38 | 包内只有白名单条目、无测试凭据 / 日志 / 浏览器资料、清单无本机路径；home 内（含 junction）与同名文件拒绝；原图缺失 / 被改、数据库被占用、取消都不留文件；往返后行、ID、关系、同步归属、原图哈希一致，`config` 字节不变，旧库保留；17 种危险或损坏 ZIP 拒绝且不留暂存；更新的 schema、checksum 冲突拒绝；V7 备份只在暂存副本升到 V8；中断在 4 次改名任一步（改名前后）启动时回退；记录与目录冲突时停止；改名失败当场回退 |
+| `LibraryMaintenanceTest` 6 | 真实 Spring / HTTP / H2：页面接口备份 → 改库 → 检查 → 只接受检查返回的 id → 恢复，同一 Cookie 跨重启可用；一次一项；真正打不开的合成库从备份恢复；新库启动失败退回旧库并重开；备份失败仍重开；闸门关闭时 503；X 授权进行中拒绝 |
+| `MaintenanceGateTest` 2 | 等待在途请求、期间新请求 503；超时和取消返回 false，重新打开后放行 |
+| 隔离真实窗口自查 | `D:\Temp\ia-r33-20261103\result.md`：经资源管理器启动 jar，Windows-MCP 走完设置页备份、恢复和库损坏后的启动失败恢复。发现并修复 3 处：恢复后页面不刷新（只差 `#data`）、恢复完成窗被主窗口盖住、失败原因只有异常类名。自查不算验收 |
+
 ## 已知问题与后续候选
 
 - `LegacyMigrationTest` 的目录改名在 Windows 上偶发 `AccessDenied`：2026-11-02 与打包任务并行时失败一次，单独重跑 3 次和空闲时的全量都通过，判断是文件被短暂占用。真实迁移遇到时会报错退出，不会写坏数据，重试即可；这次没有改。
