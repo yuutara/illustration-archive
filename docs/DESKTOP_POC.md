@@ -741,7 +741,7 @@ $h = 'D:\Temp\ia-config-20261102\acceptance-home'
 
 ### R3.3 C 级审核（2026-11-03，`e60d609`）
 
-**未签收，交回 Claude 修复 4 项。** 独立复现、命令和修复出口见 `D:\Temp\ia-r33-c-20261103\result.md`；产品源码未改。所有图库均为本轮新建合成数据，未动真实数据、开发/B 级副本或网络配置，未调用真实 X / Gemini。
+**首轮发现 4 项，现已在 `22184f0` 复验关闭并签收。** 首轮独立复现、命令和修复出口见 `D:\Temp\ia-r33-c-20261103\result.md`；复验证据见下节。Codex 未改产品源码，所有图库均为本轮新建合成数据，未动真实数据、开发/B 级副本或网络配置，未调用真实 X / Gemini。
 
 | 编号 | 问题与实际结果 | 修复出口 |
 | --- | --- | --- |
@@ -758,13 +758,23 @@ $h = 'D:\Temp\ia-config-20261102\acceptance-home'
 
 | 编号 | 修复 | 回归 |
 | --- | --- | --- |
-| C1 | 回退失败、记录冲突和读不了记录都抛 `MaintenanceException.stuck`；`runRestore` 遇到就返回 `stuck` 结果，不再重开；启动器只给“退出”，不给“从备份恢复”。下次启动由 `recover` 按记录续做回退。切换的改名经 `LibraryRestore.Mover` 传入（应用固定 `Files::move`），以便确定性注入故障 | `LibraryBackupTest#anUndoThatAlsoFails…`、`LibraryMaintenanceTest#aSwitchThatCannotBeUndone…`：第 2 次改名与回退都失败 → 不开服务、不建空库、旧库在 previous，`recover` 后 1 件作品回来 |
+| C1 | 回退失败、记录冲突和读不了记录都抛 `MaintenanceException.stuck`；`runRestore` 遇到就返回 `stuck` 结果，不再重开；启动器只给“退出”，不给“从备份恢复”。下次启动由 `recover` 按记录续做回退。切换的改名经 `LibraryRestore.Mover` 传入（应用固定 `LibraryRestore::rename`，不覆盖目标并重试短暂占用），以便确定性注入故障 | `LibraryBackupTest#anUndoThatAlsoFails…`、`LibraryMaintenanceTest#aSwitchThatCannotBeUndone…`：第 2 次改名与回退都失败 → 不开服务、不建空库、旧库在 previous，`recover` 后 1 件作品回来 |
 | C2 | `MaintenanceGate` 可按 `illustration-archive.desktop.start-closed` 以关闭状态启动；恢复后的服务用它启动，核对数量、写 `DONE` 之后才 `open()`；核对失败时停服回退，期间没有请求进入 | `aRestoredLibraryAnswersNoRequestUntilItIsConfirmed`（启动后立即真实 DELETE → 503，确认后 DELETE 生效）、`aRestoredLibraryThatDoesNotCheckOut…`（503 后回退，旧库 2 件和标签都在）、`MaintenanceGateTest#aGateThatStartsClosed…` |
 | C3 | `quiesce` 在关闸排空后、停服前查 `loginInProgress()`，有则重新开闸并拒绝；关闸后不会有新授权开始，所以这个回答到停服前都成立。备份和恢复共用这条路径 | `aLoginStartedWhileTheSaveDialogIsOpen…`（保存框期间真实 HTTP 开始授权 → 备份拒绝、授权仍 WAITING、无文件）、`aLoginStartedBeforeARestoreIsApplied…`（恢复拒绝、备份仍待确认） |
 | C4 | `requireSpace` 改用 `bytes > usable - SPACE_MARGIN`，负数同样拒绝；提示里的所需空间也不再溢出 | `aDeclaredSizeNearTheLimitCannotWrap…`（`MAX-边距+1`、`MAX`、`-1`）、危险 ZIP 新增 `hugeSize`：解包前拒绝、不留暂存 |
 | 修复中新发现 | 一次全量里，刚写的 `journal.properties` 被替换时 Windows 报 `AccessDeniedException`（多半是杀毒或索引短暂占用），回退也写不了记录 → C1 的新保护正确拒绝打开。日志和切换改名现在遇到 `AccessDeniedException` 会重试约 2 秒（`LibraryRestore.retrying`），之后仍失败才算这一步失败 | 该测试（`aLibraryThatDoesNotOpen…`）之后的全量与两轮单跑都通过；偶发问题无法确定性复现 |
 
 验证（修复后）：针对性 `LibraryBackupTest` 41、`LibraryMaintenanceTest` 11、`MaintenanceGateTest` 3、`DesktopShellTest` 11、`DesktopServerIntegrationTest` 15、`DesktopXIntegrationTest` 45 通过；全量 Java 558 tests，19 skipped，1 error 为下方已知的 `LegacyMigrationTest` 偶发改名 `AccessDenied`，与 R3.3 无关，单跑两轮均通过；JS 未改。
+
+### R3.3 C 级复验签收（2026-11-03，`22184f0`）
+
+**签收，R33-C1–C4 全部关闭。** 只复验修复和受影响生命周期，未扩大包范围；命令、探针源码和日志见 `D:\Temp\ia-r33-recheck-20261103\result.md`。
+
+- 从指定提交导出到仓库外测试，以上 6 类相关测试 **126/126、0 failures / errors / skipped，BUILD SUCCESS**；未重跑全量 Java / JS。
+- 独立探针 **7/7 PASS**，加载提交编译出的未修改产品类，使用真实 Spring / HTTP / H2 和合成媒体：C1 正向与回退改名各持续拒绝 10 次，服务保持关闭、不建空库，下一次 `recover` 后 3 件作品及备份后标签保留；C2 确认前 DELETE=503、`DONE` 后 DELETE=204；另注入 `DONE` 替换持续失败，完整回退且旧库可用。
+- C3 经真实备份 HTTP 请求在保存框期间开始本地假授权，维护拒绝、同一上下文仍为 WAITING；另让授权请求在闸门内阻塞，维护等待排空，后来的授权=503，首个授权完成后仍拒绝停服。C4 溢出清单 ZIP 在写入任何解包文件前拒绝。
+- 重试边界：仅 `AccessDeniedException` 重试；短暂失败可恢复，持续失败 10 次约 1.8 秒后抛出；其他 IOException 不重试；线程中断保留并终止等待；改名不覆盖既有目标。
+- 复用首轮包检查、安装与正常 GUI 3/3 证据；本轮没有重打包或操作 GUI。新增 stuck 窗口“仅退出”分支已静态核对，视觉未另验。既有 B 级项不变，原图库、真实备份与外部调用未授权事项不变。相关进程均正常退出；只更新验收文档，未提交或推送。
 
 ## 已知问题与后续候选
 
