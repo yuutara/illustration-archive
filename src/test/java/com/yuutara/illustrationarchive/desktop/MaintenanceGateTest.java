@@ -15,7 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MaintenanceGateTest {
 
-	private final MaintenanceGate gate = new MaintenanceGate();
+	private final MaintenanceGate gate = new MaintenanceGate(false);
 
 	@Test
 	void closingWaitsForTheRequestInsideAndRefusesNewOnesMeanwhile() throws Exception {
@@ -56,6 +56,23 @@ class MaintenanceGateTest {
 		assertEquals(200, serve((request, response) -> { }).getStatus());
 		release.countDown();
 		slow.get(5, TimeUnit.SECONDS);
+	}
+
+	@Test
+	void aGateThatStartsClosedRefusesEverythingUntilOpened() {
+		MaintenanceGate held = new MaintenanceGate(true);
+		MockHttpServletResponse refused = new MockHttpServletResponse();
+		try {
+			held.doFilter(new MockHttpServletRequest("DELETE", "/api/illustrations/1"), refused,
+					(request, response) -> { throw new AssertionError("must not run"); });
+			held.open();
+			MockHttpServletResponse allowed = new MockHttpServletResponse();
+			held.doFilter(new MockHttpServletRequest("GET", "/api/illustrations"), allowed, (request, response) -> { });
+			assertEquals(200, allowed.getStatus());
+		} catch (Exception failed) {
+			throw new IllegalStateException(failed);
+		}
+		assertEquals(503, refused.getStatus());
 	}
 
 	private boolean close(Duration timeout) {

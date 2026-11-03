@@ -13,6 +13,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.channels.Channels;
 import java.nio.channels.FileChannel;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
@@ -52,6 +53,9 @@ final class LibraryRestore {
 
 	static final String RECOVERY = "recovery";
 	private static final String JOURNAL = "journal.properties";
+	/** About two seconds in all before a journal that cannot be replaced counts as a failed step. */
+	private static final int REPLACE_ATTEMPTS = 10;
+	private static final long REPLACE_BACKOFF_MILLIS = 40;
 	private static final Pattern ID = Pattern.compile("\\d{8}-\\d{6}-[0-9a-f]{4}");
 	private static final DateTimeFormatter ID_TIME = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
 	private static final SecureRandom RANDOM = new SecureRandom();
@@ -64,6 +68,12 @@ final class LibraryRestore {
 	}
 
 	private record Move(Path from, Path to) {
+	}
+
+	/** One rename of the switch, never replacing what is there; the app uses {@link #rename}. */
+	interface Mover {
+
+		void move(Path from, Path to) throws IOException;
 	}
 
 	private LibraryRestore() {
@@ -186,6 +196,11 @@ final class LibraryRestore {
 	 * @return the folder now holding the library that was replaced
 	 */
 	static Path switchTo(Path home, String id) throws MaintenanceException {
+		return switchTo(home, id, LibraryRestore::rename);
+	}
+
+	/** @param mover the renames, which tests make fail at a chosen step; the app always passes {@link #rename} */
+	static Path switchTo(Path home, String id, Mover mover) throws MaintenanceException {
 		Path operation = operation(home, id);
 		List<Move> moves = moves(home, operation);
 		Journal journal = new Journal(operation);
@@ -209,7 +224,7 @@ final class LibraryRestore {
 			journal.write(State.SWITCHING, 0);
 			for (int step = 0; step < moves.size(); step++) {
 				if (journal.present(step)) {
-					Files.move(moves.get(step).from(), moves.get(step).to());
+					mover.move(moves.get(step).from(), moves.get(step).to());
 				}
 				done = step + 1;
 				journal.write(State.SWITCHING, done);
@@ -218,7 +233,7 @@ final class LibraryRestore {
 			return operation.resolve("previous");
 		} catch (IOException failed) {
 			log.warn("Switching to the restored library failed; undoing.", failed);
-			undo(operation, moves, journal, done);
+			undo(operation, moves, journal, done, mover);
 			throw new MaintenanceException("替换图库时出错，已退回恢复前的图库：" + LibraryBackup.reason(failed)
 					+ "。可能有文件正被其他程序占用。", failed);
 		}
@@ -247,30 +262,37 @@ final class LibraryRestore {
 		try {
 			journal.load();
 		} catch (IOException unreadable) {
-			throw new MaintenanceException("无法读取恢复记录 " + operation.resolve(JOURNAL) + "。为避免覆盖数据，应用不会继续打开图库。",
+			throw MaintenanceException.stuck("无法读取恢复记录 " + operation.resolve(JOURNAL) + "。为避免覆盖数据，应用不会继续打开图库。",
 					unreadable);
 		}
 		State state = journal.state();
 		if (state != State.SWITCHING && state != State.SWITCHED && state != State.ROLLING_BACK) {
 			return;
 		}
-		undo(operation, moves, journal, settle(moves, journal, journal.done(), state != State.ROLLING_BACK));
+		undo(operation, moves, journal, settle(moves, journal, journal.done(), state != State.ROLLING_BACK),
+				LibraryRestore::rename);
 	}
 
-	/** Moves back, newest first, the {@code done} forward moves that are in effect. */
-	private static void undo(Path operation, List<Move> moves, Journal journal, int done) throws MaintenanceException {
+	/**
+	 * Moves back, newest first, the {@code done} forward moves that are in effect.
+	 *
+	 * @throws MaintenanceException always {@linkplain MaintenanceException#isStuck stuck}: the journal keeps the step
+	 *         reached, and the next start tries again from there
+	 */
+	private static void undo(Path operation, List<Move> moves, Journal journal, int done, Mover mover)
+			throws MaintenanceException {
 		try {
 			journal.write(State.ROLLING_BACK, done);
 			for (int step = done - 1; step >= 0; step--) {
 				if (journal.present(step)) {
-					Files.move(moves.get(step).to(), moves.get(step).from());
+					mover.move(moves.get(step).to(), moves.get(step).from());
 				}
 				journal.write(State.ROLLING_BACK, step);
 			}
 			journal.write(State.ROLLED_BACK, 0);
 		} catch (IOException failed) {
-			throw new MaintenanceException("没能退回恢复前的图库：" + LibraryBackup.reason(failed)
-					+ "。为避免覆盖数据，应用不会继续打开图库。请保留文件夹 " + operation + " 并查看日志。", failed);
+			throw MaintenanceException.stuck("没能退回恢复前的图库：" + LibraryBackup.reason(failed)
+					+ "。为避免覆盖数据，应用不会继续打开图库。请保留文件夹 " + operation + " 并查看日志，下次启动时会再试一次退回。", failed);
 		}
 		// Only the unpacked copy of the backup, which the ZIP still holds.
 		deleteTree(operation.resolve("incoming"));
@@ -290,8 +312,8 @@ final class LibraryRestore {
 		boolean from = Files.exists(move.from(), LinkOption.NOFOLLOW_LINKS);
 		boolean to = Files.exists(move.to(), LinkOption.NOFOLLOW_LINKS);
 		if (from == to) {
-			throw new MaintenanceException("恢复记录与实际文件对不上（" + move.from() + " → " + move.to()
-					+ "）。为避免覆盖数据，应用不会继续打开图库。请保留文件夹 " + move.to().getParent() + " 并查看日志。");
+			throw MaintenanceException.stuck("恢复记录与实际文件对不上（" + move.from() + " → " + move.to()
+					+ "）。为避免覆盖数据，应用不会继续打开图库。请保留文件夹 " + move.to().getParent() + " 并查看日志。", null);
 		}
 		if (forward) {
 			return to ? done + 1 : done;
@@ -314,7 +336,7 @@ final class LibraryRestore {
 		try (Stream<Path> listed = Files.list(recovery)) {
 			operations = listed.filter(path -> ID.matcher(path.getFileName().toString()).matches()).sorted().toList();
 		} catch (IOException unreadable) {
-			throw new MaintenanceException("无法读取恢复记录：" + LibraryBackup.reason(unreadable), unreadable);
+			throw MaintenanceException.stuck("无法读取恢复记录：" + LibraryBackup.reason(unreadable), unreadable);
 		}
 		String note = null;
 		for (Path operation : operations) {
@@ -324,7 +346,7 @@ final class LibraryRestore {
 			} catch (NoSuchFileException gone) {
 				continue;
 			} catch (IOException unreadable) {
-				throw new MaintenanceException("无法读取恢复记录 " + operation.resolve(JOURNAL) + "："
+				throw MaintenanceException.stuck("无法读取恢复记录 " + operation.resolve(JOURNAL) + "："
 						+ LibraryBackup.reason(unreadable), unreadable);
 			}
 			String id = operation.getFileName().toString();
@@ -370,6 +392,40 @@ final class LibraryRestore {
 				new Move(operation.resolve("incoming").resolve("media"), home.resolve("media")));
 	}
 
+	/** The switch's rename: {@code Files.move} without replacing, given a moment when Windows says the file is busy. */
+	static void rename(Path from, Path to) throws IOException {
+		retrying(() -> Files.move(from, to));
+	}
+
+	private interface FileStep {
+
+		void run() throws IOException;
+	}
+
+	/**
+	 * Windows refuses to rename or replace a file that another program, such as a virus scanner or the search indexer,
+	 * holds open for a moment after it was written; seen in a test run on a journal written a moment before. It passes
+	 * shortly, so a refusal is tried again for about two seconds before it counts as a failed step.
+	 */
+	private static void retrying(FileStep step) throws IOException {
+		for (int attempt = 1; ; attempt++) {
+			try {
+				step.run();
+				return;
+			} catch (AccessDeniedException busy) {
+				if (attempt == REPLACE_ATTEMPTS) {
+					throw busy;
+				}
+				try {
+					Thread.sleep(attempt * REPLACE_BACKOFF_MILLIS);
+				} catch (InterruptedException interrupted) {
+					Thread.currentThread().interrupt();
+					throw busy;
+				}
+			}
+		}
+	}
+
 	static void deleteTree(Path root) {
 		if (!Files.exists(root, LinkOption.NOFOLLOW_LINKS)) {
 			return;
@@ -404,7 +460,7 @@ final class LibraryRestore {
 				State.valueOf(values.getProperty("state"));
 				Integer.parseInt(values.getProperty("done"));
 			} catch (RuntimeException unreadable) {
-				throw new MaintenanceException("恢复记录已损坏：" + file + "。为避免覆盖数据，应用不会继续打开图库。");
+				throw MaintenanceException.stuck("恢复记录已损坏：" + file + "。为避免覆盖数据，应用不会继续打开图库。", null);
 			}
 			return this;
 		}
@@ -436,7 +492,7 @@ final class LibraryRestore {
 				output.flush();
 				channel.force(true);
 			}
-			Files.move(next, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+			retrying(() -> Files.move(next, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE));
 		}
 	}
 }

@@ -454,8 +454,10 @@ final class LibraryBackup {
 	static void requireSpace(Path folder, long bytes) throws MaintenanceException {
 		try {
 			long usable = Files.getFileStore(folder).getUsableSpace();
-			if (usable < bytes + SPACE_MARGIN) {
-				throw new MaintenanceException("磁盘空间不够：需要约 " + size(bytes + SPACE_MARGIN) + "，可用 " + size(usable)
+			// Compared by subtraction: the sizes come from a manifest, and bytes + margin could wrap around.
+			if (bytes < 0 || bytes > usable - SPACE_MARGIN) {
+				long needed = bytes < 0 || bytes > Long.MAX_VALUE - SPACE_MARGIN ? Long.MAX_VALUE : bytes + SPACE_MARGIN;
+				throw new MaintenanceException("磁盘空间不够：需要约 " + size(needed) + "，可用 " + size(usable)
 						+ "。当前图库没有任何改动。");
 			}
 		} catch (IOException unreadable) {

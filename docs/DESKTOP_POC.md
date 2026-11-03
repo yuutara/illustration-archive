@@ -721,7 +721,7 @@ $h = 'D:\Temp\ia-config-20261102\acceptance-home'
 | `LibraryBackup` | 格式 1：`data/archive.mv.db` + 数据库引用的原图 + 已有缩略图 + `manifest.json`（大小、SHA-256、Flyway 历史、数量，无本机路径）。白名单收集，`config`、日志、`webview2`、`window`、孤立文件都不进。目的地按真实路径判断不在 home 内（junction 也算），不覆盖已有文件；先写同目录临时文件，完整读回校验后才改名。原图缺失或与入库 SHA-256 不符就失败。`read()` 是唯一入口：路径白名单（拒绝 `..`、绝对 / 盘符 / ADS、设备名、尾点、大小写冲突、重复、清单外条目），按声明大小截断读取，逐项比对哈希，条目与清单大小有上限，解包前查剩余空间 |
 | `LibraryRestore` | `prepare` 在 `<home>/recovery/<id>/incoming` 解包校验，图库照常可用：H2 主次版本一致、清单与真实 Flyway 历史一致、无未知（更新）或失败的 migration；旧 schema 只在暂存副本上 `migrate()`（同时校验 checksum）；数量与原图引用再核一次。`switchTo` 是四次同卷改名（旧 `data`/`media` → `previous`，暂存 → 原位），每步前后落盘 `journal.properties`（整文件替换）；改名失败按已知步数当场回退。`recover` 在启动器取得实例锁后、打开 H2 前运行：未用的暂存删除，未完成或未确认的切换按记录 + 实际目录回退，两者对不上就拒绝启动并给出路径。`previous` 永不自动删除 |
 | `MaintenanceGate` | 过滤器：关闭后所有请求 503，并等已进入的请求返回（导入、删除、整理、X 同步及其文件补偿都在请求内完成）。超时 60 秒或取消就重新打开，图库没被动过。不依赖 Spring graceful shutdown 的超时 |
-| `LibraryMaintenance` | 启动器持有，跨 Spring 重启：一次一项；备份 = 排空 → `DesktopServer.stop`（确认 Hikari 已关）→ 写 ZIP → 重启；恢复 = 检查（后台，页面轮询）→ 用户确认操作号 → 排空 → 停 → 切换 → 启动 → 核对作品数 → `DONE`；新库打不开就停、回退、重开旧库。X 授权进行中拒绝备份和恢复 |
+| `LibraryMaintenance` | 启动器持有，跨 Spring 重启：一次一项；备份 = 排空 → `DesktopServer.stop`（确认 Hikari 已关）→ 写 ZIP → 重启；恢复 = 检查（后台，页面轮询）→ 用户确认操作号 → 排空 → 停 → 切换 → 启动 → 核对作品数 → `DONE`；新库打不开就停、回退、重开旧库；回退未完成（`MaintenanceException.isStuck`）就什么都不打开。恢复后的服务以关闭的闸门启动，核对与 `DONE` 落盘后才放行。X 授权进行中拒绝：接口入口查一次，关闸排空后、停服前再查一次 |
 | `MaintenanceController` | `/api/desktop/backup`、`/api/desktop/restore{,/check,/cancel,/apply}`；文件只在原生对话框里选，页面拿不到路径 |
 | `MaintenanceWindow` | 服务关闭期间的原生进度 / 结果窗口，对应用窗口模态；切换期间关闭按钮无效，只在能保持原样的阶段给“取消” |
 
@@ -739,9 +739,36 @@ $h = 'D:\Temp\ia-config-20261102\acceptance-home'
 | `MaintenanceGateTest` 2 | 等待在途请求、期间新请求 503；超时和取消返回 false，重新打开后放行 |
 | 隔离真实窗口自查 | `D:\Temp\ia-r33-20261103\result.md`：经资源管理器启动 jar，Windows-MCP 走完设置页备份、恢复和库损坏后的启动失败恢复。发现并修复 3 处：恢复后页面不刷新（只差 `#data`）、恢复完成窗被主窗口盖住、失败原因只有异常类名。自查不算验收 |
 
+### R3.3 C 级审核（2026-11-03，`e60d609`）
+
+**未签收，交回 Claude 修复 4 项。** 独立复现、命令和修复出口见 `D:\Temp\ia-r33-c-20261103\result.md`；产品源码未改。所有图库均为本轮新建合成数据，未动真实数据、开发/B 级副本或网络配置，未调用真实 X / Gemini。
+
+| 编号 | 问题与实际结果 | 修复出口 |
+| --- | --- | --- |
+| R33-C1 / P1 | `LibraryMaintenance.runRestore` 对 `switchTo` 的异常无条件重开；注入正向改名失败且回退也失败后，previous 有 3 件作品，当前却创建空库并返回 `libraryOpen=true` | 回退不完整时停止启动并保留材料；只在确认原库完整就位后重开 |
+| R33-C2 / P1 | 新 Spring 上下文的闸门默认开放；在恢复数量检查及 `DONE` 前，真实 HTTP 删除返回 204，随后数量不符触发回退，已确认的删除消失 | 维护状态跨重启，确认落盘前继续拒绝业务请求 |
+| R33-C3 / P2 | 原生保存框期间由另一 HTTP 请求启动本地假 OAuth，达到 `WAITING`；备份仍成功停机，重启后新授权变为 `DISCONNECTED` | 关闸排空后、停机前协调授权状态，不能静默丢弃后来开始的授权 |
+| R33-C4 / P2 | ZIP 清单尺寸接近 `Long.MAX_VALUE` 时，`bytes + SPACE_MARGIN` 溢出，绕过剩余空间检查并开始解包 | 安全比较/检查加法溢出，写文件前拒绝异常尺寸；只用 64 KiB 内容复现，未做磁盘耗尽实验 |
+
+- 独立自动验证：提交导出副本的 `LibraryBackupTest,LibraryMaintenanceTest,MaintenanceGateTest,DesktopShellTest` **57/57**；复用开发方全量结果。4 个补充探针加载打包内未修改的产品类，确认上述缺陷，不计作产品通过。
+- 打包：从 `git archive e60d609` 的仓库外副本构建 jpackage `0.6.0` 测试镜像，构建与包检查 **346 文件 / 28693 JAR 条目通过**；未安装，复用已有安装验收。
+- GUI：委派命名角色 `ui_acceptance`，Windows-MCP 验证原生备份、修改标题后整库恢复、真实损坏合成库的启动失败恢复，**3/3 PASS**。同窗口会话可用，previous 保留修改和损坏库；损坏文件哈希与 config 合成标记哈希核对通过。见 `evidence\gui-result.md`（同一证据根目录）。应用正常退出、控制权已释放；Console/Network 未采集，不构成整包签收。
+
+**R33-C1–C4 修复（2026-11-03，Claude）**：
+
+| 编号 | 修复 | 回归 |
+| --- | --- | --- |
+| C1 | 回退失败、记录冲突和读不了记录都抛 `MaintenanceException.stuck`；`runRestore` 遇到就返回 `stuck` 结果，不再重开；启动器只给“退出”，不给“从备份恢复”。下次启动由 `recover` 按记录续做回退。切换的改名经 `LibraryRestore.Mover` 传入（应用固定 `Files::move`），以便确定性注入故障 | `LibraryBackupTest#anUndoThatAlsoFails…`、`LibraryMaintenanceTest#aSwitchThatCannotBeUndone…`：第 2 次改名与回退都失败 → 不开服务、不建空库、旧库在 previous，`recover` 后 1 件作品回来 |
+| C2 | `MaintenanceGate` 可按 `illustration-archive.desktop.start-closed` 以关闭状态启动；恢复后的服务用它启动，核对数量、写 `DONE` 之后才 `open()`；核对失败时停服回退，期间没有请求进入 | `aRestoredLibraryAnswersNoRequestUntilItIsConfirmed`（启动后立即真实 DELETE → 503，确认后 DELETE 生效）、`aRestoredLibraryThatDoesNotCheckOut…`（503 后回退，旧库 2 件和标签都在）、`MaintenanceGateTest#aGateThatStartsClosed…` |
+| C3 | `quiesce` 在关闸排空后、停服前查 `loginInProgress()`，有则重新开闸并拒绝；关闸后不会有新授权开始，所以这个回答到停服前都成立。备份和恢复共用这条路径 | `aLoginStartedWhileTheSaveDialogIsOpen…`（保存框期间真实 HTTP 开始授权 → 备份拒绝、授权仍 WAITING、无文件）、`aLoginStartedBeforeARestoreIsApplied…`（恢复拒绝、备份仍待确认） |
+| C4 | `requireSpace` 改用 `bytes > usable - SPACE_MARGIN`，负数同样拒绝；提示里的所需空间也不再溢出 | `aDeclaredSizeNearTheLimitCannotWrap…`（`MAX-边距+1`、`MAX`、`-1`）、危险 ZIP 新增 `hugeSize`：解包前拒绝、不留暂存 |
+| 修复中新发现 | 一次全量里，刚写的 `journal.properties` 被替换时 Windows 报 `AccessDeniedException`（多半是杀毒或索引短暂占用），回退也写不了记录 → C1 的新保护正确拒绝打开。日志和切换改名现在遇到 `AccessDeniedException` 会重试约 2 秒（`LibraryRestore.retrying`），之后仍失败才算这一步失败 | 该测试（`aLibraryThatDoesNotOpen…`）之后的全量与两轮单跑都通过；偶发问题无法确定性复现 |
+
+验证（修复后）：针对性 `LibraryBackupTest` 41、`LibraryMaintenanceTest` 11、`MaintenanceGateTest` 3、`DesktopShellTest` 11、`DesktopServerIntegrationTest` 15、`DesktopXIntegrationTest` 45 通过；全量 Java 558 tests，19 skipped，1 error 为下方已知的 `LegacyMigrationTest` 偶发改名 `AccessDenied`，与 R3.3 无关，单跑两轮均通过；JS 未改。
+
 ## 已知问题与后续候选
 
-- `LegacyMigrationTest` 的目录改名在 Windows 上偶发 `AccessDenied`：2026-11-02 与打包任务并行时失败一次，单独重跑 3 次和空闲时的全量都通过，判断是文件被短暂占用。真实迁移遇到时会报错退出，不会写坏数据，重试即可；这次没有改。
+- `LegacyMigrationTest` 的目录改名在 Windows 上偶发 `AccessDenied`：2026-11-02 与打包任务并行时失败一次，单独重跑 3 次和空闲时的全量都通过，判断是文件被短暂占用。真实迁移遇到时会报错退出，不会写坏数据，重试即可；这次没有改。2026-11-03 R3.3 全量里又出现一次，同时恢复日志也遇到同类占用，后者已加约 2 秒重试；迁移这条是否沿用同样的重试，留给 R3.4 旧版导入一起处理。
 - Flyway 12.4 提示 H2 2.4.240 高于其验证版本，当前功能未受影响。
 - 启动：应用 CDS 归档只能在用户电脑上生成（见 R32-C1），可在安装后训练，约需 1–3 分钟，换来约 3 秒启动；体积上还可移除桌面模式用不到的 AWS SDK 依赖。
 - 由其他 MSIX 打包应用启动本应用时，可能遇到与 R31-C2 相同的启动失败，目前只在 Claude、Codex 宿主上实测过。JDK 21 没有关闭 AF_UNIX 管道的开关，只能把 socket 放到 `AppData` 以外，但这要在用户目录多放一个文件夹，换来的只是这个非默认启动路径，暂不做。

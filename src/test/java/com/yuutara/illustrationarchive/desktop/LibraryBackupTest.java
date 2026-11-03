@@ -201,7 +201,7 @@ class LibraryBackupTest {
 	@ParameterizedTest
 	@ValueSource(strings = {"traversal", "absolute", "stream", "drive", "device", "trailingDot", "caseTwin", "unlisted",
 			"missingEntry", "longer", "shorter", "changed", "noManifest", "newerFormat", "brokenManifest", "noDatabase",
-			"notAZip"})
+			"notAZip", "hugeSize"})
 	void aHostileOrDamagedBackupIsRefusedAndTheLibraryStaysAsItWas(String damage) throws Exception {
 		Path good = outside.resolve("good.zip");
 		LibraryBackup.create(home, good, "1", QUIET);
@@ -240,6 +240,13 @@ class LibraryBackupTest {
 				listed.removeIf(entry -> entry.path().equals("data/archive.mv.db"));
 			}
 			case "notAZip" -> { }
+			case "hugeSize" -> {
+				// The whole stays a valid long, but adding the free-space margin to it would wrap around.
+				long others = listed.stream().filter(entry -> !entry.path().equals("media/2026-10/work.png"))
+						.mapToLong(LibraryBackup.Entry::size).sum();
+				listed.replaceAll(entry -> entry.path().equals("media/2026-10/work.png") ? new LibraryBackup.Entry(entry.path(),
+						Long.MAX_VALUE - LibraryBackup.SPACE_MARGIN + 1 - others, entry.sha256()) : entry);
+			}
 			default -> throw new IllegalArgumentException(damage);
 		}
 		Path hostile = outside.resolve("hostile.zip");
@@ -382,6 +389,41 @@ class LibraryBackupTest {
 		assertEquals(1, jdbc(home, null).queryForObject("SELECT COUNT(*) FROM tag WHERE name = '恢复前才有'", Integer.class));
 		assertTrue(Files.exists(home.resolve("media").resolve("2026-10").resolve("work.png")));
 		assertEquals("ROLLED_BACK", journal(candidate.id()).getProperty("state"));
+	}
+
+	@Test
+	void anUndoThatAlsoFailsIsReportedStuckAndTheNextStartFinishesIt() throws Exception {
+		Path backup = outside.resolve("b.zip");
+		LibraryBackup.create(home, backup, "1", QUIET);
+		jdbc(home, null).update("INSERT INTO tag (name) VALUES ('恢复前才有')");
+		LibraryRestore.Candidate candidate = LibraryRestore.prepare(home, backup, QUIET);
+		int[] renames = {0};
+		LibraryRestore.Mover failing = (from, to) -> {
+			if (++renames[0] >= 2) {
+				throw new java.nio.file.AccessDeniedException(from.toString());
+			}
+			Files.move(from, to);
+		};
+
+		MaintenanceException stuck = assertThrows(MaintenanceException.class,
+				() -> LibraryRestore.switchTo(home, candidate.id(), failing));
+
+		assertTrue(stuck.isStuck(), stuck.getMessage());
+		assertEquals("ROLLING_BACK", journal(candidate.id()).getProperty("state"));
+		assertFalse(Files.exists(home.resolve("data")), "the library is still in previous, nothing put in its place");
+		assertNotNull(LibraryRestore.recover(home));
+		assertEquals(1, jdbc(home, null).queryForObject("SELECT COUNT(*) FROM tag WHERE name = '恢复前才有'", Integer.class));
+		assertEquals("ROLLED_BACK", journal(candidate.id()).getProperty("state"));
+	}
+
+	@Test
+	void aDeclaredSizeNearTheLimitCannotWrapPastTheSpaceCheck() throws Exception {
+		for (long declared : new long[] {Long.MAX_VALUE - LibraryBackup.SPACE_MARGIN + 1, Long.MAX_VALUE, -1}) {
+			MaintenanceException refused = assertThrows(MaintenanceException.class,
+					() -> LibraryBackup.requireSpace(outside, declared), Long.toString(declared));
+			assertTrue(refused.getMessage().contains("磁盘空间不够"), refused.getMessage());
+		}
+		LibraryBackup.requireSpace(outside, 1);
 	}
 
 	@Test

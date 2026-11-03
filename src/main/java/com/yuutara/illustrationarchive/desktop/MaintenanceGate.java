@@ -4,6 +4,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -29,10 +30,16 @@ import java.util.function.BooleanSupplier;
 @Order(Ordered.HIGHEST_PRECEDENCE + 1)
 public class MaintenanceGate extends OncePerRequestFilter {
 
+	/** A server started on a restored library begins closed, so the gate's state carries over the restart. */
+	public static final String START_CLOSED_PROPERTY = "illustration-archive.desktop.start-closed";
 	private static final long CHECK_MILLIS = 200;
 
 	private int active;
 	private boolean closed;
+
+	public MaintenanceGate(@Value("${" + START_CLOSED_PROPERTY + ":false}") boolean closed) {
+		this.closed = closed;
+	}
 
 	@Override
 	protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)

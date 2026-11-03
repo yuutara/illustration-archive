@@ -60,6 +60,10 @@ class LibraryMaintenanceTest {
 	private Path openFrom;
 	private LibraryMaintenance maintenance;
 	private String cookie;
+	/** The switch's renames; a test can make one of them fail. */
+	private volatile LibraryRestore.Mover mover = Files::move;
+	/** What happens elsewhere while the save dialog is open. */
+	private volatile Runnable whileSaving = () -> { };
 
 	@BeforeEach
 	void start() throws Exception {
@@ -69,6 +73,7 @@ class LibraryMaintenanceTest {
 		maintenance = new LibraryMaintenance(home, server, new LibraryMaintenance.Dialogs() {
 			@Override
 			public Optional<Path> saveBackup(String suggestedName) {
+				whileSaving.run();
 				return Optional.ofNullable(saveTo);
 			}
 
@@ -86,8 +91,8 @@ class LibraryMaintenanceTest {
 			public void finished(LibraryMaintenance.Outcome outcome) {
 				outcomes.add(outcome);
 			}
-		}, "test");
-		server.start();
+		}, "test", (from, to) -> mover.move(from, to));
+		server.start(false);
 		cookie = openSession();
 	}
 
@@ -171,7 +176,7 @@ class LibraryMaintenanceTest {
 		Path database = home.resolve("data").resolve("archive.mv.db");
 		byte[] damaged = "this is not an H2 file".repeat(200).getBytes(StandardCharsets.UTF_8);
 		Files.write(database, damaged);
-		assertThrows(RuntimeException.class, server::start, "a damaged library must really fail to open");
+		assertThrows(RuntimeException.class, () -> server.start(false), "a damaged library must really fail to open");
 		assertFalse(server.running());
 
 		maintenance.check(saveTo);
@@ -251,6 +256,150 @@ class LibraryMaintenanceTest {
 		assertEquals(409, refused.statusCode());
 		assertTrue(refused.body().contains("X 授权正在进行"), refused.body());
 		assertTrue(server.running());
+	}
+
+	@Test
+	void aSwitchThatCannotBeUndoneOpensNothingAndTheNextStartPutsTheLibraryBack() throws Exception {
+		importPng("red.png", Color.RED);
+		saveTo = backups.resolve("b.zip");
+		assertTrue(maintenance.backup());
+		assertTrue(outcome().succeeded());
+		maintenance.check(saveTo);
+		String id = awaitReady();
+		// The first rename (data out) works; the second (media out) and the undo of the first both fail.
+		AtomicInteger renames = new AtomicInteger();
+		mover = (from, to) -> {
+			if (renames.incrementAndGet() >= 2) {
+				throw new java.nio.file.AccessDeniedException(from.toString());
+			}
+			Files.move(from, to);
+		};
+
+		maintenance.restore(id);
+		LibraryMaintenance.Outcome outcome = outcome();
+
+		assertTrue(outcome.stuck(), outcome.message());
+		assertFalse(outcome.libraryOpen());
+		assertFalse(server.running(), "nothing may open a library that is not whole");
+		assertFalse(Files.exists(home.resolve("data").resolve("archive.mv.db")), "no empty library takes its place");
+		Path previous = home.resolve("recovery").resolve(id).resolve("previous");
+		assertTrue(Files.exists(previous.resolve("data").resolve("archive.mv.db")));
+		assertEquals(3, renames.get());
+
+		mover = Files::move;
+		assertNotNull(LibraryRestore.recover(home), "the next start finishes the undo before opening anything");
+		server.start(false);
+		cookie = openSession();
+		assertEquals(1, jdbc().queryForObject("SELECT COUNT(*) FROM illustration", Integer.class));
+	}
+
+	@Test
+	void aRestoredLibraryAnswersNoRequestUntilItIsConfirmed() throws Exception {
+		importPng("red.png", Color.RED);
+		importPng("blue.png", Color.BLUE);
+		saveTo = backups.resolve("b.zip");
+		assertTrue(maintenance.backup());
+		assertTrue(outcome().succeeded());
+		long red = jdbc().queryForObject("SELECT illustration_id FROM asset WHERE original_filename = 'red.png'", Long.class);
+		maintenance.check(saveTo);
+		String id = awaitReady();
+		List<Integer> whileHeld = java.util.Collections.synchronizedList(new ArrayList<>());
+		server.afterStart = held -> {
+			if (held) {
+				whileHeld.add(deleteStatus(red));
+			}
+		};
+
+		maintenance.restore(id);
+		LibraryMaintenance.Outcome restored = outcome();
+
+		assertTrue(restored.succeeded(), restored.message());
+		assertEquals(List.of(503), whileHeld, "an old tab cannot write before the restore is confirmed");
+		assertEquals(2, jdbc().queryForObject("SELECT COUNT(*) FROM illustration", Integer.class));
+		assertTrue(deleteStatus(red) < 300, "once confirmed, the library is open again");
+		assertEquals(1, jdbc().queryForObject("SELECT COUNT(*) FROM illustration", Integer.class));
+	}
+
+	@Test
+	void aRestoredLibraryThatDoesNotCheckOutIsRolledBackWithoutHavingServedARequest() throws Exception {
+		importPng("red.png", Color.RED);
+		importPng("blue.png", Color.BLUE);
+		saveTo = backups.resolve("b.zip");
+		assertTrue(maintenance.backup());
+		assertTrue(outcome().succeeded());
+		assertEquals(201, send("POST", "/api/tags", "{\"name\":\"恢复前才有\"}").statusCode());
+		long red = jdbc().queryForObject("SELECT illustration_id FROM asset WHERE original_filename = 'red.png'", Long.class);
+		maintenance.check(saveTo);
+		String id = awaitReady();
+		List<Integer> whileHeld = java.util.Collections.synchronizedList(new ArrayList<>());
+		server.afterStart = held -> {
+			whileHeld.add(held ? deleteStatus(red) : 0);
+			server.countOffset = held ? 1 : 0;
+		};
+
+		maintenance.restore(id);
+		LibraryMaintenance.Outcome outcome = outcome();
+
+		assertFalse(outcome.succeeded());
+		assertTrue(outcome.libraryOpen(), outcome.message());
+		assertEquals(List.of(503, 0), whileHeld, "the restored library refused the delete, then the old one reopened");
+		assertEquals(2, jdbc().queryForObject("SELECT COUNT(*) FROM illustration", Integer.class));
+		assertEquals(1, jdbc().queryForObject("SELECT COUNT(*) FROM tag WHERE name = '恢复前才有'", Integer.class));
+	}
+
+	@Test
+	void aLoginStartedWhileTheSaveDialogIsOpenStopsTheBackupAndKeepsTheLogin() throws Exception {
+		importPng("red.png", Color.RED);
+		saveTo = backups.resolve("b.zip");
+		whileSaving = () -> startLogin();
+
+		assertTrue(maintenance.backup());
+		LibraryMaintenance.Outcome outcome = outcome();
+
+		assertFalse(outcome.succeeded());
+		assertTrue(outcome.message().contains("X 授权正在进行"), outcome.message());
+		assertTrue(outcome.libraryOpen());
+		assertEquals("WAITING", body(send("GET", "/api/x-auth/status", null)).get("status").get("state").asString(),
+				"the login the user started is still waiting for X");
+		try (Stream<Path> left = Files.list(backups)) {
+			assertEquals(0, left.count());
+		}
+	}
+
+	@Test
+	void aLoginStartedBeforeARestoreIsAppliedStopsTheRestoreAndKeepsTheCheckedBackup() throws Exception {
+		importPng("red.png", Color.RED);
+		saveTo = backups.resolve("b.zip");
+		assertTrue(maintenance.backup());
+		assertTrue(outcome().succeeded());
+		maintenance.check(saveTo);
+		String id = awaitReady();
+		startLogin();
+
+		maintenance.restore(id);
+		LibraryMaintenance.Outcome outcome = outcome();
+
+		assertFalse(outcome.succeeded());
+		assertTrue(outcome.message().contains("X 授权正在进行"), outcome.message());
+		assertEquals(LibraryMaintenance.Phase.READY, maintenance.restoreView().phase(), "the checked backup can be tried again");
+		assertEquals("WAITING", body(send("GET", "/api/x-auth/status", null)).get("status").get("state").asString());
+	}
+
+	private void startLogin() {
+		try {
+			HttpResponse<String> login = send("POST", "/api/x-auth/start", "{\"clientId\":\"client-id-123\"}");
+			assertEquals("WAITING", body(login).get("status").get("state").asString());
+		} catch (Exception failed) {
+			throw new IllegalStateException(failed);
+		}
+	}
+
+	private int deleteStatus(long illustration) {
+		try {
+			return send("DELETE", "/api/illustrations/" + illustration, null).statusCode();
+		} catch (Exception failed) {
+			throw new IllegalStateException(failed);
+		}
 	}
 
 	private LibraryMaintenance.Outcome outcome() throws InterruptedException {
@@ -352,6 +501,10 @@ class LibraryMaintenanceTest {
 		private final String token = DesktopServer.newAccessToken();
 		private final Map<String, String> overrides;
 		final AtomicInteger failNextStarts = new AtomicInteger();
+		/** Added to every count, as if the restored library held something other than the backup. */
+		volatile long countOffset;
+		/** Runs right after each start, before the maintenance goes on: the moment another tab could send a request. */
+		volatile java.util.function.Consumer<Boolean> afterStart = held -> { };
 		volatile DesktopServer.Running running;
 
 		TestServer() throws IOException {
@@ -377,18 +530,26 @@ class LibraryMaintenanceTest {
 		}
 
 		@Override
-		public void start() {
+		public void start(boolean held) {
 			if (failNextStarts.getAndDecrement() > 0) {
 				throw new IllegalStateException("A start that fails, as with a library that does not open.");
 			}
-			DesktopServer.Running started = DesktopServer.start(home, 0, true, token, overrides);
+			Map<String, String> properties = new java.util.HashMap<>(overrides);
+			properties.put(MaintenanceGate.START_CLOSED_PROPERTY, Boolean.toString(held));
+			DesktopServer.Running started = DesktopServer.start(home, 0, true, token, properties);
 			started.context().getBean(MaintenanceController.class).connect(maintenance);
 			running = started;
+			afterStart.accept(held);
 		}
 
 		@Override
 		public long count(String table) {
-			return jdbc().queryForObject("SELECT COUNT(*) FROM " + table, Long.class);
+			return jdbc().queryForObject("SELECT COUNT(*) FROM " + table, Long.class) + countOffset;
+		}
+
+		@Override
+		public boolean loginInProgress() {
+			return running.context().getBean(XAuthorizationService.class).status().state() == XAuthorizationService.State.WAITING;
 		}
 	}
 }

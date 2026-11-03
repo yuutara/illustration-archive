@@ -35,10 +35,17 @@ final class LibraryMaintenance {
 		/** @return true once the connection pool, and with it the database, is closed */
 		boolean stop();
 
-		/** Starts the server on the library as it is now; throws when it cannot. */
-		void start();
+		/**
+		 * Starts the server on the library as it is now; throws when it cannot.
+		 *
+		 * @param held start with the gate closed, so that no request reaches a library that is not confirmed yet
+		 */
+		void start(boolean held);
 
 		long count(String table);
+
+		/** An X login is waiting for its callback or trading the code; stopping the server would throw it away. */
+		boolean loginInProgress();
 	}
 
 	interface Dialogs {
@@ -58,8 +65,15 @@ final class LibraryMaintenance {
 
 	enum Kind { BACKUP, RESTORE }
 
-	/** @param location the new backup, or the folder that keeps the replaced library */
-	record Outcome(Kind kind, boolean succeeded, String message, Path location, boolean libraryOpen) {
+	/**
+	 * @param location the new backup, or the folder that keeps the replaced library
+	 * @param stuck the library is not known to be whole, so nothing may open it in this run, a restore included
+	 */
+	record Outcome(Kind kind, boolean succeeded, String message, Path location, boolean libraryOpen, boolean stuck) {
+
+		Outcome(Kind kind, boolean succeeded, String message, Path location, boolean libraryOpen) {
+			this(kind, succeeded, message, location, libraryOpen, false);
+		}
 	}
 
 	enum Phase { IDLE, CHECKING, READY, FAILED }
@@ -79,6 +93,7 @@ final class LibraryMaintenance {
 	private final Dialogs dialogs;
 	private final Screen screen;
 	private final String appVersion;
+	private final LibraryRestore.Mover mover;
 	private boolean claimed;
 	private boolean maintaining;
 	private RestoreView restore = RestoreView.IDLE;
@@ -87,11 +102,18 @@ final class LibraryMaintenance {
 	private volatile Kind kind = Kind.BACKUP;
 
 	LibraryMaintenance(Path home, Server server, Dialogs dialogs, Screen screen, String appVersion) {
+		this(home, server, dialogs, screen, appVersion, LibraryRestore::rename);
+	}
+
+	/** @param mover the switch's renames; tests make one fail, the app always uses {@link LibraryRestore#rename} */
+	LibraryMaintenance(Path home, Server server, Dialogs dialogs, Screen screen, String appVersion,
+			LibraryRestore.Mover mover) {
 		this.home = home;
 		this.server = server;
 		this.dialogs = dialogs;
 		this.screen = screen;
 		this.appVersion = appVersion;
+		this.mover = mover;
 	}
 
 	/** True while the server is or may be down for a backup or restore; quitting then has to wait. */
@@ -310,10 +332,14 @@ final class LibraryMaintenance {
 		stage("正在替换图库…", -1, false);
 		Path previous;
 		try {
-			previous = LibraryRestore.switchTo(home, confirmed.id());
+			previous = LibraryRestore.switchTo(home, confirmed.id(), mover);
 		} catch (MaintenanceException failed) {
 			log.warn("The restore could not switch libraries.", failed);
 			forget(confirmed);
+			if (failed.isStuck()) {
+				// The undo did not finish either: opening now would start an empty library where the old one belongs.
+				return new Outcome(Kind.RESTORE, false, failed.getMessage(), null, false, true);
+			}
 			String reopenProblem = reopen();
 			return new Outcome(Kind.RESTORE, false, failed.getMessage()
 					+ (reopenProblem == null ? "" : "\n\n但图库没能重新打开：" + reopenProblem), null, server.running());
@@ -334,22 +360,29 @@ final class LibraryMaintenance {
 			LibraryRestore.rollBack(home, confirmed.id());
 		} catch (MaintenanceException stuck) {
 			log.error("Rolling back the restore failed.", stuck);
-			return new Outcome(Kind.RESTORE, false, "恢复后的图库没能打开（" + problem + "）。\n" + stuck.getMessage(), null, false);
+			return new Outcome(Kind.RESTORE, false, "恢复后的图库没能打开（" + problem + "）。\n" + stuck.getMessage(), null, false,
+					true);
 		}
 		String reopenProblem = reopen();
 		return new Outcome(Kind.RESTORE, false, "恢复后的图库没能打开（" + problem + "），已退回恢复前的图库"
 				+ (reopenProblem == null ? "，可以继续使用。" : "。\n但恢复前的图库也没能打开：" + reopenProblem), null, server.running());
 	}
 
-	/** @return null once the restored library runs, holds what the backup listed, and is recorded as kept */
+	/**
+	 * Starts on the restored library with the gate closed, and opens it only once the library checked out and is
+	 * recorded as kept. Until then a request from any tab would write to a library that may still be rolled back.
+	 *
+	 * @return null once the restored library runs, holds what the backup listed, and is recorded as kept
+	 */
 	private String openRestored(LibraryRestore.Candidate confirmed) {
 		try {
-			server.start();
+			server.start(true);
 			LibraryBackup.Summary listed = confirmed.manifest().summary();
 			if (server.count("illustration") != listed.works() || server.count("asset") != listed.assets()) {
 				return "作品数量与备份不符";
 			}
 			LibraryRestore.confirm(home, confirmed.id());
+			server.gate().open();
 			return null;
 		} catch (MaintenanceException | RuntimeException failed) {
 			return message(failed);
@@ -386,6 +419,12 @@ final class LibraryMaintenance {
 			return cancel ? "已取消，图库没有任何改动。"
 					: "还有操作在进行（例如同步或导入），等了 " + DRAIN_TIMEOUT.toSeconds() + " 秒仍未结束。图库没有任何改动，请稍后再试。";
 		}
+		// Checked again here, not only before the file dialog: a login started meanwhile in another tab. With the
+		// gate closed no new one can start, so this answer holds until the server stops.
+		if (server.loginInProgress()) {
+			gate.open();
+			return "X 授权正在进行，请先完成或取消后再试。图库没有任何改动。";
+		}
 		stage("正在关闭图库…", -1, false);
 		if (!server.stop()) {
 			String reopenProblem = reopen();
@@ -399,7 +438,7 @@ final class LibraryMaintenance {
 	private String reopen() {
 		stage("正在重新打开图库…", -1, false);
 		try {
-			server.start();
+			server.start(false);
 			return null;
 		} catch (RuntimeException failed) {
 			log.error("The library did not open again.", failed);

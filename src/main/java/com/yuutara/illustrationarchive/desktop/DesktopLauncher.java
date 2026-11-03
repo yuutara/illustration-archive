@@ -168,7 +168,7 @@ public final class DesktopLauncher {
 
 	private void startServer() {
 		try {
-			DesktopServer.Running started = launch();
+			DesktopServer.Running started = launch(false);
 			if (stopping) {
 				running = null;
 				started.context().close();
@@ -181,9 +181,14 @@ public final class DesktopLauncher {
 		}
 	}
 
-	/** Starts the server on the library as it is now and connects the launcher to it; any thread but the UI's. */
-	private DesktopServer.Running launch() {
-		DesktopServer.Running started = DesktopServer.start(home, choosePort(port), false, accessToken, Map.of());
+	/**
+	 * Starts the server on the library as it is now and connects the launcher to it; any thread but the UI's.
+	 *
+	 * @param held start with the gate closed, for a restored library that is not confirmed yet
+	 */
+	private DesktopServer.Running launch(boolean held) {
+		DesktopServer.Running started = DesktopServer.start(home, choosePort(port), false, accessToken,
+				Map.of(MaintenanceGate.START_CLOSED_PROPERTY, Boolean.toString(held)));
 		port = started.port();
 		started.context().getBean(DesktopActivation.class).onShow(() -> display.asyncExec(this::activate));
 		started.context().getBean(MaintenanceController.class).connect(maintenance);
@@ -212,6 +217,16 @@ public final class DesktopLauncher {
 				+ "\n\n如果是数据库损坏或丢失，可以从本应用生成的备份恢复整个图库；恢复前的图库会原样保留在数据文件夹里。",
 				List.of(new MaintenanceWindow.Action("从备份恢复…", this::restoreAfterFailedStart),
 						new MaintenanceWindow.Action("退出", this::stop)), 1);
+	}
+
+	/**
+	 * A switch that could not be undone: the library is not whole where it belongs, so nothing may open it, a restore
+	 * included. The journal and the folders stay as they are, and the next start tries the undo again before anything.
+	 */
+	private void stuck(String message) {
+		DesktopSplash.close();
+		maintenanceWindow().result("插画档案不能继续打开图库", message + "\n\n详见日志：" + home.resolve("logs").resolve("desktop.log"),
+				List.of(new MaintenanceWindow.Action("退出", this::stop)), 0);
 	}
 
 	private void restoreAfterFailedStart() {
@@ -271,6 +286,10 @@ public final class DesktopLauncher {
 	private void maintenanceFinished(LibraryMaintenance.Outcome outcome) {
 		if (quitAfterMaintenance) {
 			stop();
+			return;
+		}
+		if (outcome.stuck()) {
+			stuck(outcome.message());
 			return;
 		}
 		if (!outcome.libraryOpen()) {
@@ -373,8 +392,13 @@ public final class DesktopLauncher {
 		}
 
 		@Override
-		public void start() {
-			launch();
+		public void start(boolean held) {
+			launch(held);
+		}
+
+		@Override
+		public boolean loginInProgress() {
+			return running.context().getBean(XAuthorizationService.class).status().state() == XAuthorizationService.State.WAITING;
 		}
 
 		@Override
