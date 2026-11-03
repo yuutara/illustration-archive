@@ -666,7 +666,7 @@ $h = 'D:\Temp\ia-config-20261102\acceptance-home'
 
 ## 交付包（R3.2，2026-11-02）
 
-计划与验收出口见 [DESKTOP_ROADMAP](DESKTOP_ROADMAP.md#r32-交付包计划2026-11-02版本与协议已定)。开发方 A 级通过；Codex C 级首轮未签收 `2bbfe9f` 的 `0.6.0` 候选，余下构建路径残留缺陷，见下文。
+计划与验收出口见 [DESKTOP_ROADMAP](DESKTOP_ROADMAP.md#r32-交付包计划2026-11-02版本与协议已定)。开发方 A 级通过；Codex C 级复验已签收 `3755d29` 的 `0.6.0` 候选（2026-11-03），R32-C1 已关闭。
 
 ```powershell
 .\scripts\build-release.ps1 -Version 0.6.0 -Commit <提交> -JavaHome "$HOME\.jdks\ms-21.0.11" -Compiler <ISCC.exe> -Bootstrapper <MicrosoftEdgeWebview2Setup.exe> -WorkDir <仓库外的新目录> -MavenArgs '-Dmaven.repo.local=C:\Users\YuanYuChou\.m2\repository'
@@ -695,15 +695,20 @@ $h = 'D:\Temp\ia-config-20261102\acceptance-home'
 **Codex C 级首轮（2026-11-02，目标 `2bbfe9f`）：未签收，交回 Claude 修复一项 P2。** 结果与命令：`D:\Temp\ia-r32-codex-20261102\result.md`。
 
 - 已通过：380 个导出源码文件与提交一致，264 个打包类/资源与编译输出一致；三项校验值、101 个库的许可清单覆盖通过；EXE、Setup、卸载项和真实设置窗口均显示 `0.6.0`。合成 home 从 `0.5.102` 覆盖升级后，2 作品业务字段、媒体哈希和假配置一致，安装前后停机 home 13 文件及目录不变。使用说明已逐节核对；真实新版窗口、数据目录及 2 作品显示通过。
-- **R32-C1 / P2**：`app/app.jsa` 带有 102 条构建目录绝对路径，实际安装后文件与候选同字节；现有 `check-desktop-package.ps1` 未覆盖此项，仍报告 347 文件通过。需从 CDS 训练/路径记录的根因消除残留，补针对性扫描和回归，新提交后重建候选；不直接替换二进制字符串，也不未经说明移除 CDS。复验须确认修复后的归档仍实际使用。
+- **R32-C1 / P2（已修复并复验关闭）**：首轮 `app/app.jsa` 带有 102 条构建目录绝对路径，原包扫描未检出。用户选定不再交付应用归档，新增二进制路径扫描；复验条件相应改为无应用归档、基础归档正常加载，见下文。
 - GUI 已委派 `ui_acceptance`；中途按用户要求暂停，恢复后补完新版真实窗口。正常退出并卸载，程序目录/HKCU 项消失，最终停机 home 224 文件及目录不变，合成数据与证据保留。未重跑全量测试或 R3.1 安装矩阵，未动原图库或真实外部集成。Console/Network 未采集。
 
 **R32-C1 修复（2026-11-03，用户选定去掉应用归档）**：证据 `D:\Temp\ia-r32-c1\result.md`。
 
 - **根因比报告的更大**：JDK 21 校验动态归档时，要求训练时记录的每个 JAR 绝对路径在运行时仍然存在，不做目录重定位。用真实启动器实测：原地训练原地运行，8944 类来自归档；训练目录改名后从新位置运行，0 类，日志 `Required classpath entry does not exist`。所以打包时生成的 `app.jsa` 只在构建机、且构建目录还在时有效。R3.1 的“移动目录、解压后都有效”和两轮 C 级在安装目录看到的 8825–8863 类，都是因为构建目录恰好还在，用户电脑上一直是普通启动。
 - **走不通的替代**：在 `app` 目录用相对路径训练，归档里没有本机路径，但 JVM 按当前工作目录解析相对路径，启动器的工作目录不固定，归档整体作废；用 `subst` 映射成中性盘符训练，映射撤掉后同样作废。
-- **修复**：`build-desktop.ps1` 不再训练 `app.jsa`，jpackage 也不再传 `-XX:SharedArchiveFile`。jlink 生成的 JDK 基础归档 `runtime\lib\server\classes.jsa` 保留，它不记录构建路径，移到别处仍然加载。用户启动速度不变（本来就没有应用归档），程序目录小约 56 MB；构建机上从约 3 秒变成普通启动。jar 固定时间戳保留，静态资源不用 `Last-Modified` 的处理照旧。`DesktopClassDataTraining` 和它的测试保留，安装时生成归档要用它。
+- **修复**：`build-desktop.ps1` 不再训练 `app.jsa`，jpackage 也不再传 `-XX:SharedArchiveFile`。Windows 包中 jlink 生成的 JDK 基础归档 `runtime\bin\server\classes.jsa` 保留，移到安装目录仍然加载。新用户电脑上本来无法使用构建机的应用归档；本机旧构建目录仍在时获得的动态加速则不再提供，程序目录小约 56 MB。jar 固定时间戳保留，静态资源不用 `Last-Modified` 的处理照旧。`DesktopClassDataTraining` 和它的测试保留，供后续安装后训练方案使用，本轮未实现该功能。
 - **包内扫描**：`check-desktop-package.ps1` 读每个文件的字节，查镜像目录、源码目录和用户目录，覆盖 UTF-8、ANSI 代码页、UTF-16（含奇数偏移）、正反斜杠和大小写。真实候选只报出 `app\app.jsa`，全镜像约 2 秒。`test-delivery.ps1` 加 10 项，共 80/80。
+
+**Codex C 级复验签收（2026-11-03，目标 `3755d29`）**：只补 C1 及新候选路径，其他首轮通过项复用；证据与实际命令 `D:\Temp\ia-r32-codex-r2-20261103\result.md`。
+
+- 新候选 380 源文件与提交一致，264 编译类/资源与输出一致；三项校验值、101 库许可覆盖通过。新扫描通过 346 文件，旧候选按预期只报 `app.jsa`；镜像及实际安装无应用归档，配置无 `SharedArchiveFile`。安装路径的 JDK 基础归档实测加载 1311 类，无 CDS 警告。
+- EXE、Setup、HKCU 卸载项、真实设置窗口均为 `0.6.0`；GUI 已委派 `ui_acceptance`，两作品及隔离目录正常，本次启动日志无相关错误。正常退出并卸载，停机 home 243 文件及目录未变，数据/候选/证据保留。未重跑全量测试或完整安装矩阵；Console/Network 未采集。
 
 微软条款正文没有写明 Bootstrapper 是否算在“the software”内，分发依据是分发文档的“package it with your WebView2 app”。这些是公开发布前的判断，不在本包；B/D 与 R3.5 保留项未关闭。
 
