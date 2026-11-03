@@ -26,6 +26,24 @@ public final class LegacyMigrationProbe {
 		return LegacyMigration.execute(source, media, target, false);
 	}
 
+	/**
+	 * Reads the config and copies the way Settings does, expecting it to fail.
+	 *
+	 * @return everything the failure says, its message and the whole cause chain as the log would print it
+	 */
+	public static String failure(Path config, Path incoming) {
+		try {
+			prepare(config, incoming);
+		} catch (MaintenanceException failed) {
+			java.io.StringWriter printed = new java.io.StringWriter();
+			failed.printStackTrace(new java.io.PrintWriter(printed));
+			return printed.toString();
+		} catch (Exception unexpected) {
+			throw new AssertionError("expected a refusal the app explains", unexpected);
+		}
+		throw new AssertionError("expected the import to fail");
+	}
+
 	/** Reads the config the way Settings does and copies into {@code incoming}. */
 	public static LegacyMigration.Result prepare(Path config, Path incoming) throws Exception {
 		LegacyMigration.Source source = LegacyMigration.Source.read(config);

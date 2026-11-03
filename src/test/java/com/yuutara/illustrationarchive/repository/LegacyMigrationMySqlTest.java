@@ -120,4 +120,47 @@ class LegacyMigrationMySqlTest {
 		assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE()"
 				+ " AND table_name = 'x_like_sync_account'", Integer.class));
 	}
+
+	/**
+	 * R34-C1 / C2 against the real driver and server: a wrong password fails without the password in what the user or
+	 * the log sees, and URLs that the driver would accept with a credential, or whose value it would echo, are refused.
+	 */
+	@Test
+	void credentialsNeverReachTheMessageOrTheLogAndUrlCredentialsAreRefused() throws Exception {
+		createSchema(null);
+		Path media = Files.createDirectories(workspace.resolve("media"));
+		Matcher where = Pattern.compile("^jdbc:mysql://([^/]+)/([^?]+)").matcher(schemaUrl);
+		assertTrue(where.find());
+		String plain = "jdbc:mysql://" + where.group(1) + "/" + where.group(2);
+		String wrong = "wrong-password-" + UUID.randomUUID().toString().substring(0, 8);
+
+		String deniedReport = LegacyMigrationProbe.failure(config(plain + "?useSSL=false&allowPublicKeyRetrieval=true", wrong, media),
+				Files.createDirectories(workspace.resolve("incoming-1")));
+		assertTrue(deniedReport.contains("没能读取旧版图库的数据库"), deniedReport);
+		assertTrue(deniedReport.contains("SQL"), "the error type survives for diagnosis: " + deniedReport);
+		assertTrue(!deniedReport.contains(wrong), deniedReport);
+
+		String real = password == null ? "" : password;
+		int incoming = 2;
+		for (String url : new String[] {
+				"jdbc:mysql://address=(host=" + where.group(1).split(":")[0] + ")(port=" + where.group(1).split(":")[1]
+						+ ")(user=" + username + ")(password = " + real + ")/" + where.group(2),
+				plain + "?password= " + real,
+				plain + "?%70assword=" + real,
+				plain + "?defaultFetchSize=echoed-value-secret",
+				plain + "?passwordCharacterEncoding=echoed-value-secret"}) {
+			String report = LegacyMigrationProbe.failure(config(url, wrong, media),
+					Files.createDirectories(workspace.resolve("incoming-" + incoming++)));
+			assertTrue(report.contains("没有连接"), report);
+			assertTrue(real.isEmpty() || !report.contains(real), "the URL's password is not repeated");
+			assertTrue(!report.contains("echoed-value-secret") && !report.contains(wrong), report);
+		}
+	}
+
+	private Path config(String url, String configuredPassword, Path media) throws Exception {
+		return Files.writeString(workspace.resolve("application-local.properties"), String.join("\n",
+				"ILLUSTRATION_ARCHIVE_DB_URL=" + url, "ILLUSTRATION_ARCHIVE_DB_USERNAME=" + username,
+				"ILLUSTRATION_ARCHIVE_DB_PASSWORD=" + configuredPassword,
+				"ILLUSTRATION_ARCHIVE_STORAGE_ROOT=" + media.toString().replace('\\', '/'), ""));
+	}
 }

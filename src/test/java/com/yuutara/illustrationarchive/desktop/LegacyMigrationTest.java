@@ -286,7 +286,7 @@ class LegacyMigrationTest {
 	void theConfigFileOnlyGivesAMySqlSourceWithLocalMediaAndNeverRepeatsItsSecrets() throws Exception {
 		Path config = workspace.resolve("application-local.properties");
 		Files.writeString(config, """
-				ILLUSTRATION_ARCHIVE_DB_URL=jdbc:mysql://someone:url-pass@db.example:3307/illustration_archive?useSSL=false&password=inurl
+				ILLUSTRATION_ARCHIVE_DB_URL=jdbc:mysql://localhost:3306/illustration_archive?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
 				ILLUSTRATION_ARCHIVE_DB_USERNAME=someone
 				ILLUSTRATION_ARCHIVE_DB_PASSWORD=do-not-print-me
 				ILLUSTRATION_ARCHIVE_STORAGE_ROOT=storage
@@ -295,15 +295,20 @@ class LegacyMigrationTest {
 
 		LegacyMigration.Source read = LegacyMigration.Source.read(config);
 
-		assertEquals("db.example:3307 / illustration_archive", read.describe());
+		assertEquals("localhost:3306 / illustration_archive", read.describe(), "the server app's own example URL");
 		assertEquals("storage", read.configuredMediaRoot());
 		assertTrue(read.mediaRoot().isEmpty(), "a relative media folder is not guessed");
-		String redacted = read.redact("x do-not-print-me y ?useSSL=false&password=inurl z someone:url-pass@ password=other");
+		String redacted = read.redact("x do-not-print-me y password=other");
 		assertFalse(redacted.contains("do-not-print-me"), redacted);
-		assertFalse(redacted.contains("inurl"), redacted);
-		assertFalse(redacted.contains("url-pass"), redacted);
 		assertFalse(redacted.contains("other"), redacted);
 		assertFalse(read.toString().contains("someone"), read.toString());
+
+		Files.writeString(config, """
+				ILLUSTRATION_ARCHIVE_DB_URL=jdbc:mysql://db-1.example:3307,[::1]:3308/archive_2?useSSL=false&allowPublicKeyRetrieval=TRUE&sslMode=DISABLED&connectTimeout=5000&serverTimezone=Etc/GMT+8
+				ILLUSTRATION_ARCHIVE_DB_USERNAME=someone
+				ILLUSTRATION_ARCHIVE_STORAGE_ROOT=D:/media
+				""");
+		assertEquals("db-1.example:3307,[::1]:3308 / archive_2", LegacyMigration.Source.read(config).describe());
 
 		String rest = "ILLUSTRATION_ARCHIVE_DB_USERNAME=u\nILLUSTRATION_ARCHIVE_STORAGE_ROOT=D:/media\n";
 		Map<String, String> refusals = Map.of(
@@ -317,11 +322,69 @@ class LegacyMigrationTest {
 		}
 	}
 
+	/**
+	 * Every way the driver lets a URL carry a credential or echo a value in its errors (R34-C1 / C2) is refused before
+	 * anything connects, and the refusal does not repeat the URL.
+	 */
+	@Test
+	void aUrlThatCouldCarryACredentialOrAnEchoedValueIsRefusedWithoutRepeatingIt() throws Exception {
+		Path config = workspace.resolve("application-local.properties");
+		List<String> refused = List.of(
+				"jdbc:mysql://someone:userinfo-secret@db:3306/archive",
+				"jdbc:mysql://address=(host=db)(port=3306)(user=u)(password = address-secret)/archive",
+				"jdbc:mysql://address=(host=db)(port=3306)(user=address-user)/archive",
+				"jdbc:mysql://db:3306/archive?password=param-secret",
+				"jdbc:mysql://db:3306/archive?password= space-secret",
+				"jdbc:mysql://db:3306/archive?%70assword=encoded-secret",
+				"jdbc:mysql://db:3306/archive?useSSL=false&Password=case-secret",
+				"jdbc:mysql://db:3306/archive?user=u&password1=multi-secret",
+				"jdbc:mysql://db:3306/archive?defaultFetchSize=fetch-secret",
+				"jdbc:mysql://db:3306/archive?passwordCharacterEncoding=charset-secret",
+				"jdbc:mysql://db:3306/archive?connectTimeout=shape-secret",
+				"jdbc:mysql://db:3306/archive?serverTimezone=Asia/Shanghai%20zone-secret",
+				"jdbc:mysql://db:3306/archive?serverTimezone=a=equals-secret",
+				"jdbc:mysql://db:3306/archive?allowLoadLocalInfile=true",
+				"jdbc:mysql://db:3306/archive?useSSL=false&",
+				"jdbc:mysql://db:3306/archive?",
+				"jdbc:mysql://db:3306/arch ive",
+				"jdbc:mysql://db:3306",
+				"jdbc:mysql:loadbalance://db:3306/archive",
+				"jdbc:mysql://db:3306/archive;password=semicolon-secret");
+		for (String url : refused) {
+			Files.writeString(config, "ILLUSTRATION_ARCHIVE_DB_URL=" + url + "\nILLUSTRATION_ARCHIVE_DB_USERNAME=u\n"
+					+ "ILLUSTRATION_ARCHIVE_DB_PASSWORD=file-secret\nILLUSTRATION_ARCHIVE_STORAGE_ROOT=D:/media\n");
+			MaintenanceException refusal = assertThrows(MaintenanceException.class, () -> LegacyMigration.Source.read(config), url);
+			assertTrue(refusal.getMessage().contains("没有连接"), refusal.getMessage());
+			assertFalse(refusal.getMessage().contains("secret"), url + " → " + refusal.getMessage());
+			assertFalse(refusal.getMessage().contains("address-user"), refusal.getMessage());
+		}
+	}
+
+	@Test
+	void aScrubbedFailureKeepsItsClassesAndStackButNoPasswordAnywhereInItsCauses() {
+		LegacyMigration.Source old = new LegacyMigration.Source("db:3306", "archive", "D:/media", source, List.of("pw-in-cause"));
+		var root = new java.sql.SQLException("Access denied, tried pw-in-cause");
+		var middle = new IllegalStateException("wrapped password=other-secret", root);
+		var top = new RuntimeException(null, middle);
+
+		Throwable scrubbed = old.scrub(top);
+
+		int depth = 0;
+		for (Throwable original = top, copy = scrubbed; original != null; original = original.getCause(), copy = copy.getCause()) {
+			assertTrue(copy.getMessage().startsWith(original.getClass().getName()), copy.getMessage());
+			assertFalse(copy.getMessage().contains("pw-in-cause"), copy.getMessage());
+			assertFalse(copy.getMessage().contains("other-secret"), copy.getMessage());
+			assertEquals(List.of(original.getStackTrace()), List.of(copy.getStackTrace()));
+			depth++;
+		}
+		assertEquals(3, depth, "the whole cause chain is kept");
+	}
+
 	@Test
 	void commandReportsWithoutEverPrintingThePassword() throws Exception {
 		Path config = workspace.resolve("application-local.properties");
 		Files.writeString(config, """
-				ILLUSTRATION_ARCHIVE_DB_URL=jdbc:mysql://127.0.0.1:1/none?password=inurl
+				ILLUSTRATION_ARCHIVE_DB_URL=jdbc:mysql://127.0.0.1:1/none?connectTimeout=2000
 				ILLUSTRATION_ARCHIVE_DB_USERNAME=someone
 				ILLUSTRATION_ARCHIVE_DB_PASSWORD=do-not-print-me
 				ILLUSTRATION_ARCHIVE_STORAGE_ROOT=%s
@@ -334,7 +397,7 @@ class LegacyMigrationTest {
 		assertEquals(1, exit, output);
 		assertTrue(output.contains("Check only"), output);
 		assertFalse(output.contains("do-not-print-me"), output);
-		assertFalse(output.contains("inurl"), output);
+		assertTrue(output.contains("Failed: "), output);
 	}
 
 	private void assertNoStagingLeft() {

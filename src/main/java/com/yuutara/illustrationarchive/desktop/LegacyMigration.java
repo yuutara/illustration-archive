@@ -42,6 +42,7 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.UUID;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -446,9 +447,16 @@ public final class LegacyMigration {
 
 	/**
 	 * The old server app's MySQL connection and media folder, from its {@code application-local.properties}. The file
-	 * is a trust boundary: only five keys are read, only a MySQL URL and local media are accepted. The password is
-	 * kept for this connection only; what this object says about itself, {@link #describe} and {@link #redact}, never
-	 * holds it, the URL's parameters or user info.
+	 * is a trust boundary: only five keys are read, only a MySQL URL and local media are accepted.
+	 *
+	 * <p>The URL is held to one plain form, {@code jdbc:mysql://host[:port][,host[:port]…]/database[?name=value&…]},
+	 * and anything else is refused before connecting. The driver accepts much more (user info, {@code address=(…)}
+	 * hosts with their own user and password, percent-encoded names, spaces, dozens of properties whose values it
+	 * repeats in its errors), and none of it can be told apart from a secret reliably. So the URL holds no credential
+	 * at all: user name and password come only from their own keys, the hosts and database are plain names, and each
+	 * parameter is one of {@link #PARAMETERS} with a value of a fixed shape. What this object says about itself,
+	 * {@link #describe} and {@link #redact}, therefore never holds the password, and nothing the driver echoes from
+	 * the URL is a secret.
 	 */
 	static final class Source {
 
@@ -459,6 +467,28 @@ public final class LegacyMigration {
 		static final String STORAGE_TYPE = "ILLUSTRATION_ARCHIVE_STORAGE_TYPE";
 		private static final Pattern PASSWORD_SETTING = Pattern.compile("(?i)(password|pwd)=[^\\s)&;,]*");
 		private static final int CONNECT_TIMEOUT_MILLIS = 10_000;
+		private static final String HOST = "(?:[A-Za-z0-9][A-Za-z0-9.-]{0,252}|\\[[0-9A-Fa-f:.]{2,45}\\])(?::[0-9]{1,5})?";
+		private static final Pattern PLAIN_URL = Pattern.compile(
+				"jdbc:mysql://(" + HOST + "(?:," + HOST + ")*)/([A-Za-z0-9_$-]{1,64})(?:\\?(.+))?");
+		private static final Pattern BOOLEAN = Pattern.compile("(?i)true|false|yes|no");
+		private static final Pattern NUMBER = Pattern.compile("[0-9]{1,9}");
+		/**
+		 * The parameters an old config may set, each with the shape of its value: what the server app's own example and
+		 * Compose file use, and what a local MySQL 8 needs to connect. Names match case-insensitively.
+		 */
+		static final Map<String, Pattern> PARAMETERS = Map.ofEntries(
+				Map.entry("useunicode", BOOLEAN),
+				Map.entry("characterencoding", Pattern.compile("[A-Za-z0-9_-]{1,32}")),
+				Map.entry("servertimezone", Pattern.compile("[A-Za-z0-9/_+:-]{1,64}")),
+				Map.entry("connectiontimezone", Pattern.compile("[A-Za-z0-9/_+:-]{1,64}")),
+				Map.entry("usessl", BOOLEAN),
+				Map.entry("requiressl", BOOLEAN),
+				Map.entry("verifyservercertificate", BOOLEAN),
+				Map.entry("sslmode", Pattern.compile("(?i)DISABLED|PREFERRED|REQUIRED|VERIFY_CA|VERIFY_IDENTITY")),
+				Map.entry("allowpublickeyretrieval", BOOLEAN),
+				Map.entry("zerodatetimebehavior", Pattern.compile("(?i)CONVERT_TO_NULL|EXCEPTION|ROUND")),
+				Map.entry("connecttimeout", NUMBER),
+				Map.entry("sockettimeout", NUMBER));
 
 		private final String host;
 		private final String database;
@@ -486,9 +516,29 @@ public final class LegacyMigration {
 						+ config.getFileName(), unreadable);
 			}
 			String url = required(settings, URL);
-			if (!url.startsWith("jdbc:mysql:") || !url.contains("//")) {
+			if (!url.startsWith("jdbc:mysql:")) {
 				throw new MaintenanceException("配置文件里的数据库不是 MySQL 地址（" + URL + " 应以 jdbc:mysql:// 开头）。"
 						+ "只能从旧版服务端的 MySQL 图库导入。");
+			}
+			Matcher plain = PLAIN_URL.matcher(url);
+			if (!plain.matches()) {
+				// Not echoed: whatever does not fit may be exactly where a password was written.
+				throw new MaintenanceException("配置文件里的数据库地址不是本应用支持的写法，没有连接。只支持 "
+						+ "jdbc:mysql://主机[:端口]/库名[?参数=值&…]：地址里不能有用户名或密码（如 用户:密码@、address=(…)）、"
+						+ "空格或 % 编码；用户名和密码请写在 " + USERNAME + " 和 " + PASSWORD + " 里。");
+			}
+			if (plain.group(3) != null) {
+				String[] parameters = plain.group(3).split("&", -1);
+				for (int index = 0; index < parameters.length; index++) {
+					String[] pair = parameters[index].split("=", -1);
+					Pattern shape = pair.length == 2 ? PARAMETERS.get(pair[0].toLowerCase(Locale.ROOT)) : null;
+					if (shape == null || !shape.matcher(pair[1]).matches()) {
+						throw new MaintenanceException("配置文件里数据库地址的第 " + (index + 1) + " 个参数不受支持或值的格式不对，没有连接。"
+								+ "只能用 useUnicode、characterEncoding、serverTimezone、connectionTimeZone、useSSL、requireSSL、"
+								+ "verifyServerCertificate、sslMode、allowPublicKeyRetrieval、zeroDateTimeBehavior、connectTimeout、"
+								+ "socketTimeout；用户名和密码请写在 " + USERNAME + " 和 " + PASSWORD + " 里。");
+					}
+				}
 			}
 			String type = settings.getProperty(STORAGE_TYPE, "").trim();
 			if (!type.isEmpty() && !type.equalsIgnoreCase("local")) {
@@ -499,16 +549,7 @@ public final class LegacyMigration {
 			String password = settings.getProperty(PASSWORD, "");
 			String root = required(settings, STORAGE_ROOT);
 
-			String rest = url.substring(url.indexOf("//") + 2);
-			int query = rest.indexOf('?');
-			String beforeQuery = query < 0 ? rest : rest.substring(0, query);
-			int slash = beforeQuery.indexOf('/');
-			String authority = slash < 0 ? beforeQuery : beforeQuery.substring(0, slash);
-			int at = authority.lastIndexOf('@');
-			String database = slash < 0 ? "" : beforeQuery.substring(slash + 1);
-			String host = PASSWORD_SETTING.matcher(authority.substring(at + 1)).replaceAll("$1=***");
-			return new Source(host, database, root, connect(url, username, password),
-					List.of(url, query < 0 ? "" : rest.substring(query), at < 0 ? "" : authority.substring(0, at + 1), password));
+			return new Source(plain.group(1), plain.group(2), root, connect(url, username, password), List.of(password));
 		}
 
 		private static String required(Properties settings, String name) throws MaintenanceException {

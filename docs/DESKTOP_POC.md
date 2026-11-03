@@ -790,6 +790,10 @@ $h = 'D:\Temp\ia-config-20261102\acceptance-home'
 | **R34-C1 [P1] URL 密码进入预览** | 驱动接受的 `address=(...)(password = ...)`、等号后空白、编码键 `%70assword` 三种写法均连接成功，但 `Source.describe()` 保留实际密码；打包类的真实 HTTP READY 也返回该密码。须规范解析或连接前拒绝无法安全支持的 URL，预览只留主机 / 库名，并补真实驱动与 HTTP 回归 |
 | **R34-C2 [P2] 单独参数值未脱敏** | 无效 `defaultFetchSize` / `passwordCharacterEncoding` 的单独值经异常进入 FAILED 响应与 `desktop.log`；整段 URL 的替换捕获不到。须保护独立及解码后的参数值，或采用不回显参数的安全错误消息 / 日志，覆盖 cause 链 |
 
+**R34-C1 / C2 修复（2026-11-03，Claude）**：不再从任意 URL 里找出并遮掉凭据，改为只接受一种写法，其余在连接前拒绝。`jdbc:mysql://主机[:端口][,主机[:端口]…]/库名[?参数=值&…]`：主机只能是普通名称、IPv4 或 `[IPv6]`，库名为字母数字与 `_ $ -`；地址里不能有用户信息、`address=(…)`、空白、`%` 编码或 `;`。参数只认 12 个（`useUnicode`、`characterEncoding`、`serverTimezone`、`connectionTimeZone`、`useSSL`、`requireSSL`、`verifyServerCertificate`、`sslMode`、`allowPublicKeyRetrieval`、`zeroDateTimeBehavior`、`connectTimeout`、`socketTimeout`，名称不分大小写），每个值有固定格式（布尔、数字、枚举、时区 / 字符集名）。所以 URL 里没有任何凭据，驱动回显的参数值也都不是机密；用户名和密码只来自各自的配置键。拒绝消息不回显地址，只说第几个参数不对。预览只有主机与库名；密码仍从消息与日志中遮掉，`scrub` 保留异常类型、堆栈和整条 cause 链。顺带关掉了交接里注明的 `allowLoadLocalInfile` 等任意驱动参数的风险。命令行也受同样限制。
+
+- 回归：`LegacyMigrationTest` 12/12（20 种被拒写法、两种可用写法、cause 链）、`LibraryMaintenanceTest` 18/18（真实 Spring / HTTP：驱动连接失败时密码不进响应；Codex 的 5 种写法都 409、不建暂存；之后整个工作区含 `desktop.log` 扫不到任何秘密）；临时 MySQL 8.4.11 上 `LegacyMigrationMySqlTest` 3/3（真实驱动下错误密码的完整报告不含密码；URL 带正确密码的 3 种写法和 2 种回显参数在连接前被拒），证据 `D:\Temp\ia-r34-c1c2-mysql-20261103-182628\result.md`。
+
 完整命令、脱敏响应、探针与截图：`D:\Temp\ia-r34-c-20261103\result.md`。仅合成库 / 临时 Docker，容器及匿名卷已删除；homes、previous 与故障证据保留，产品源码未改，未暂存 / 提交 / 推送。修复新增提交后只复验安全路径及受影响行为；不扩大真实数据授权，B 级观感仍待用户。
 
 ## 已知问题与后续候选

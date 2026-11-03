@@ -561,25 +561,43 @@ class LibraryMaintenanceTest {
 	@Test
 	void theOldPasswordAndUrlParametersReachNoResponseLogOrFile() throws Exception {
 		int closed = freePort();
-		legacyConfig = Files.writeString(workspace.resolve("application-local.properties"), """
-				ILLUSTRATION_ARCHIVE_DB_URL=jdbc:mysql://user-in-url:pass-in-url@127.0.0.1:%d/illustration_archive?useSSL=false&password=param-secret
-				ILLUSTRATION_ARCHIVE_DB_USERNAME=someone
-				ILLUSTRATION_ARCHIVE_DB_PASSWORD=file-secret-123
-				ILLUSTRATION_ARCHIVE_STORAGE_ROOT=%s
-				""".formatted(closed, workspace.toString().replace('\\', '/')));
-		List<String> secrets = List.of("file-secret-123", "pass-in-url", "param-secret");
+		String mediaRoot = workspace.toString().replace('\\', '/');
+		List<String> secrets = new ArrayList<>(List.of("file-secret-123"));
+		// A URL the app supports, to a closed port: the real driver fails, with a password of its own key.
+		writeLegacyConfig("jdbc:mysql://127.0.0.1:" + closed + "/illustration_archive?useSSL=false&connectTimeout=2000",
+				"file-secret-123", mediaRoot);
 
 		HttpResponse<String> started = send("POST", "/api/desktop/import/check", null);
 		assertEquals(200, started.statusCode(), started.body());
 		JsonNode failed = awaitPhase("FAILED");
-		// Only the config file itself may hold them; it is the user's own and is only read.
-		Files.delete(legacyConfig);
-
 		String shown = failed.toString();
 		assertTrue(failed.get("message").asString().contains("没能读取旧版图库的数据库"), shown);
-		for (String secret : secrets) {
-			assertFalse(shown.contains(secret), shown);
+		assertFalse(shown.contains("file-secret-123"), shown);
+		// As the page does once it showed the refusal.
+		body(send("POST", "/api/desktop/restore/cancel", "{\"id\":null}"));
+
+		// What R34-C1 / C2 found: URL credentials that differ from the password key, with spaces or percent-encoding,
+		// and values the driver repeats in its own errors. Each is refused before connecting, and nothing is copied.
+		Map<String, String> urls = Map.of(
+				"address-secret", "jdbc:mysql://address=(host=127.0.0.1)(port=" + closed + ")(user=u)(password = address-secret)/illustration_archive",
+				"space-secret", "jdbc:mysql://127.0.0.1:" + closed + "/illustration_archive?password= space-secret",
+				"encoded-secret", "jdbc:mysql://127.0.0.1:" + closed + "/illustration_archive?%70assword=encoded-secret",
+				"fetch-secret", "jdbc:mysql://127.0.0.1:" + closed + "/illustration_archive?defaultFetchSize=fetch-secret",
+				"charset-secret", "jdbc:mysql://127.0.0.1:" + closed + "/illustration_archive?passwordCharacterEncoding=charset-secret");
+		secrets.addAll(urls.keySet());
+		for (Map.Entry<String, String> url : urls.entrySet()) {
+			writeLegacyConfig(url.getValue(), "file-secret-123", mediaRoot);
+			HttpResponse<String> refused = send("POST", "/api/desktop/import/check", null);
+			assertEquals(409, refused.statusCode(), url.getKey() + ": " + refused.body());
+			assertTrue(refused.body().contains("没有连接"), refused.body());
+			for (String secret : secrets) {
+				assertFalse(refused.body().contains(secret), url.getKey() + ": " + refused.body());
+			}
+			assertEquals("IDLE", body(send("GET", "/api/desktop/restore", null)).get("phase").asString());
+			assertNoOperationLeft();
 		}
+		// Only the config file itself may hold them; it is the user's own and is only read.
+		Files.delete(legacyConfig);
 		server.stop();
 		((ch.qos.logback.classic.LoggerContext) org.slf4j.LoggerFactory.getILoggerFactory()).reset();
 		assertTrue(Files.readString(home.resolve("logs").resolve("desktop.log"), StandardCharsets.UTF_8)
@@ -609,6 +627,12 @@ class LibraryMaintenanceTest {
 		assertTrue(refused.body().contains("S3"), refused.body());
 		assertEquals("IDLE", body(send("GET", "/api/desktop/restore", null)).get("phase").asString());
 		assertTrue(mediaAskedFor.isEmpty());
+	}
+
+	private void writeLegacyConfig(String url, String password, String mediaRoot) throws IOException {
+		legacyConfig = Files.writeString(workspace.resolve("application-local.properties"), String.join("\n",
+				"ILLUSTRATION_ARCHIVE_DB_URL=" + url, "ILLUSTRATION_ARCHIVE_DB_USERNAME=someone",
+				"ILLUSTRATION_ARCHIVE_DB_PASSWORD=" + password, "ILLUSTRATION_ARCHIVE_STORAGE_ROOT=" + mediaRoot, ""));
 	}
 
 	private void assertNoOperationLeft() throws IOException {
