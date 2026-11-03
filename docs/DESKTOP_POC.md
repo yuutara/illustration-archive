@@ -387,7 +387,7 @@ Codex 只读 Review 指出两点，均只改 `DesktopServer` 的桌面启动参�
 & dist\IllustrationArchive\runtime\bin\java.exe -jar dist\IllustrationArchive\app\illustration-archive-0.0.1-SNAPSHOT.jar --migrate-from-mysql --config=config\application-local.properties --execute
 ```
 
-退出码：0 成功，2 有媒体问题（用 `--allow-problems` 才会继续），1 失败。`--target=<目录>` 可换目标。自 R3.4 起支持 V7 来源（只在副本里升级），输出多一行 `schema`；相对的原图文件夹仍按运行目录解析（设置页则让用户选）。普通用户用设置页的“从旧版导入”；URL 内嵌凭据及参数遮蔽的已知缺陷见下文 [R3.4](#从旧版导入r342026-11-03)，尚未签收。
+退出码：0 成功，2 有媒体问题（用 `--allow-problems` 才会继续），1 失败。`--target=<目录>` 可换目标。自 R3.4 起支持 V7 来源（只在副本里升级），输出多一行 `schema`；相对的原图文件夹仍按运行目录解析（设置页则让用户选）。普通用户用设置页的“从旧版导入”。数据库 URL 只收不带凭据的普通地址与允许的参数，具体边界和签收记录见下文 [R3.4](#从旧版导入r342026-11-03)。
 
 **要在普通终端里运行，不要从 Claude 桌面版里运行。** Claude 桌面版是 MSIX 应用，它启动的进程写 `%LOCALAPPDATA%` 时会被重定向到 `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Local\`，这个进程自己看得到，从资源管理器启动的应用看不到。
 
@@ -778,23 +778,25 @@ $h = 'D:\Temp\ia-config-20261102\acceptance-home'
 
 ## 从旧版导入（R3.4，2026-11-03）
 
-开发提交 `e0a477c`；**Codex C 级暂不签收，交 Claude 修复 R34-C1 / C2。** 设置页选旧版配置，后台把源版本的表复制到 `recovery/<id>/incoming`，只在副本升级至 V8，确认后复用 R3.3 切换与回退；当前图库保留在 `previous`，不导入旧 X token。命令行目的地改名也改用 R3.3 的短暂重试。规划基线见 [路线](DESKTOP_ROADMAP.md#r34-旧版导入计划)。
+开发提交 `e0a477c`，修复提交 `806f7a5`；**Codex C 级已签收，R34-C1 / C2 全部关闭。** 设置页选旧版配置，后台把源版本的表复制到 `recovery/<id>/incoming`，只在副本升级至 V8，确认后复用 R3.3 切换与回退；当前图库保留在 `previous`，不导入旧 X token。命令行目的地改名也改用 R3.3 的短暂重试。规划基线见 [路线](DESKTOP_ROADMAP.md#r34-旧版导入计划)。
 
 - 开发方：Java 全量 569 tests / 20 skipped、JS 402/402；一次性 MySQL 8.4.11 的迁移 2/2、图库读取 14/14，证据 `D:\Temp\ia-r34-mysql-20261103-174712\result.md`。
 - Codex 自动测试：相关 6 类 **98/98、零失败 / 错误 / 跳过**，不重复开发方全量。独立 MySQL V7 / V8 逐表、ID、关系、时间、二进制和媒体哈希一致；四步正向改名各注入一次失败，均完整回退。
 - 打包与真实 GUI：从指定提交导出后构建内部 0.6.0 镜像，扫描 346 files / 28707 jar entries 通过。命名 `ui_acceptance` 用 Windows-MCP 验证媒体问题拒绝、V7 取消、V7 应用并退出重启、V8 再次替换与正常退出通过；独立核对当前 V8、两次 previous 和原有 config 字节一致，journal 均 DONE。DOM / Console / Network 未采集。
 - 源库只读：V7 / V8 的行、迁移历史与媒体前后不变；SELECT-only 用户，服务端记录 12 次 READ ONLY、12 次 REPEATABLE READ、24 次 rollback、无变更 SQL。R3.3 已签收的关闸、确认落盘、双重改名失败和授权竞争证据复用。
 
-| 阻塞项 | 复现与修复出口 |
+| 已关闭问题 | 修复与独立复验 |
 | --- | --- |
-| **R34-C1 [P1] URL 密码进入预览** | 驱动接受的 `address=(...)(password = ...)`、等号后空白、编码键 `%70assword` 三种写法均连接成功，但 `Source.describe()` 保留实际密码；打包类的真实 HTTP READY 也返回该密码。须规范解析或连接前拒绝无法安全支持的 URL，预览只留主机 / 库名，并补真实驱动与 HTTP 回归 |
-| **R34-C2 [P2] 单独参数值未脱敏** | 无效 `defaultFetchSize` / `passwordCharacterEncoding` 的单独值经异常进入 FAILED 响应与 `desktop.log`；整段 URL 的替换捕获不到。须保护独立及解码后的参数值，或采用不回显参数的安全错误消息 / 日志，覆盖 cause 链 |
+| **R34-C1 [P1] URL 密码进入预览** | 普通地址白名单拒绝 user-info、address 语法、编码及凭据参数；原来的三种实际密码写法在打包类的真实 HTTP 上均 409，无源库连接、暂存或密码回显 |
+| **R34-C2 [P2] 单独参数值未脱敏** | 仅接受 12 个固定格式参数，原 defaultFetchSize / passwordCharacterEncoding 及任意驱动选项在连接前拒绝；错误密码真实认证失败时 FAILED 和日志安全，异常类型 / 堆栈保留 |
 
 **R34-C1 / C2 修复（2026-11-03，Claude）**：不再从任意 URL 里找出并遮掉凭据，改为只接受一种写法，其余在连接前拒绝。`jdbc:mysql://主机[:端口][,主机[:端口]…]/库名[?参数=值&…]`：主机只能是普通名称、IPv4 或 `[IPv6]`，库名为字母数字与 `_ $ -`；地址里不能有用户信息、`address=(…)`、空白、`%` 编码或 `;`。参数只认 12 个（`useUnicode`、`characterEncoding`、`serverTimezone`、`connectionTimeZone`、`useSSL`、`requireSSL`、`verifyServerCertificate`、`sslMode`、`allowPublicKeyRetrieval`、`zeroDateTimeBehavior`、`connectTimeout`、`socketTimeout`，名称不分大小写），每个值有固定格式（布尔、数字、枚举、时区 / 字符集名）。所以 URL 里没有任何凭据，驱动回显的参数值也都不是机密；用户名和密码只来自各自的配置键。拒绝消息不回显地址，只说第几个参数不对。预览只有主机与库名；密码仍从消息与日志中遮掉，`scrub` 保留异常类型、堆栈和整条 cause 链。顺带关掉了交接里注明的 `allowLoadLocalInfile` 等任意驱动参数的风险。命令行也受同样限制。
 
 - 回归：`LegacyMigrationTest` 12/12（20 种被拒写法、两种可用写法、cause 链）、`LibraryMaintenanceTest` 18/18（真实 Spring / HTTP：驱动连接失败时密码不进响应；Codex 的 5 种写法都 409、不建暂存；之后整个工作区含 `desktop.log` 扫不到任何秘密）；临时 MySQL 8.4.11 上 `LegacyMigrationMySqlTest` 3/3（真实驱动下错误密码的完整报告不含密码；URL 带正确密码的 3 种写法和 2 种回显参数在连接前被拒），证据 `D:\Temp\ia-r34-c1c2-mysql-20261103-182628\result.md`。
 
-完整命令、脱敏响应、探针与截图：`D:\Temp\ia-r34-c-20261103\result.md`。仅合成库 / 临时 Docker，容器及匿名卷已删除；homes、previous 与故障证据保留，产品源码未改，未暂存 / 提交 / 推送。修复新增提交后只复验安全路径及受影响行为；不扩大真实数据授权，B 级观感仍待用户。
+**Codex 复验（`806f7a5`）**：相关测试 **30/30**，打包扫描 346 files / 28707 jar entries；镜像 JAR / lib 的真实 Spring / HTTP 探针 **13/13** 危险 URL 拒绝、无新源库连接、不建暂存。真实错误密码安全反馈；正常 V7 / V8 check→apply 再次通过，全部业务行 / ID / 关系 / 时间 / 二进制及媒体哈希一致，config 不变，源行 / Flyway / 媒体未改。停服后全 home 文件扫描无合成凭据或被拒参数标记。GUI、四步回退与 R3.3 路径复用首轮，不重复全量 Java / JS 或 GUI；DOM / Console / Network 未采集。
+
+完整命令与证据：首轮 `D:\Temp\ia-r34-c-20261103\result.md`，本轮 `D:\Temp\ia-r34-recheck-20261103\result.md`。仅合成库 / 临时 Docker，容器及匿名卷均已删除；homes、previous、镜像与证据保留。验收未改产品源码，未暂存 / 提交 / 推送；不扩大真实数据授权，MySQL V8 专项和 R3.5 不由本包关闭。
 
 ## 已知问题与后续候选
 
