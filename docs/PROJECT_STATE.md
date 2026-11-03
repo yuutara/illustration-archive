@@ -55,7 +55,7 @@
 
 ## 下一步
 
-1. R3.4 旧版导入已开发（2026-11-03，未提交），基线见 [DESKTOP_ROADMAP](DESKTOP_ROADMAP.md#r34-旧版导入计划)；Java 全量 569 / 20 skipped、JS 402/402 通过，待临时 Docker MySQL 实测、提交后交 Codex C 级（见 NEXT.md）。MySQL 验收只用临时 Docker 容器，不新增真实数据授权。R3.3 `22184f0` 已签收，证据 `D:\Temp\ia-r33-recheck-20261103\result.md`。
+1. R3.4 旧版导入已开发并提交 `e0a477c`（2026-11-03），基线见 [DESKTOP_ROADMAP](DESKTOP_ROADMAP.md#r34-旧版导入计划)；Java 全量 569 / 20 skipped、JS 402/402 通过，临时 MySQL 8.4.11 上 16/16（`D:\Temp\ia-r34-mysql-20261103-174712`）；下一步 Codex C 级（见 NEXT.md）。MySQL 验收只用临时 Docker 容器，不新增真实数据授权。R3.3 `22184f0` 已签收，证据 `D:\Temp\ia-r33-recheck-20261103\result.md`。
 2. R3.2 C 级已签收 `3755d29`，R32-C1 关闭；签收记录已提交 `e6f723b`，`0.6.0` 候选保留，发布与推送由用户决定（[DESKTOP_POC](DESKTOP_POC.md#交付包r322026-11-02)）。未排期候选：启动与本地安全小加固、依赖补丁更新、V0.5 遗留 P1。
 
 ## 文档导航
