@@ -395,28 +395,30 @@ ZIP 是图库副本，不是脱敏材料：即使没有凭据，数据库和图�
 | B：用户 | 设置页导入的文案、预览与反馈，用指向隔离副本的桌面快捷方式；只登记一次 |
 | D：不在本包 | 从真实 MySQL 导入、替换真实图库，需另行授权 |
 
-#### R3.5 干净环境验收预案（2026-11-03，环境未就绪）
+#### R3.5 干净环境验收预案（2026-11-04，离线基线就绪）
 
-目标是确认最终安装包换到普通 Windows 11 x64 电脑后，仍能安装、启动、升级并保留图库，补齐开发机上无法证明的运行环境与下载提示。用户已选择规划 R3.5；本轮只读盘点与规划，不包含新建 / 启动虚拟机、下载系统、登录账号或改网络。环境确认通过前不进入验收。
+目标是确认最终安装包换到普通 Windows 11 x64 电脑后，仍能安装、启动、升级并保留图库，补齐开发机上无法证明的运行环境与下载提示。用户于 11-03 指示继续准备 D 盘专用离线 VM；11-04 前置环境验证完成，可开始下表中本基线支持的离线路径，正式安装包验收尚未开始。环境准备与一次性激活联网授权已结束，不包含宿主网络变更或真实账号登录。
 
 **环境盘点与选择**
 
-- 本机 Windows 11 家庭中文版 x64（22631），内存约 32 GB，D 盘余约 204 GB；已有 VMware Workstation Pro 16.2.4，`vmrun -T ws list` 为 0 台运行中虚拟机。在 VMware 用户清单和 `D:\Virtual Machines` 中只发现 CentOS，尚未找到 Windows 客体或系统 ISO；不代表其他位置一定没有。
+- 初始盘点：本机 Windows 11 家庭中文版 x64（22631），内存约 32 GB，D 盘余约 204 GB；已有 VMware Workstation Pro 16.2.4，当时仅找到 CentOS、无运行中 VM。11-03–04 已新建 `D:\Virtual Machines\IA-R35-Win11`：4 vCPU / 6 GB / 80 + 20 GB 虚拟磁盘、EFI Secure Boot / vTPM，无网卡和宿主共享目录；已激活的最终离线基线恢复验证通过。准备结束时 D 盘余约 144 GB，旧副本仍保留。
 - VMware 软件不是一台已装好的 Windows 测试机。家庭版不支持官方 Windows Sandbox；不为本包升级宿主系统、安装另一套虚拟化软件或重建虚拟网络。
-- 可选：复用已有 Windows 测试机的独立副本；在 D 盘新建专用 Windows 11 虚拟机；使用可完整还原的备用电脑。也可暂缓环境准备，保留未验证项。用户尚未选择，不自动创建。
-- 新建方案的预算估计：宿主 D 盘预留约 80–100 GB（含系统、ISO 与快照余量），运行时分配约 6–8 GB 内存，首次准备约几十分钟到两小时；实际占用取决于镜像和快照。现有 VMware 授权未核对；微软提供需登记的 90 天 Windows 11 Enterprise 评估，账号步骤由用户操作，不据此承诺永久免费。
-- 本轮证据：`D:\Temp\ia-r35-plan-20261103\result.md`。当前只能确认资源和工具存在，不能确认 Windows 能启动或能恢复。
+- 已选择 D 盘专用离线 VM；已有 Windows 测试机的独立副本或可还原备用电脑仍是备选，不要求必须使用虚拟机。
+- 新建方案的预算估计：宿主 D 盘预留约 80–100 GB（含系统、ISO 与快照余量），运行时分配约 6–8 GB 内存，首次准备约几十分钟到两小时。VMware 界面已确认可用 / 已许可；官方中文 Win11 Enterprise Evaluation 26H2 ISO（约 8.5 GB）已通过现有系统代理下载并匹配微软 SHA-256，使用独立合成本地用户，不登录真实账号或联网激活。评估有期限，不承诺永久免费。
+- **当前基线**于 11-04 17:02 通过：`D:\Temp\ia-r35-env-20261103\licensed-baseline\snapshot-recovery-result.json`；完整冷副本 `D:\Virtual Machines\IA-R35-Win11-licensed-baseline-20261104` 共 17 文件、SHA-256 一致；快照 **`R35-Clean-Windows-Licensed-Offline-20261104`** 恢复后 C / D 旧标记一致、新文件消失，Windows 重启且 LicenseStatus=1、无网卡，最终正常关机。未测试冷副本另行启动；旧未激活快照不能代替当前基线。保留副本、快照链、解锁材料与引用镜像。
+- 实际客体版本经 CIM 确认是 `10.0.26300`，无系统 Java / JAVA_HOME，WebView2 `152.0.4191.66`，TPM Ready / Secure Boot 正常。光盘启动及 Tools 安装 / 重启由用户完成；准备脚本已修正过窄的机型检查（实际 VMware7,1），Tools 就绪使用实际服务和客体命令验证，不单凭旧版 vmrun 的 installed / running 文案。
+- 许可问题已解决：用户 11-04 明确授权仅新 VM 临时用既有 NAT 尝试官方激活，接受客体可能直连微软；实际调用一次官方 Activate 方法，LicenseStatus 从 5 转为 1、初始剩余 129600 分钟（90 天）。随后断开并正常关机，用户移除新增网卡；离线再次启动确认无网卡且许可为 1。本次联网授权已结束，未登录真实账号、未改宿主网络配置；后续联网不能沿用此授权。证据 `activation-attempt-result.json` / `guest-preparation-inspection.json`。
 
 **进入验收前的条件**
 
 1. 确认系统来源 / 使用许可及 Windows 11 x64 的正常硬件条件，使用独立合成用户和图库；不带入真实账号、凭据或已登录验收 home。不通过绕过 TPM 等系统要求来制造测试环境。
 2. 在专用客体上记录 OS、系统 Java / `JAVA_HOME`、WebView2 检测值、应用 / 数据目录基线。Windows 11 通常自带 WebView2，不能把“新装系统”等同于“缺少 Runtime”；须另有真实缺失状态，不能仅隐藏注册表或改检测结果。无法提供时，该分支保持 `UNVERIFIED`。
 3. 若选虚拟机，留一份关机状态的完整副本，再建覆盖所有测试虚拟磁盘的安装前快照，不共享宿主真实数据目录；在客体创建测试标记、安装候选并写入合成图库，恢复后确认标记 / 应用 / 数据回到基线，且 Windows 能再次启动。备用电脑需等效的整机备份与恢复演练。只对本包专用环境演练，不还原现有 CentOS。证据先导出快照外，保留虚拟磁盘、快照链及必要的加密解锁材料。
-4. 宿主的代理、TUN、DNS、路由、防火墙、节点和 IP 保持现状。现有 VMnet1 / VMnet8 不是本包新增；NAT 不等于自动继承宿主代理或 Claude 进程规则。联网方式尚未确定，未获具体授权不改变网络来让虚拟机出网，也不在客体登录 Claude / X / Gemini。纯离线客体可先覆盖本地分支；联网 Runtime 与 SmartScreen 另等安全出网条件，不以停宿主代理测试离线。
+4. 宿主的代理、TUN、DNS、路由、防火墙、节点和 IP 保持现状。现有 VMnet1 / VMnet8 不是本包新增；NAT 不等于继承宿主代理或 Claude 进程规则。11-04 的一次性官方激活例外已结束，客体现无网卡；不在客体登录 Claude / X / Gemini。纯离线客体先覆盖本地分支，联网 Runtime 与 SmartScreen 另需具体授权和安全出网条件，不以停宿主代理测试离线。
 
 **候选与验证范围**
 
-- R3.2 的 `3755d29` / `0.6.0` 是旧候选，早于备份恢复和旧版导入。验收前从覆盖 R3.4 签收修复 `806f7a5` 的明确提交重新构建完整交付包；当前基线 `d01a24f`，沿用用户已定的内部候选版本 `0.6.0`。在仓库外用 `build-release.ps1`，记录提交、工具版本和 SHA-256，不运行原仓库 `clean` 或镜像构建。
+- R3.2 的 `3755d29` / `0.6.0` 是旧候选，早于备份恢复和旧版导入。验收前从覆盖 R3.4 签收修复 `806f7a5` 的明确提交重新构建完整交付包；当前规划基线 `b0bcf74`，沿用用户已定的内部候选版本 `0.6.0`。在仓库外用 `build-release.ps1`，记录提交、工具版本和 SHA-256，不运行原仓库 `clean` 或镜像构建。
 - 执行包扫描、交付校验和 `test-delivery.ps1`；复用已通过的 R3.1–R3.4 逻辑、事务与故障证据，不无故重跑全量 Java / JS。新缺陷交 Claude 修复、另存提交，只复验受影响路径。
 - 程序实际安装仍仅在 D 盘：客体须提供 D 盘并显式选择安装目录；默认 C 盘路径只观察、不实际安装。全新客体可使用默认合成 home 来验证普通启动，不连接宿主原图库。默认安装目录的实际落盘仍属未验证范围。
 
@@ -430,7 +432,7 @@ ZIP 是图库副本，不是脱敏材料：即使没有凭据，数据库和图�
 | SmartScreen | 保持系统安全保护，记录真实下载来源、来源标记、候选哈希、系统版本及实际提示 / 阻断。普通文件复制或手写来源标记不算完整下载链路；无获准下载入口则保留未验证，不自行上传 / 发布。提示受信誉与策略影响，不要求每次固定出现，也不关闭保护强行通过 |
 | 环境恢复 | 结束退出应用，导出证据，再恢复安装前基线并核对；未授权不删除虚拟机、备份或验收 home |
 
-真实 GUI 由 Codex 按 AGENTS 委派 `ui_acceptance`，主代理统一交互控制权；目前没有启动 GUI 验收。报告逐项 `PASS / FAIL / UNVERIFIED`，分开记录自动检查、真实环境与尚缺条件。环境准备不等于通过 R3.5；未覆盖项继续保留，用户 B / D 项、MySQL V8 专项及公开发布不由本包关闭。
+真实 GUI 由 Codex 按 AGENTS 委派 `ui_acceptance`，主代理统一交互控制权；目前仅观察 VMware / Windows，产品 GUI 验收尚未开始，最终开机 / 许可 / 文件恢复由客体命令验证。报告逐项 `PASS / FAIL / UNVERIFIED`，分开记录自动检查、真实环境与尚缺条件。前置环境通过不等于 R3.5 安装包通过；真实缺 WebView2、联网 Bootstrapper、SmartScreen 等未覆盖项继续保留，用户 B / D 项、MySQL V8 专项及公开发布不由本包关闭。
 
 官方依据（2026-11-03 核对）：[Sandbox 支持版本](https://learn.microsoft.com/en-us/windows/security/application-security/application-isolation/windows-sandbox/)、[Windows 11 要求](https://learn.microsoft.com/en-us/windows/whats-new/windows-11-requirements)、[90 天评估](https://www.microsoft.com/en-us/evalcenter/evaluate-windows-11-enterprise)、[WebView2 分发与检测](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)、[VMware 网络类型](https://knowledge.broadcom.com/external/article/309842/understanding-networking-types-in-hosted.html)、[SmartScreen 信誉](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation)。
 
