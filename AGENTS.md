@@ -60,6 +60,7 @@
 - Windows MCP, Computer Use, and similar high-interaction tools are not the default for testing. Use them when real GUI behavior cannot be verified more cheaply and automation adds clear value.
 - Migrations, transactions, concurrency, file deletion, authorization, and similar high-risk changes still require sufficient targeted automated tests; do not reduce necessary coverage to save tool cost.
 - Keep work-package reports brief and separate "automated tests passed", "AI-verified behavior", and "awaiting user acceptance".
+- Some checks cost a lot outside the code: building a test environment or virtual machine, downloading system images or other large files, installing software, network exceptions, uploading or hosting, or more than about half an hour of the user's hands-on time. Before any of them, tell the user in plain words what the check proves, who it matters to right now, what it costs, and whether the risk could instead be written into the user guide as a known limitation. Proceed only on the user's choice. While the app has no outside users, recommend the known limitation by default.
 
 ## Acceptance tiers
 
@@ -80,6 +81,8 @@
 
 A commit is a save point, not a claim of acceptance, so it comes before review. Whichever agent ends the turn at one of these moments gives the user a short 下一步 block, once. Do not prompt between milestones.
 
+The 下一步 block is four plain lines: where things stand; who acts next; what the user does (exact commands, a new conversation's name and opening line, or “不用做什么”); what the user gets from it. Do not use unexplained terms such as UNVERIFIED, 门槛, or internal step codes.
+
 | Moment | Git (user runs it) | Also tell the user |
 | --- | --- | --- |
 | A package passes its automated checks, or the working tree holds more than one finished package | `git add` + `git commit`, before any Codex handoff or packaged candidate | Tier B items to look at; whether Tier C applies, and if so `接 NEXT.md` |
@@ -94,15 +97,15 @@ A commit is a save point, not a claim of acceptance, so it comes before review. 
 
 - `docs/PROJECT_MAP.md` is the user's one-page view in plain Chinese: the roadmap, each capability's code and real-environment status, decisions waiting on the user, and the idea pool. Keep it to about 60 lines. Details stay in the topic documents.
 - Update the map when a package starts or finishes, or when something it states changes. When the user asks where the project stands, answer from the map.
-- The user chooses the next package. Before planning or development starts, say in plain words what the package does, what the user gets from it, and why it is the suggested next step, and list the realistic alternatives. A code name alone is not enough.
+- The user chooses the next package. Before planning or development starts, say in plain words what the package does, what the user gets from it, and why it is the suggested next step, and list the realistic alternatives. A code name alone is not enough. At every package sign-off, the alternatives include the idea-pool entries.
 - `想法：…` in any conversation is the way in for a new idea. Sort it and reply in one line saying where it went:
   - A defect in the current package: fix it there.
   - A small change: do it through the Fast Lane, here or in a `维护` conversation.
-  - A new feature or change of direction: add it to the idea pool without interrupting current work, and bring it up at the next milestone.
+  - A new feature or change of direction: add it to the idea pool without interrupting current work, and bring it up at the next package sign-off.
 
 ### New conversations
 
-- Suggest a new conversation when a package is signed off, a phase ends, the work moves between planning, development, and review, the topic is unrelated, or context has been summarized and fresh work is starting. Do not suggest one in the middle of a package.
+- Suggest a new conversation when a package is signed off, a phase ends, the work moves between planning, development, and review, the topic is unrelated, or context has been summarized and fresh work is starting. Do not suggest one in the middle of a package. A package gets at most one development conversation and one acceptance conversation; fold its planning into them unless the user asks for a separate one.
 - Each agent judges its own current conversation against these triggers and says so when one applies, Codex included. Codex also leads the call for planning, review, and acceptance work across the project; Claude raises it for Fast Lane work with no Codex involved.
 - Give a ready-to-use name and the opening line. Name format: `R<round>.<package> <name> <规划|开发|审核|验收>`, such as `R3.1 安装器 开发`; work outside the roadmap uses `维护 <topic>`.
 - An agent that can rename its own conversation does so when the title is stale and the user did not set it by hand.
