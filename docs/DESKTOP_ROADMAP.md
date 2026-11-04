@@ -446,6 +446,33 @@ ZIP 是图库副本，不是脱敏材料：即使没有凭据，数据库和图�
 
 真实 GUI 按 AGENTS 委派 `ui_acceptance`，见证据目录 `gui\gui-result.md`；DOM / Console / Network 未采集，升级后设置页未单独完成视觉复验，首装设置截图及最终重装 API 可复用。升级后完整 API 未在卸载前单独采集；升级 GUI 3 张、最终 API 一致及卸载重装之间停机 home 全字节相同构成状态证据链，未伪称直接采集。完整 R3.5 仍缺真实无 WebView2 的离线失败 / 联网安装 / 应用回退及 SmartScreen；默认 C 程序目录实际安装也未验证，用户 B / D、MySQL V8 专项及公开发布不由本轮关闭。
 
+##### 剩余验收条件（2026-11-04，仅规划）
+
+本轮接 `NEXT.md`，只核对本地文档、证据与源码并更新规划；不启动 VM / 应用 / Bootstrapper，不联网测试，不改网络或卸载 Runtime。当前保存点 `ab42a6e` 相对候选 `68d38c3` 的 `src` / `scripts` / `packaging` / `pom.xml` 无差异，可继续使用上述同哈希候选，不为本轮规划重建包或重跑已通过的离线矩阵。
+
+**执行前必须落实的三个门槛**
+
+| 门槛 | 就绪标准 | 当前结论 |
+| --- | --- | --- |
+| 真实缺 Runtime 的 Windows 11 x64 副本 | 合法来源、独立合成用户、可还原且有 D 盘；记录 HKLM32 / HKCU 的 Runtime `pv`、实际安装目录 / 版本与本包 SWT 创建结果，证明实际不可用。用于回退的分支还须有可运行的 Edge / Chrome | 现有 Licensed VM 有 Runtime，不能覆盖此门槛；真实缺失来源及取得方式未落实 |
+| 客体安全出网与本轮授权 | 先明确客体网卡、连接方式、代理路径、允许的微软下载 / 信誉检查和下载源；对 Bootstrapper、更新子进程及浏览器分别确认路由依据，不能以 NAT、宿主开着代理或一个 IP 查询代替。明确窗口、停止条件和恢复方式，授权记入 PROJECT_STATE | 客体零网卡；旧激活例外已结束。本轮不添加网卡、不配代理、不探测出网；没有合格路径就不开始联网部分 |
+| SmartScreen 的真实下载入口 | 用户批准的 HTTPS 下载地址与使用范围，返回本候选同字节 Setup，合成浏览器用户无需真实账号；来源进入 Internet 区域且保留浏览器生成的来源标记 | 尚未指定入口；可以另行批准受控私有下载，不必公开发布，但上传 / 托管也须获准；文件复制、共享盘或手写 Zone.Identifier 不代替 |
+
+缺 Runtime 的环境首选已有真实缺失的 Win11 测试机的独立副本，或能证明该状态的正规 Win11 镜像 / 快照。现有 Licensed VM 与冷副本继续保留；不把“再建一台同镜像 VM”当成解决办法。卸载本机共享 Runtime、改注册表或目录来骗过检测、裁剪系统和强制制造加载失败均不在本计划中。若没有合格来源，保留 `UNVERIFIED`，可以暂停 R3.5 转到已列候选工作包，不为覆盖率扩大系统支持范围。
+
+**四条路径分别判定，不互相代替**
+
+| 编号 / 路径 | 最小操作与通过标准 | 必留证据 |
+| --- | --- | --- |
+| R35-W1：真实缺失、离线失败 | 在预先无网的缺失基线运行真 Setup，选择 D 程序目录；先核对安装 Runtime 的说明及取消，再重新运行，允许真实 Bootstrapper 失败、重试一次后取消。不能报告安装成功，应用文件、安装登记 / 快捷方式及合成 home 与基线一致。若缓存使 Runtime 真装上，记录事实并另找符合失败条件的基线，不伪造失败 | 缺失 / 无网基线，提示与重试 / 取消截图，真实进程 / Bootstrapper 返回值和安装日志，前后应用文件 / 登记 / home 清单；微软组件自身日志或临时文件变化单列 |
+| R35-W2：真实缺失、联网安装 | 从同一缺失基线独立恢复后，在已获准的出网条件下运行同一 Setup，让内置真 Bootstrapper 实际从微软取得 Runtime；复查有效 `pv` 与实际版本，再继续 D 盘安装。用快捷方式打开 SWT + WebView2 窗口，验证本机接口和一张合成图保存 / 重开，不重跑升级矩阵。预先装好完整 Runtime 不能算通过 | 本次授权与路径依据，安装前后 Runtime 版本、进程 / 下载与 Setup 日志，候选哈希、真实窗口及最小持久化结果；不能只凭 Bootstrapper 退出 0 |
+| R35-W3：应用缺 Runtime 回退 | 从缺失基线独立恢复后，离线直接启动原候选镜像及专用合成 home；这是明确验收的自动开页路径，只允许发生在专用客体。确认 SWT 控制窗和 Edge / Chrome 专属 `<home>\window` 资料，图库可用、再次启动能唤起；点控制窗“退出”后 JVM / HTTP / H2 锁及 entry 释放，再正常关闭专属浏览器。无可用 Chromium 时的默认浏览器分支另记，不替代此结论 | SWT 创建失败原因、实际回退命令与专属资料路径（隐藏会话 token）、控制窗 / 页面截图、本机接口与退出检查；不把浏览器自身存活等同于后台 JVM 未退出 |
+| R35-S1：真实下载与 SmartScreen | 可使用原有“有 Runtime”的独立 Licensed 基线，与 W1–W3 解耦。保留系统保护和策略，先记录系统 / 浏览器版本与保护状态；从获准入口真实下载、核对哈希与浏览器生成的来源标记，再观察启动。区分浏览器下载警告、Windows 启动信誉提示和杀毒检测；记录有提示 / 无提示 / 被策略阻断及实际可操作结果。只有授权已含继续运行同哈希候选时才点系统允许的继续入口，策略阻断则停止 | 脱敏来源、下载记录 / 来源标记、哈希、保护 / 策略与出网依据、提示或无提示截图。保护有效、链路齐全时“无提示”也是有效观测；保护关闭、策略豁免、无真实下载或信誉联网条件不明则不能关闭此项 |
+
+顺序：先准备并验证真实缺失基线的备份 / 双盘恢复，再做 W1、恢复、W3、恢复；获得单独联网授权后才做 W2。S1 的环境和下载入口可独立准备。每个分支结束先导出证据到 `D:\Temp\ia-r35-remaining-*`，再恢复该分支基线，核对双盘标记、应用 / home 状态、许可和网卡状态，正常关机；不删除既有基线、冷副本、快照链或凭据材料。安装长时不返回、路由不明或 Runtime 意外出现时先采证，停止后续动作，不强杀后伪称失败或改网络求通过。
+
+真实浏览器 / Windows GUI 执行时由主代理补齐地址或窗口、启动与退出、隔离数据、视口及证据目录后委派 `ui_acceptance`；同一时间一个代理控制交互环境。HTTP / 文件哈希由主代理核对，用户 B 级体验不重复代验。四项实证及各分支恢复均通过后，Codex 才能关闭完整 R3.5；缺环境或授权时继续保留部分 PASS / 整包 UNVERIFIED。默认 C 程序目录实装仍按既有指示排除，B / D、MySQL V8、条款与公开发布决定仍独立保留。若后续修复改变候选字节，另存提交并重新核对交付和受影响路径，不把本候选证据无条件外推。
+
 官方依据（2026-11-03 核对）：[Sandbox 支持版本](https://learn.microsoft.com/en-us/windows/security/application-security/application-isolation/windows-sandbox/)、[Windows 11 要求](https://learn.microsoft.com/en-us/windows/whats-new/windows-11-requirements)、[90 天评估](https://www.microsoft.com/en-us/evalcenter/evaluate-windows-11-enterprise)、[WebView2 分发与检测](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)、[VMware 网络类型](https://knowledge.broadcom.com/external/article/309842/understanding-networking-types-in-hosted.html)、[SmartScreen 信誉](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation)。
 
 ### 第四轮：好用
