@@ -395,16 +395,16 @@ ZIP 是图库副本，不是脱敏材料：即使没有凭据，数据库和图�
 | B：用户 | 设置页导入的文案、预览与反馈，用指向隔离副本的桌面快捷方式；只登记一次 |
 | D：不在本包 | 从真实 MySQL 导入、替换真实图库，需另行授权 |
 
-#### R3.5 干净环境验收预案（2026-11-04，离线基线就绪）
+#### R3.5 干净环境验收预案（2026-11-04，离线子集通过）
 
-目标是确认最终安装包换到普通 Windows 11 x64 电脑后，仍能安装、启动、升级并保留图库，补齐开发机上无法证明的运行环境与下载提示。用户于 11-03 指示继续准备 D 盘专用离线 VM；11-04 前置环境验证完成，可开始下表中本基线支持的离线路径，正式安装包验收尚未开始。环境准备与一次性激活联网授权已结束，不包含宿主网络变更或真实账号登录。
+目标是确认最终安装包换到普通 Windows 11 x64 电脑后，仍能安装、启动、升级并保留图库，补齐开发机上无法证明的运行环境与下载提示。用户于 11-03 指示准备 D 盘专用离线 VM；11-04 前置环境通过后，另授权最终安装包离线验收、程序只装 D。该离线子集及基线恢复已通过，完整 R3.5 仍为 `UNVERIFIED`；本轮与一次性激活联网授权均已结束，不包含宿主网络变更、真实账号或公开发布。
 
 **环境盘点与选择**
 
 - 初始盘点：本机 Windows 11 家庭中文版 x64（22631），内存约 32 GB，D 盘余约 204 GB；已有 VMware Workstation Pro 16.2.4，当时仅找到 CentOS、无运行中 VM。11-03–04 已新建 `D:\Virtual Machines\IA-R35-Win11`：4 vCPU / 6 GB / 80 + 20 GB 虚拟磁盘、EFI Secure Boot / vTPM，无网卡和宿主共享目录；已激活的最终离线基线恢复验证通过。准备结束时 D 盘余约 144 GB，旧副本仍保留。
 - VMware 软件不是一台已装好的 Windows 测试机。家庭版不支持官方 Windows Sandbox；不为本包升级宿主系统、安装另一套虚拟化软件或重建虚拟网络。
 - 已选择 D 盘专用离线 VM；已有 Windows 测试机的独立副本或可还原备用电脑仍是备选，不要求必须使用虚拟机。
-- 新建方案的预算估计：宿主 D 盘预留约 80–100 GB（含系统、ISO 与快照余量），运行时分配约 6–8 GB 内存，首次准备约几十分钟到两小时。VMware 界面已确认可用 / 已许可；官方中文 Win11 Enterprise Evaluation 26H2 ISO（约 8.5 GB）已通过现有系统代理下载并匹配微软 SHA-256，使用独立合成本地用户，不登录真实账号或联网激活。评估有期限，不承诺永久免费。
+- 新建方案的预算估计：宿主 D 盘预留约 80–100 GB（含系统、ISO 与快照余量），运行时分配约 6–8 GB 内存，首次准备约几十分钟到两小时。VMware 界面已确认可用 / 已许可；官方中文 Win11 Enterprise Evaluation 26H2 ISO（约 8.5 GB）已通过现有系统代理下载并匹配微软 SHA-256，使用独立合成本地用户，不登录真实账号；一次性官方激活见下文。评估有期限，不承诺永久免费。
 - **当前基线**于 11-04 17:02 通过：`D:\Temp\ia-r35-env-20261103\licensed-baseline\snapshot-recovery-result.json`；完整冷副本 `D:\Virtual Machines\IA-R35-Win11-licensed-baseline-20261104` 共 17 文件、SHA-256 一致；快照 **`R35-Clean-Windows-Licensed-Offline-20261104`** 恢复后 C / D 旧标记一致、新文件消失，Windows 重启且 LicenseStatus=1、无网卡，最终正常关机。未测试冷副本另行启动；旧未激活快照不能代替当前基线。保留副本、快照链、解锁材料与引用镜像。
 - 实际客体版本经 CIM 确认是 `10.0.26300`，无系统 Java / JAVA_HOME，WebView2 `152.0.4191.66`，TPM Ready / Secure Boot 正常。光盘启动及 Tools 安装 / 重启由用户完成；准备脚本已修正过窄的机型检查（实际 VMware7,1），Tools 就绪使用实际服务和客体命令验证，不单凭旧版 vmrun 的 installed / running 文案。
 - 许可问题已解决：用户 11-04 明确授权仅新 VM 临时用既有 NAT 尝试官方激活，接受客体可能直连微软；实际调用一次官方 Activate 方法，LicenseStatus 从 5 转为 1、初始剩余 129600 分钟（90 天）。随后断开并正常关机，用户移除新增网卡；离线再次启动确认无网卡且许可为 1。本次联网授权已结束，未登录真实账号、未改宿主网络配置；后续联网不能沿用此授权。证据 `activation-attempt-result.json` / `guest-preparation-inspection.json`。
@@ -418,7 +418,7 @@ ZIP 是图库副本，不是脱敏材料：即使没有凭据，数据库和图�
 
 **候选与验证范围**
 
-- R3.2 的 `3755d29` / `0.6.0` 是旧候选，早于备份恢复和旧版导入。验收前从覆盖 R3.4 签收修复 `806f7a5` 的明确提交重新构建完整交付包；当前规划基线 `b0bcf74`，沿用用户已定的内部候选版本 `0.6.0`。在仓库外用 `build-release.ps1`，记录提交、工具版本和 SHA-256，不运行原仓库 `clean` 或镜像构建。
+- R3.2 的 `3755d29` / `0.6.0` 是旧候选，早于备份恢复和旧版导入。本轮从包含 R3.4 修复 `806f7a5` 的 `68d38c3fd165ef5045bb7eb1c5b06becc75fb128` 在仓库外用 `build-release.ps1` 重建完整交付包，沿用已定的内部版本 `0.6.0`，来源 / 工具 / 校验值保留于证据目录；未在原仓库 clean 或构建镜像。
 - 执行包扫描、交付校验和 `test-delivery.ps1`；复用已通过的 R3.1–R3.4 逻辑、事务与故障证据，不无故重跑全量 Java / JS。新缺陷交 Claude 修复、另存提交，只复验受影响路径。
 - 程序实际安装仍仅在 D 盘：客体须提供 D 盘并显式选择安装目录；默认 C 盘路径只观察、不实际安装。全新客体可使用默认合成 home 来验证普通启动，不连接宿主原图库。默认安装目录的实际落盘仍属未验证范围。
 
@@ -432,7 +432,19 @@ ZIP 是图库副本，不是脱敏材料：即使没有凭据，数据库和图�
 | SmartScreen | 保持系统安全保护，记录真实下载来源、来源标记、候选哈希、系统版本及实际提示 / 阻断。普通文件复制或手写来源标记不算完整下载链路；无获准下载入口则保留未验证，不自行上传 / 发布。提示受信誉与策略影响，不要求每次固定出现，也不关闭保护强行通过 |
 | 环境恢复 | 结束退出应用，导出证据，再恢复安装前基线并核对；未授权不删除虚拟机、备份或验收 home |
 
-真实 GUI 由 Codex 按 AGENTS 委派 `ui_acceptance`，主代理统一交互控制权；目前仅观察 VMware / Windows，产品 GUI 验收尚未开始，最终开机 / 许可 / 文件恢复由客体命令验证。报告逐项 `PASS / FAIL / UNVERIFIED`，分开记录自动检查、真实环境与尚缺条件。前置环境通过不等于 R3.5 安装包通过；真实缺 WebView2、联网 Bootstrapper、SmartScreen 等未覆盖项继续保留，用户 B / D 项、MySQL V8 专项及公开发布不由本包关闭。
+**11-04 最终安装包离线子集结果：PASS**
+
+总证据 `D:\Temp\ia-r35-offline-20261104\result.md`；候选交付在同目录 `candidate\delivery\IllustrationArchive-0.6.0`，Setup SHA-256 为 `5c86e3d158f1eb222f30fbebd506c7d9eb457400c83adff944f716784fc41241`。
+
+| 实测 | 结果 |
+| --- | --- |
+| 构建与交付 | 仓库外指定提交构建；交付脚本 80/80，扫描 346 文件 / 28707 JAR 条目，交付校验一致；复用 R3.1–R3.4 已签收逻辑证据，不重跑产品全量 |
+| 无 Java、有 WebView2 的首装 | 真 Setup 默认 C 路径只观察，实际 D 盘按用户安装；真实桌面快捷方式经 Explorer 打开窗口，设置 0.6.0，HTTP 导入 2 张合成图并显示正常；进程加载随包 JVM，基础 CDS 实际映射 |
+| 低版升级与卸载重装 | 0.5.102 打开原 2 张并新增第 3 张，升级和最终重装均显示 3 张；最终 API 的 ID / 业务字段 / 关系 / 媒体与低版一致；首装、升级、重装后的 346 文件及应用 JAR 时间戳匹配 |
+| 停机 home 保留 | 首次卸载前后 206 文件、覆盖升级及最终卸载重装前后 227 文件和目录逐项一致，含数据库 / 媒体 / 设置 / 假配置；卸载退出0且 D 程序目录 / HKCU 项消失，重装不自动启动 |
+| 恢复 | 证据导出后恢复 Licensed 快照；双盘标记恢复，程序 / home / 测试文件消失，再开机许可1、零网卡、无系统 Java，17:59 正常关机；原冷副本 / 快照链 / 受限材料保留 |
+
+真实 GUI 按 AGENTS 委派 `ui_acceptance`，见证据目录 `gui\gui-result.md`；DOM / Console / Network 未采集，升级后设置页未单独完成视觉复验，首装设置截图及最终重装 API 可复用。升级后完整 API 未在卸载前单独采集；升级 GUI 3 张、最终 API 一致及卸载重装之间停机 home 全字节相同构成状态证据链，未伪称直接采集。完整 R3.5 仍缺真实无 WebView2 的离线失败 / 联网安装 / 应用回退及 SmartScreen；默认 C 程序目录实际安装也未验证，用户 B / D、MySQL V8 专项及公开发布不由本轮关闭。
 
 官方依据（2026-11-03 核对）：[Sandbox 支持版本](https://learn.microsoft.com/en-us/windows/security/application-security/application-isolation/windows-sandbox/)、[Windows 11 要求](https://learn.microsoft.com/en-us/windows/whats-new/windows-11-requirements)、[90 天评估](https://www.microsoft.com/en-us/evalcenter/evaluate-windows-11-enterprise)、[WebView2 分发与检测](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)、[VMware 网络类型](https://knowledge.broadcom.com/external/article/309842/understanding-networking-types-in-hosted.html)、[SmartScreen 信誉](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation)。
 
