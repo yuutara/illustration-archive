@@ -43,7 +43,7 @@
     function learn(kind, item) {
         if (!item || item.id == null) return;
         if (kind === 'author') {
-            const handle = item.xUsername ? '@' + item.xUsername : '';
+            const handle = A.xHandle(item);
             names.author.set(item.id, { label: item.displayName || handle || `作者 #${item.id}`, meta: item.displayName ? handle : '' });
         } else {
             names.tag.set(item.id, { label: item.name, meta: '' });

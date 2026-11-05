@@ -499,7 +499,7 @@
         $('sv-title').textContent = work.title || name || '未命名作品';
         const parts = [];
         if (work.title) parts.push(name || '未设置作者');
-        else if (work.author && work.author.displayName && work.author.xUsername) parts.push('@' + work.author.xUsername);
+        else if (work.author && work.author.displayName && A.xHandle(work.author)) parts.push(A.xHandle(work.author));
         const tags = work.detail ? work.detail.tags : [];
         if (tags.length) parts.push(tags.map((t) => t.name).join('、'));
         if (work.createdAt) parts.push(A.relativeDay(work.createdAt) + '导入');
@@ -732,7 +732,7 @@
         const sa = section(c1, '作者');
         if (work.author) {
             sa.appendChild(filterButton('info-author', A.authorName(work), 'author', work.author));
-            if (work.author.xUsername) sa.appendChild(el('p', 'info-handle', '@' + work.author.xUsername));
+            if (A.xHandle(work.author)) sa.appendChild(el('p', 'info-handle', A.xHandle(work.author)));
         } else sa.appendChild(el('p', 'info-empty', '未设置'));
 
         const st = section(c1, '标签');

@@ -977,9 +977,15 @@
         return name ? name.replace(/\.[^.]+$/, '') : '未命名作品';
     }
 
+    // 旧图库里有些账号存成了 “@name”（服务端匹配时也忽略开头的 @），显示前去掉，免得出现 “@@name”
+    function xHandle(author) {
+        const name = author && author.xUsername ? author.xUsername.trim().replace(/^@+/, '') : '';
+        return name ? '@' + name : '';
+    }
+
     function authorName(work) {
         const a = work.author;
-        return a ? (a.displayName || (a.xUsername ? '@' + a.xUsername : '')) : '';
+        return a ? (a.displayName || xHandle(a)) : '';
     }
 
     function formatSize(bytes) {
@@ -1043,6 +1049,7 @@
         loadFull,
         measure,
         displayTitle,
+        xHandle,
         authorName,
         formatSize,
         formatDate,

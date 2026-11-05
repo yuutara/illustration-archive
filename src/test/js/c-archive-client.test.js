@@ -1094,3 +1094,13 @@ test("a batch whose reply was lost is reported as unknown, not as failed", async
     await env.Archive.setQuery({});
     await assert.rejects(env.Archive.saveBatch([1], { authorId: null }), /无法确认/);
 });
+
+test("X handles show one @ even when the library stored one with the name", () => {
+    const { Archive } = setup();
+    assert.equal(Archive.xHandle({ xUsername: "@aoiyukiko" }), "@aoiyukiko", "legacy rows keep the @ in the database");
+    assert.equal(Archive.xHandle({ xUsername: " @@syu_612 " }), "@syu_612");
+    assert.equal(Archive.xHandle({ xUsername: "kudo_eru" }), "@kudo_eru");
+    assert.equal(Archive.xHandle({ xUsername: "@" }), "", "a bare @ is no handle");
+    assert.equal(Archive.xHandle({ xUsername: null }), "");
+    assert.equal(Archive.authorName({ author: { displayName: null, xUsername: "@hasei" } }), "@hasei");
+});
