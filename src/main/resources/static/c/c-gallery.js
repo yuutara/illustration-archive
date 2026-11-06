@@ -430,7 +430,7 @@
         state.viewer = null;
         viewer.hidden = true;
         showVideo({});
-        viewer.style.setProperty('--info', '0px');
+        infoPanel(false);
         setNotice(null);
         document.body.classList.remove('is-locked');
         setBackgroundInert(false);
@@ -697,13 +697,17 @@
     viewer.addEventListener('mousemove', showChrome);
 
     function setInfo(open) {
-        const v = state.viewer;
-        v.info = open;
+        state.viewer.info = open;
+        infoPanel(open);
+        if (open) renderInfo();
+        showChrome();
+    }
+
+    // 信息栏的显隐、按钮状态和让出的宽度一起变。关看图器时也要收起：否则下次打开时它还显示着，宽度却是 0
+    function infoPanel(open) {
         $('sv-info').hidden = !open;
         $('sv-info-toggle').setAttribute('aria-pressed', String(open));
         viewer.style.setProperty('--info', open ? (window.innerWidth <= 1080 ? '320px' : '360px') : '0px');
-        if (open) renderInfo();
-        showChrome();
     }
 
     function renderInfo() {

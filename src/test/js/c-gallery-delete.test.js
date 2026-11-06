@@ -299,6 +299,22 @@ test("deleting from the viewer closes it and focuses the card that took the work
     assert.equal(env.doc.activeElement, cardButton(env, 2));
 });
 
+test("leaving the viewer with the info panel open does not leave the panel showing, at zero width, on the next work", async () => {
+    const env = setup(library([3, 2, 1]));
+    await settle();
+    cardButton(env, 3).click();
+    env.ids["sv-info-toggle"].click();
+    assert.equal(env.ids["sv-info"].hidden, false);
+    env.ids["sv-back"].click();
+    await settle();
+    assert.equal(env.ids.viewer.hidden, true);
+    cardButton(env, 2).click();
+    assert.equal(env.ids["sv-info"].hidden, true, "a new viewer starts with the panel closed");
+    assert.equal(env.ids["sv-info-toggle"].getAttribute("aria-pressed"), "false");
+    env.ids["sv-info-toggle"].click();
+    assert.equal(env.ids["sv-info"].hidden, false, "and the first click opens it");
+});
+
 /* ---------------- 选择模式 ---------------- */
 
 const selected = (env) => [...env.Gallery.state.selected].sort((a, b) => a - b);
