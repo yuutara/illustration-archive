@@ -800,7 +800,7 @@ $h = 'D:\Temp\ia-config-20261102\acceptance-home'
 
 ## 小版本 0.6.1（R4.0，2026-11-06）
 
-- **升级前自动备份**：启动线程上的顺序由 `LibraryStart` 负责：读版本 → 需要时备份 → 启动服务（Flyway 在那时升级）。`UpgradeBackup.needsUpgrade` 用只读连接（`ACCESS_MODE_DATA=r`，保留 `IFEXISTS=TRUE`）做 Flyway `info()`，`LibraryBackup.facts` 读已关闭的图库也用只读连接，所以检查和备份都不改数据库文件的任何字节；没有图库或不需要升级时什么都不做。需要时走 R3.3 的 `LibraryBackup.createAt`（与手动备份同一份写入、回读校验、临时名改名），写到 `<home>ackups\插画档案备份-升级前-<时间>.zip`，启动图显示进度。
+- **升级前自动备份**：启动线程上的顺序由 `LibraryStart` 负责：读版本 → 需要时备份 → 启动服务（Flyway 在那时升级）。`UpgradeBackup.needsUpgrade` 用只读连接（`ACCESS_MODE_DATA=r`，保留 `IFEXISTS=TRUE`）做 Flyway `info()`，`LibraryBackup.facts` 读已关闭的图库也用只读连接，所以检查和备份都不改数据库文件的任何字节；没有图库或不需要升级时什么都不做。需要时走 R3.3 的 `LibraryBackup.createAt`（与手动备份同一份写入、回读校验、临时名改名），写到 `<home>\backups\插画档案备份-升级前-<时间>.zip`，启动图显示进度。
   - 读不出版本（数据库损坏）：直接进入原来的“没能打开图库”窗口，可以从备份恢复，不先问要不要跳过备份。
   - 备份没完成（缺原图、哈希不符、磁盘不够等）：不启动服务，窗口说明原因，默认退出，也可“不备份，直接打开”。
   - 退出：备份中退出，备份在下一步停下，不留 ZIP 或临时文件，也不报失败；备份完成后、启动服务前退出，保留备份、不升级。`shutDown` 先等启动线程结束再关闭其他东西、释放实例锁，所以已经开始的升级会跑完，期间第二次启动打不开图库。
@@ -813,8 +813,18 @@ $h = 'D:\Temp\ia-config-20261102\acceptance-home'
 - **验证**：`mvnw test`（JDK 21）579 tests，0 failures / errors，21 skipped（未配置的 MySQL 可选测试与 LocalStack）；JS 410/410；`git diff --check` 通过。自查（不算验收）：隔离 home `D:\Temp\ia-r40-selfcheck`、无自动开页的验收服务、ego 浏览器加一个替身 `iaDesktop`：作品墙与看图器右键都出现菜单并取原图，复制后提示“已复制图片”，Esc 关闭且不关看图器；浅色下菜单原本是深底深字，已改为共用看图器玻璃；滑块 0 / 100 时样本底色 0.98 / 0.35，恢复默认回到 50。保存对话框、真实剪贴板内容、真实 WebView2 窗口、升级前备份的启动画面与失败窗口未看，归 B 级 / C 级。
 - **C1 修复验证**：`LibraryStartTest` 7（备份中退出、备份完成边界退出、坏库进恢复、备份失败、无库 / V8 / 跳过备份、退出等待已开始的升级）、`UpgradeBackupTest` 6（V7 读版本、备份成功和失败、V8 前后数据库 SHA-256 不变，坏库报错且不改文件）、`LibraryBackupTest` 41、`LibraryMaintenanceTest` 18、`DesktopServerIntegrationTest` 15 全部通过。撤回只读连接或撤回备份后的退出检查时，对应 5 项测试失败。
 - **C1 Codex 复验**（`c34b420`，2026-11-06）通过。定向回归 13/13。合成图库的 0.6.1 验收镜像跑通失败后退出、显式跳过、坏库直达恢复选择器、备份写入中退出与快速重启。备份完成边界的隔离探针确认完整 ZIP 保留、图库仍是 V7、实例锁等启动线程结束再释放。ZIP 回读确认 V7 数据库和原图哈希与备份前一致。证据在 `D:\Temp\ia-r40-c1-recheck-20261106\result.md`。
-- **交付包**（2026-11-06）：`build-release.ps1 -Version 0.6.1 -Commit c34b420` 在 `D:\Temp\ia-r40-release-20261106\candidate` 构建，安装器 79.8 MB，三项 SHA-256 校验通过，包检查 346 files / 28875 jar entries。`D:\IllustrationArchiveBackups\20261102-pre-v8` 在隔离副本上只读核对：V7，9 张表行数与 11-02 记录一致，37 张原图哈希一致；从资源管理器启动的只读比对显示原图库 `data` + `media` 与它逐字节相同。证据 `D:\Temp\ia-r40-release-20261106\result.md`。B 级第 6 项修复后从 `55572fb` 重打（版本号未发出，沿用 0.6.1），证据 `D:\Temp\ia-r40-release-20261106-r2\result.md`。
+- **交付包**（2026-11-06）：`build-release.ps1 -Version 0.6.1 -Commit c34b420` 在 `D:\Temp\ia-r40-release-20261106\candidate` 构建，安装器 79.8 MB，三项 SHA-256 校验通过，包检查 346 files / 28875 jar entries。`D:\IllustrationArchiveBackups\20261102-pre-v8` 在隔离副本上只读核对：V7，9 张表行数与 11-02 记录一致，37 张原图哈希一致；从资源管理器启动的只读比对显示原图库 `data` + `media` 与它逐字节相同。证据 `D:\Temp\ia-r40-release-20261106\result.md`。B 级第 6 项修复后从 `55572fb` 重打（版本号未发出，沿用 0.6.1），证据 `D:\Temp\ia-r40-release-20261106-r2\result.md`。B 级复看时发现：信息栏开着时返回图库，`closeViewer` 只把 `--info` 设为 0，没有收起信息栏，下次打开作品时它卡成 0 宽；改为关看图器时与 `setInfo` 共用 `infoPanel(false)`，回归测试在 `c-gallery-delete.test.js`。从 `e051a5e` 第三次打包，证据 `D:\Temp\ia-r40-release-20261106-r3\result.md`。B 级 8 项通过（11-06）。
 - **V0.5 遗留 P1 核对**：新界面里都不存在。选择器只有一个输入框，没有搜索按钮；X 收藏归档后只有一条摘要提示，没有链接；来源只在看图器信息栏显示一次（“更多”里的“打开来源链接”是操作）。旧界面（`/`，服务端模式）未改。
+
+## 材质与动效（规划中，2026-11-06）
+
+0.6.1 的 B 级反馈：玻璃应该从头检查到全局，二级界面要更 Q 弹。用逐轮问答（grill-me）定方案，定完才开工。第一轮（11-06）用户全部接受：
+
+- 单独做一个工作包，不进 0.6.1；先出原型再定稿。玻璃和果冻感放在同一个包里，分开验收。
+- 只在应用内部透：浮在另一层上面的都是玻璃，最底层（作品墙、筛选条、设置页、X 页）保持实色。透到桌面另做原型，本包签收时再看。
+- 看图器空白处透到后面的作品墙：默认重度模糊加压暗，滑块往“更透”方向逐渐变成轻度模糊；作品本身始终不透明。
+- 文字面板保留对比度不低于 4.5 的底线，但改按模糊、压暗后的背景计算，对话框、编辑面板、信息栏也能往透的方向变一些。
+- Windows“透明效果”关掉时，所有玻璃退回实色，滑块变灰并说明原因。
 
 ## 已知问题与后续候选
 
