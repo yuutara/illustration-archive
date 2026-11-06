@@ -279,13 +279,21 @@ final class LibraryBackup {
 				+ ";DB_CLOSE_ON_EXIT=FALSE;IFEXISTS=TRUE";
 	}
 
+	/**
+	 * {@link #url} opened read-only: H2 then never writes to the file, which a normal connection does even for a
+	 * query (it stores a new chunk on close). Checking a library before an upgrade must leave it exactly as it was.
+	 */
+	static String readOnlyUrl(Path data) {
+		return url(data) + ";ACCESS_MODE_DATA=r";
+	}
+
 	static Connection open(Path data) throws SQLException {
 		return DriverManager.getConnection(url(data), "sa", "");
 	}
 
-	/** Reads a library that must be closed: any other session means something still has it open. */
+	/** Reads a library that must be closed, without writing to it: any other session means something still has it open. */
 	static Facts facts(Path data) throws MaintenanceException {
-		try (Connection connection = open(data)) {
+		try (Connection connection = DriverManager.getConnection(readOnlyUrl(data), "sa", "")) {
 			if (single(connection, "SELECT COUNT(*) FROM INFORMATION_SCHEMA.SESSIONS") != 1) {
 				throw new MaintenanceException("图库数据库仍在使用中，所以没有继续。");
 			}

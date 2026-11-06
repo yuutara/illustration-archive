@@ -58,6 +58,8 @@ public final class DesktopLauncher {
 	private volatile DesktopServer.Running running;
 	private volatile int port = PREFERRED_PORT;
 	private volatile boolean stopping;
+	/** Reads, backs up and starts the library off the UI thread; quitting waits for it. */
+	private final LibraryStart starter = new LibraryStart(new StartSteps(), () -> stopping);
 	private DesktopWindow window;
 	private DesktopControls controls;
 	/** The app's pages have been opened once; until then a server that comes up still has to show the window. */
@@ -165,28 +167,47 @@ public final class DesktopLauncher {
 	/** @param backUpFirst back the library up first if this version will upgrade it */
 	private void startInBackground(boolean backUpFirst) {
 		// Created from the main thread so Spring sees the application's class loader.
-		ClassLoader loader = DesktopLauncher.class.getClassLoader();
-		Thread starter = new Thread(() -> {
-			Thread.currentThread().setContextClassLoader(loader);
-			if (!backUpFirst || backUpBeforeUpgrade()) {
-				startServer();
-			}
-		}, "desktop-start");
-		starter.start();
+		starter.begin(backUpFirst, DesktopLauncher.class.getClassLoader());
 	}
 
-	/** @return false when the backup failed, and the library must not be opened (and so upgraded) without asking */
-	private boolean backUpBeforeUpgrade() {
-		try {
-			if (UpgradeBackup.ifNeeded(home, appVersion(), (stage, fraction) -> DesktopSplash.status(
-					fraction < 0 ? "升级前正在备份图库…" : "升级前正在备份图库… " + Math.round(fraction * 100) + "%",
-					SERVER_STAGE_CAP * Math.max(0, fraction) * 0.9)).isPresent()) {
-				DesktopSplash.status("正在升级图库…", SERVER_STAGE_CAP);
-			}
-			return true;
-		} catch (MaintenanceException failed) {
-			display.asyncExec(() -> upgradeBackupFailed(failed.getMessage()));
-			return false;
+	/** The launcher's side of {@link LibraryStart}; every report comes from the start thread. */
+	private final class StartSteps implements LibraryStart.Steps {
+
+		@Override
+		public boolean needsUpgrade() throws MaintenanceException {
+			return UpgradeBackup.needsUpgrade(home, DesktopLauncher.class.getClassLoader());
+		}
+
+		@Override
+		public void backUp(LibraryBackup.Progress progress) throws MaintenanceException {
+			UpgradeBackup.create(home, appVersion(), progress);
+		}
+
+		@Override
+		public void progress(String stage, double fraction) {
+			DesktopSplash.status(fraction < 0 ? "升级前正在备份图库…" : "升级前正在备份图库… " + Math.round(fraction * 100) + "%",
+					SERVER_STAGE_CAP * Math.max(0, fraction) * 0.9);
+		}
+
+		@Override
+		public void backedUp() {
+			DesktopSplash.status("正在升级图库…", SERVER_STAGE_CAP);
+		}
+
+		@Override
+		public void startServer() {
+			DesktopLauncher.this.startServer();
+		}
+
+		@Override
+		public void unreadable(String message) {
+			// The window a library that does not open always gets, with its restore; nothing was changed.
+			display.asyncExec(() -> startFailed(message));
+		}
+
+		@Override
+		public void backupFailed(String message) {
+			display.asyncExec(() -> upgradeBackupFailed(message));
 		}
 	}
 
@@ -600,6 +621,9 @@ public final class DesktopLauncher {
 	private void shutDown() {
 		int code = 0;
 		try {
+			// Before anything is released: a backup stops at its next step, but an upgrade under way runs to its end,
+			// and until then the library is in use and the instance lock must keep a second launch out.
+			starter.awaitEnd();
 			maintenance.close();
 			display.dispose();
 			Files.deleteIfExists(entryFile(home));

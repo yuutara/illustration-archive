@@ -35,9 +35,15 @@ final class UpgradeBackup {
 	/** @return the new backup, or empty when the library needs no upgrade */
 	static Optional<Path> ifNeeded(Path home, String appVersion, LibraryBackup.Progress progress)
 			throws MaintenanceException {
-		if (!needsUpgrade(home, UpgradeBackup.class.getClassLoader())) {
-			return Optional.empty();
-		}
+		return needsUpgrade(home, UpgradeBackup.class.getClassLoader())
+				? Optional.of(create(home, appVersion, progress)) : Optional.empty();
+	}
+
+	/**
+	 * Backs the closed library up into {@code <home>/backups}. A failure or a cancel through {@code progress} leaves no
+	 * file there that looks like a backup, and the library as it was.
+	 */
+	static Path create(Path home, String appVersion, LibraryBackup.Progress progress) throws MaintenanceException {
 		Path target;
 		try {
 			target = Files.createDirectories(home.resolve(FOLDER)).resolve(name(LocalDateTime.now()));
@@ -47,21 +53,26 @@ final class UpgradeBackup {
 		LibraryBackup.Manifest manifest = LibraryBackup.createAt(home, target, appVersion, progress);
 		log.info("Backed up the library before upgrading it: {} ({} works, {} files)", target,
 				manifest.summary().works(), manifest.summary().files());
-		return Optional.of(target);
+		return target;
 	}
 
 	static String name(LocalDateTime time) {
 		return "插画档案备份-升级前-" + FILE_TIME.format(time) + ".zip";
 	}
 
-	/** Whether starting this version would apply a migration to an existing library. Only reads the database. */
+	/**
+	 * Whether starting this version would apply a migration to an existing library. The database is opened read-only,
+	 * so the file stays byte for byte as it was.
+	 *
+	 * @throws MaintenanceException when the database cannot be read at all, which is a library that does not open
+	 */
 	static boolean needsUpgrade(Path home, ClassLoader loader) throws MaintenanceException {
 		Path data = home.resolve("data");
 		if (!Files.isRegularFile(data.resolve("archive.mv.db"))) {
 			return false;
 		}
 		try {
-			Flyway flyway = Flyway.configure(loader).dataSource(LibraryBackup.url(data), "sa", "").locations(MIGRATIONS).load();
+			Flyway flyway = Flyway.configure(loader).dataSource(LibraryBackup.readOnlyUrl(data), "sa", "").locations(MIGRATIONS).load();
 			return flyway.info().pending().length > 0;
 		} catch (FlywayException unreadable) {
 			throw new MaintenanceException("没能读取图库的版本，所以没有升级：" + unreadable.getMessage(), unreadable);
