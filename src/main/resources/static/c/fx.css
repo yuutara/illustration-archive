@@ -337,7 +337,7 @@ body.fx-dragging .piece-open { transform: none !important; }
     --gl-drop-panel: 0 2px 6px rgba(36, 33, 29, .08), 0 24px 48px -18px rgba(36, 33, 29, .45);
     --gl-press: inset 0 1px 3px rgba(36, 33, 29, .18);
     --gl-rim: linear-gradient(140deg, rgba(255, 255, 255, .95), rgba(255, 255, 255, .25) 30%, rgba(255, 255, 255, 0) 55%, rgba(255, 255, 255, .55));
-    --gd-bg: linear-gradient(180deg, rgba(255, 255, 255, .16), rgba(255, 255, 255, .04)), rgba(24, 22, 20, .42);
+    --gd-bg: linear-gradient(180deg, rgba(255, 255, 255, .16), rgba(255, 255, 255, .04)), rgba(24, 22, 20, min(1, calc(.42 * var(--glass-k, 1))));
     --gd-blur: blur(16px) saturate(1.6) brightness(1.05);
     --gd-edge: inset 0 1px 0 rgba(255, 255, 255, .22), inset 0 -1px 0 rgba(0, 0, 0, .25), 0 0 0 1px rgba(0, 0, 0, .28);
     --gd-drop: 0 12px 30px -10px rgba(0, 0, 0, .55);
@@ -351,7 +351,7 @@ body.fx-dragging .piece-open { transform: none !important; }
     --gl-field-bg: linear-gradient(180deg, rgba(255, 255, 255, .62), rgba(255, 255, 255, .38));
     --gl-field-bg-hover: linear-gradient(180deg, rgba(255, 255, 255, .78), rgba(255, 255, 255, .5));
     --gl-bg-bar: linear-gradient(180deg, rgba(255, 255, 255, .76), rgba(251, 250, 247, .64));
-    --gd-bg-panel: linear-gradient(180deg, rgba(255, 255, 255, .14), rgba(255, 255, 255, .05)), rgba(30, 28, 25, .72);
+    --gd-bg-panel: linear-gradient(180deg, rgba(255, 255, 255, .14), rgba(255, 255, 255, .05)), rgba(30, 28, 25, min(1, calc(.72 * var(--glass-k, 1))));
 }
 
 /* 镜面高光圈：所有玻璃控件共用 */

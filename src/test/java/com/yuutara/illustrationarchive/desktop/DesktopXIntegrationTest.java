@@ -192,6 +192,7 @@ class DesktopXIntegrationTest {
 		assertEquals(2, detail.path("assets").size(), detail.toString());
 		assertEquals("Artist Three", detail.path("author").path("displayName").asText(), detail.toString());
 		assertEquals("https://x.com/artist3/status/1003", detail.path("sourceUrl").asText());
+		assertEquals("post 1003", detail.path("note").asText(), "the Post's words are kept as the note");
 		JdbcTemplate jdbc = context.getBean(JdbcTemplate.class);
 		assertEquals("IMPORTED", jdbc.queryForObject("SELECT status FROM x_like_item WHERE id = ?", String.class, pendingId));
 	}

@@ -89,14 +89,15 @@ public class IllustrationRepository {
 		return generatedKey.longValue();
 	}
 
-	public long insertXPost(long authorId, String sourceUrl) {
+	public long insertXPost(long authorId, String sourceUrl, String note) {
 		KeyHolder keys = new GeneratedKeyHolder();
 		jdbcTemplate.update(connection -> {
 			var statement = connection.prepareStatement(
-					"INSERT INTO illustration (author_id, source_url) VALUES (?, ?)",
+					"INSERT INTO illustration (author_id, source_url, note) VALUES (?, ?, ?)",
 					GENERATED_ID);
 			statement.setLong(1, authorId);
 			statement.setString(2, sourceUrl);
+			statement.setString(3, note);
 			return statement;
 		}, keys);
 		Number id = keys.getKey();

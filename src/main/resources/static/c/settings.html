@@ -99,6 +99,24 @@
         <p class="set-note">连接 X 和 Gemini 时使用。留空时跟随 Windows 代理设置，应用不会更改系统代理。修改后，X 收藏里的图片需要重新打开应用才会走新的代理。</p>
     </section>
 
+    <section class="set-section" id="look">
+        <h2>外观</h2>
+        <div class="set-glass">
+            <label class="glass-label" for="glass">玻璃透明度</label>
+            <div class="glass-row">
+                <span class="glass-end">更实</span>
+                <input id="glass" type="range" min="0" max="100" step="1" aria-describedby="glass-note">
+                <span class="glass-end">更透</span>
+                <button class="link" id="glass-reset" type="button">恢复默认</button>
+            </div>
+            <div class="glass-preview" aria-hidden="true">
+                <span class="glass-sample">搜索作品、作者、标签</span>
+                <span class="glass-sample glass-pill">3 页</span>
+            </div>
+        </div>
+        <p class="set-note" id="glass-note">调整顶栏、图上按钮、浮层、操作条和看图器工具的玻璃；对话框和编辑面板不变，保证文字清楚。只保存在这台电脑上。</p>
+    </section>
+
     <!-- 只有应用窗口才有托盘；回退到浏览器时没有这一项 -->
     <section class="set-section" id="window" hidden>
         <h2 id="close-heading">关闭窗口时</h2>

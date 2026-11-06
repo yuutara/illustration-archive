@@ -58,7 +58,10 @@ async function setup({ host = true, saved = "TRAY", accept = true, connection = 
         if (answer) return reply(...await answer(url, options));
         return accept ? reply(204) : reply(500, { message: "disk full" });
     };
-    const window = { CTheme: { get: () => "light", set() { } } };
+    const glass = [];
+    const window = { CTheme: { get: () => "light", set() { }, glass: () => 50, GLASS_DEFAULT: 50,
+        setGlass: (level, save = true) => glass.push([String(level), save]) } };
+    app.glass = glass;
     if (host) window.iaDesktop = () => { };
     const context = {
         window, fetch, clearTimeout, URLSearchParams, Promise, Date, String,
@@ -83,6 +86,20 @@ test("the saved close choice is shown only where there is a window to close", as
     assert.equal(app.element("window").hidden, false);
     assert.equal(app.checked(), "TRAY");
     assert.equal((await setup({ host: false })).element("window").hidden, true);
+});
+
+test("the glass slider changes the page while dragging and saves only when let go, and can go back to the default", async () => {
+    const app = await setup();
+    const slider = app.element("glass");
+    assert.equal(slider.value, "50");
+    slider.value = "80";
+    slider.listeners.get("input")();
+    assert.deepEqual(app.glass, [["80", false]]);
+    slider.listeners.get("change")();
+    assert.deepEqual(app.glass.at(-1), ["80", true]);
+    app.element("glass-reset").listeners.get("click")();
+    assert.deepEqual(app.glass.at(-1), ["50", true]);
+    assert.match(html, /id="glass" type="range" min="0" max="100"/);
 });
 
 test("picking a choice saves it", async () => {

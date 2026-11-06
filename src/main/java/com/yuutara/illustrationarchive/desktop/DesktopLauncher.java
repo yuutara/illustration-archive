@@ -152,13 +152,7 @@ public final class DesktopLauncher {
 			DesktopSplash.close();
 			controls = new DesktopControls(display, home, this::openInBrowser, this::stop);
 		}
-		// Created from the main thread so Spring sees the application's class loader.
-		ClassLoader loader = DesktopLauncher.class.getClassLoader();
-		Thread starter = new Thread(() -> {
-			Thread.currentThread().setContextClassLoader(loader);
-			startServer();
-		}, "desktop-start");
-		starter.start();
+		startInBackground(true);
 
 		while (!stopping) {
 			if (!display.readAndDispatch()) {
@@ -166,6 +160,47 @@ public final class DesktopLauncher {
 			}
 		}
 		shutDown();
+	}
+
+	/** @param backUpFirst back the library up first if this version will upgrade it */
+	private void startInBackground(boolean backUpFirst) {
+		// Created from the main thread so Spring sees the application's class loader.
+		ClassLoader loader = DesktopLauncher.class.getClassLoader();
+		Thread starter = new Thread(() -> {
+			Thread.currentThread().setContextClassLoader(loader);
+			if (!backUpFirst || backUpBeforeUpgrade()) {
+				startServer();
+			}
+		}, "desktop-start");
+		starter.start();
+	}
+
+	/** @return false when the backup failed, and the library must not be opened (and so upgraded) without asking */
+	private boolean backUpBeforeUpgrade() {
+		try {
+			if (UpgradeBackup.ifNeeded(home, appVersion(), (stage, fraction) -> DesktopSplash.status(
+					fraction < 0 ? "升级前正在备份图库…" : "升级前正在备份图库… " + Math.round(fraction * 100) + "%",
+					SERVER_STAGE_CAP * Math.max(0, fraction) * 0.9)).isPresent()) {
+				DesktopSplash.status("正在升级图库…", SERVER_STAGE_CAP);
+			}
+			return true;
+		} catch (MaintenanceException failed) {
+			display.asyncExec(() -> upgradeBackupFailed(failed.getMessage()));
+			return false;
+		}
+	}
+
+	/** The library is still as it was. Quitting is the default; opening without a backup is the user's call. */
+	private void upgradeBackupFailed(String message) {
+		DesktopSplash.close();
+		maintenanceWindow().result("升级图库前没能备份", "新版本需要升级图库，升级前会先自动备份一次，但这次备份没有完成：\n"
+				+ message + "\n\n图库还没有任何改动。可以腾出空间或处理上面的问题后重新打开应用；"
+				+ "也可以不备份直接打开：图库会立即升级，之后旧版本的应用就打不开它了。",
+				List.of(new MaintenanceWindow.Action("不备份，直接打开", () -> {
+							maintenanceWindow().close();
+							startInBackground(false);
+						}),
+						new MaintenanceWindow.Action("退出", this::stop)), 1);
 	}
 
 	private void startServer() {

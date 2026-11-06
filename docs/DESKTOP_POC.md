@@ -444,7 +444,7 @@ Codex 只读 Review 指出两点，均只改 `DesktopServer` 的桌面启动参�
 - **关闭**：`SWT.Close` 保存窗口状态，事件循环结束后关闭 Spring 上下文、释放单实例锁、`System.exit`。
 - **窗口状态**：`config\window.properties` 保存位置、大小、最大化和主题；保存的位置已不在任何显示器上时回到主显示器。主题由页面告知，所以下次启动在页面出现前就能用对标题栏颜色。
 - **页面桥**：`BrowserFunction` 注入 `window.iaDesktop(action, value)`，目前有 `theme`、`open` 和 `ready`。`LinkPolicy` 让窗口只显示应用自己的页面：外部 http(s) 交给默认浏览器，其他（例如文件拖到空白处产生的 `file:`）直接拦下。
-- **页面行为**（`shell.js`，仅在有 `iaDesktop` 时生效）：外部链接交给默认浏览器；拦下刷新、查找、打印、开发者工具等快捷键，保留 Ctrl+A / C / V / X / Z；输入框和选中文字保留右键菜单，其他地方不显示。“在新标签页打开原图”在窗口里隐藏，因为窗口没有标签页。
+- **页面行为**（`shell.js`，仅在有 `iaDesktop` 时生效）：外部链接交给默认浏览器；拦下刷新、查找、打印、开发者工具等快捷键，保留 Ctrl+A / C / V / X / Z；输入框和选中文字保留右键菜单，其他地方不显示；作品图片的右键菜单见 R4.0。“在新标签页打开原图”在窗口里隐藏，因为窗口没有标签页。
 - **再次双击**：`instance.lock` 被占用时，用 `<home>\window\entry.txt` 里的令牌 `POST /api/desktop/show`，运行中的实例把窗口带到前台。请求明确不走代理。还在启动中时不做任何事，窗口会自己出现。
 - **代理**：不传任何参数时 WebView2 继承 Windows 代理设置。设置里填了手动代理时，启动前经 `EdgeArgs` 传入，改动在下次打开应用时生效。
 - **回退**：`new Browser(SWT.EDGE)` 失败时，用 `DesktopControls`（SWT 小窗）加 `BrowserWindow`（Edge / Chrome `--app`）或默认浏览器。
@@ -797,6 +797,16 @@ $h = 'D:\Temp\ia-config-20261102\acceptance-home'
 **Codex 复验（`806f7a5`）**：相关测试 **30/30**，打包扫描 346 files / 28707 jar entries；镜像 JAR / lib 的真实 Spring / HTTP 探针 **13/13** 危险 URL 拒绝、无新源库连接、不建暂存。真实错误密码安全反馈；正常 V7 / V8 check→apply 再次通过，全部业务行 / ID / 关系 / 时间 / 二进制及媒体哈希一致，config 不变，源行 / Flyway / 媒体未改。停服后全 home 文件扫描无合成凭据或被拒参数标记。GUI、四步回退与 R3.3 路径复用首轮，不重复全量 Java / JS 或 GUI；DOM / Console / Network 未采集。
 
 完整命令与证据：首轮 `D:\Temp\ia-r34-c-20261103\result.md`，本轮 `D:\Temp\ia-r34-recheck-20261103\result.md`。仅合成库 / 临时 Docker，容器及匿名卷均已删除；homes、previous、镜像与证据保留。验收未改产品源码，未暂存 / 提交 / 推送；不扩大真实数据授权，MySQL V8 专项和 R3.5 不由本包关闭。
+
+## 小版本 0.6.1（R4.0，2026-11-06）
+
+- **升级前自动备份**：`DesktopLauncher` 在启动线程里先调 `UpgradeBackup.ifNeeded`，再启动服务（Flyway 在那时升级）。它用 Flyway `info()` 只读判断有没有待执行的迁移；没有图库或不需要升级时什么都不做。需要时走 R3.3 的 `LibraryBackup.createAt`（与手动备份同一份写入、回读校验、临时名改名），写到 `<home>ackups\插画档案备份-升级前-<时间>.zip`，启动图显示进度。备份没完成（缺原图、哈希不符、磁盘不够等）就不启动服务，窗口说明原因，默认退出，也可“不备份，直接打开”。`backups` 不在备份与恢复的范围内（两者只按名字取 `datarchive.mv.db` 和 `media`），应用不删除它。`createAt` 开始写之前按原图总量检查剩余空间，手动备份也因此会提前说“磁盘空间不够”。
+- **图片右键**（`c-image-menu.js`，仅应用窗口的图库页）：作品墙、牌堆、看图器上的作品图片右键出现“复制图片 / 另存为…”，一律取原图（`/api/assets/{id}/content`），作品墙按牌堆当前页。复制：`ClipboardItem` 在点击时收下一个 Promise，非 PNG 先在页面转 PNG（GIF 取第一帧），视频不能复制。另存为：`showSaveFilePicker`，文件名用导入时的原文件名，内容是原图字节；没有这个接口时退回下载。X 收藏页的图来自 X 的 CDN，不在范围内。
+- **玻璃透明度**：设置页“外观”滑块 0–100，默认 50 即原样；`theme-mode.js` 在 `<head>` 里把它换成 `--glass-k`（0 → 1.4 倍不透明度，100 → 0.5 倍），存在本机浏览器存储，与浅色 / 深色同一处。只乘到浮动玻璃（`--gl-bg*`、`--masthead-glass`、看图器工具与菜单的 `--gd-bg*`）；对话框和编辑面板的 `--sheet-bg`、看图器信息栏的 `--gd-bg-info` 是成段文字，不变，`c-dialog-style.test.js` 守住这一点。右键菜单挂在 `body` 上，和看图器共用同一组玻璃变量，浅色下也是浅玻璃。
+- **原帖文字进备注**：`XPostPersistenceService.noteFrom` 把同步时已存的 `post_text` 写入新作品的 `note`：还原 X 转义的 `&amp; &lt; &gt;`，去掉末尾指向媒体本身的 t.co 链接，其余链接保留，没有文字时为空。只影响新归档，旧作品不补，无 schema 改动。
+- **依赖**：Spring Boot 4.1.1 → 4.1.2（Spring 7.0.10、Tomcat 11.0.27、Jackson 3.1.7；H2 2.4.240 与 Flyway 12.4.0 不变，图库文件格式不受影响），AWS SDK 2.55.6 → 2.57.10；SWT 3.135.0、MyBatis starter 4.1.0 已是最新。
+- **验证**：`mvnw test`（JDK 21）579 tests，0 failures / errors，21 skipped（未配置的 MySQL 可选测试与 LocalStack）；JS 410/410；`git diff --check` 通过。自查（不算验收）：隔离 home `D:\Temp\ia-r40-selfcheck`、无自动开页的验收服务、ego 浏览器加一个替身 `iaDesktop`：作品墙与看图器右键都出现菜单并取原图，复制后提示“已复制图片”，Esc 关闭且不关看图器；浅色下菜单原本是深底深字，已改为共用看图器玻璃；滑块 0 / 100 时样本底色 0.98 / 0.35，恢复默认回到 50。保存对话框、真实剪贴板内容、真实 WebView2 窗口、升级前备份的启动画面与失败窗口未看，归 B 级 / C 级。
+- **V0.5 遗留 P1 核对**：新界面里都不存在。选择器只有一个输入框，没有搜索按钮；X 收藏归档后只有一条摘要提示，没有链接；来源只在看图器信息栏显示一次（“更多”里的“打开来源链接”是操作）。旧界面（`/`，服务端模式）未改。
 
 ## 已知问题与后续候选
 

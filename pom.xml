@@ -5,7 +5,7 @@
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>4.1.1</version>
+		<version>4.1.2</version>
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.yuutara</groupId>
@@ -15,7 +15,7 @@
 	<description>Personal illustration collection and archive platform.</description>
 	<properties>
 		<java.version>21</java.version>
-		<aws.sdk.version>2.55.6</aws.sdk.version>
+		<aws.sdk.version>2.57.10</aws.sdk.version>
 		<mybatis.starter.version>4.1.0</mybatis.starter.version>
 	</properties>
 	<dependencies>

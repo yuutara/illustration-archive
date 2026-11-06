@@ -38,9 +38,9 @@ class XPostPersistenceServiceTest {
 		illustrations = mock(IllustrationRepository.class);
 		assets = mock(AssetRepository.class);
 		service = new XPostPersistenceService(items, authors, illustrations, assets);
-		item = new XLikeRepository.ImportItem(7, "99", "user-1", "artist", "Artist", XLikeStatus.PENDING);
+		item = new XLikeRepository.ImportItem(7, "99", "user-1", "artist", "Artist", XLikeStatus.PENDING, null);
 		when(items.findForImport(7, true)).thenReturn(Optional.of(item));
-		when(illustrations.insertXPost(anyLong(), anyString())).thenReturn(20L);
+		when(illustrations.insertXPost(anyLong(), anyString(), any())).thenReturn(20L);
 		when(authors.insertXAuthor(anyString(), anyString(), anyString())).thenReturn(10L);
 	}
 
@@ -48,15 +48,34 @@ class XPostPersistenceServiceTest {
 	void singlePhotoCreatesOneIllustrationAndAssetAndMarksItem() {
 		assertEquals(20L, service.persist(item, media(1), files(1)));
 		verify(authors).insertXAuthor("user-1", "Artist", "artist");
-		verify(illustrations).insertXPost(10L, "https://x.com/artist/status/99");
+		verify(illustrations).insertXPost(10L, "https://x.com/artist/status/99", null);
 		verify(assets).insert(20L, "0.jpg", "0.jpg", "image/jpeg", 100L, 0, "sha0");
 		verify(items).markImported(7, 20);
 	}
 
 	@Test
+	void postTextBecomesTheNoteOfTheArchivedWork() {
+		var worded = new XLikeRepository.ImportItem(7, "99", "user-1", "artist", "Artist", XLikeStatus.PENDING,
+				"新作 &lt;夏&gt; &amp; 海 #illustration https://t.co/AbC123");
+		when(items.findForImport(7, true)).thenReturn(Optional.of(worded));
+		service.persist(worded, media(1), files(1));
+		verify(illustrations).insertXPost(10L, "https://x.com/artist/status/99", "新作 <夏> & 海 #illustration");
+	}
+
+	@Test
+	void noteKeepsOtherLinksAndLiteralEntitiesAndIsNullWithoutWords() {
+		assertEquals("看这里 https://t.co/one", XPostPersistenceService.noteFrom("看这里 https://t.co/one https://t.co/media"));
+		assertEquals("写作 &lt; 的样子", XPostPersistenceService.noteFrom("写作 &amp;lt; 的样子"));
+		assertEquals("第一行\n第二行", XPostPersistenceService.noteFrom("第一行\n第二行\nhttps://t.co/media"));
+		assertNull(XPostPersistenceService.noteFrom("https://t.co/media"));
+		assertNull(XPostPersistenceService.noteFrom("  "));
+		assertNull(XPostPersistenceService.noteFrom(null));
+	}
+
+	@Test
 	void threePhotosKeepSortOrderWithinOneIllustration() {
 		service.persist(item, media(3), files(3));
-		verify(illustrations, times(1)).insertXPost(anyLong(), anyString());
+		verify(illustrations, times(1)).insertXPost(anyLong(), anyString(), any());
 		for (int i = 0; i < 3; i++) {
 			verify(assets).insert(20L, i + ".jpg", i + ".jpg", "image/jpeg", 100L, i, "sha" + i);
 		}
@@ -71,7 +90,7 @@ class XPostPersistenceServiceTest {
 		var files = List.of(files(1).get(0), mp4);
 		assertEquals(20L, service.persist(item, media, files));
 		verify(assets).insert(20L, "a.mp4", "a.mp4", "video/mp4", 20L, 1, "mp4-sha");
-		verify(illustrations, times(1)).insertXPost(anyLong(), anyString());
+		verify(illustrations, times(1)).insertXPost(anyLong(), anyString(), any());
 		when(assets.findIllustrationIdBySha256("mp4-sha")).thenReturn(Optional.of(20L));
 		assertThrows(XPostDuplicateException.class, () -> service.persist(item, media, files));
 		verify(items, times(1)).markImported(7, 20);
@@ -80,12 +99,12 @@ class XPostPersistenceServiceTest {
 	@Test
 	void stableUserIdReusesAuthorAndUpdatesRenamedProfile() {
 		when(authors.findIdByXUserId("user-1")).thenReturn(Optional.of(42L));
-		var renamed = new XLikeRepository.ImportItem(7, "99", "user-1", "newname", "New Name", XLikeStatus.PENDING);
+		var renamed = new XLikeRepository.ImportItem(7, "99", "user-1", "newname", "New Name", XLikeStatus.PENDING, null);
 		when(items.findForImport(7, true)).thenReturn(Optional.of(renamed));
 		service.persist(renamed, media(1), files(1));
 		verify(authors, never()).insertXAuthor(anyString(), anyString(), anyString());
 		verify(authors).updateXAuthor(42L, "New Name", "newname");
-		verify(illustrations).insertXPost(42L, "https://x.com/newname/status/99");
+		verify(illustrations).insertXPost(42L, "https://x.com/newname/status/99", null);
 	}
 
     @Test
@@ -93,7 +112,7 @@ class XPostPersistenceServiceTest {
         when(authors.claimLegacyXAuthor("user-1", "Artist", "artist")).thenReturn(Optional.of(42L));
         service.persist(item, media(1), files(1));
         verify(authors, never()).insertXAuthor(anyString(), anyString(), anyString());
-        verify(illustrations).insertXPost(42L, "https://x.com/artist/status/99");
+        verify(illustrations).insertXPost(42L, "https://x.com/artist/status/99", null);
     }
 
     @Test
@@ -105,7 +124,7 @@ class XPostPersistenceServiceTest {
         when(authors.findIdByXUserId("user-1")).thenReturn(Optional.empty(), Optional.of(43L));
         when(authors.insertXAuthor(anyString(), anyString(), anyString())).thenThrow(new org.springframework.dao.DuplicateKeyException("race"));
         service.persist(item, media(1), files(1));
-        verify(illustrations).insertXPost(43L, "https://x.com/artist/status/99");
+        verify(illustrations).insertXPost(43L, "https://x.com/artist/status/99", null);
     }
 
 	@Test
@@ -124,7 +143,7 @@ class XPostPersistenceServiceTest {
 	void nonPendingStatesAndLateStateChangeCannotWriteRows() {
 		for (XLikeStatus status : List.of(XLikeStatus.SKIPPED, XLikeStatus.IMPORTED, XLikeStatus.UNSUPPORTED)) {
 			when(items.findForImport(7, true)).thenReturn(Optional.of(new XLikeRepository.ImportItem(
-					7, "99", "user-1", "artist", "Artist", status)));
+					7, "99", "user-1", "artist", "Artist", status, null)));
 			assertThrows(IllegalStateException.class, () -> service.persist(item, media(1), files(1)));
 		}
 		verifyNoInteractions(authors, illustrations, assets);

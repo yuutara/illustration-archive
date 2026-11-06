@@ -14,9 +14,12 @@ import org.springframework.dao.DuplicateKeyException;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 @Service
 public class XPostPersistenceService {
+	private static final Pattern TRAILING_MEDIA_LINK = Pattern.compile("\\s*https://t\\.co/\\w+\\s*$");
+
 	private final XLikeRepository items;
 	private final AuthorRepository authors;
 	private final IllustrationRepository illustrations;
@@ -68,7 +71,7 @@ public class XPostPersistenceService {
 			authors.updateXAuthor(authorId, current.authorDisplayName(), current.authorUsername());
 		}
 		long illustrationId = illustrations.insertXPost(authorId,
-				"https://x.com/" + current.authorUsername() + "/status/" + current.xPostId());
+				"https://x.com/" + current.authorUsername() + "/status/" + current.xPostId(), noteFrom(current.postText()));
 		for (int index = 0; index < files.size(); index++) {
 			StoredFile file = files.get(index);
 			assets.insert(illustrationId, file.originalFilename(), file.storageKey(),
@@ -76,5 +79,20 @@ public class XPostPersistenceService {
 		}
 		items.markImported(current.id(), illustrationId);
 		return illustrationId;
+	}
+
+	/**
+	 * The Post's words as the work's note, so a work can be found by what its Post said. X escapes {@code & < >} in
+	 * the text and ends a Post that has media with a t.co link to that media, which leads back to the Post itself;
+	 * both are undone here. Other links stay, since they may be all the Post says.
+	 *
+	 * @return null for a Post without words
+	 */
+	static String noteFrom(String postText) {
+		if (postText == null) return null;
+		String text = TRAILING_MEDIA_LINK.matcher(postText).replaceFirst("")
+				.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+				.strip();
+		return text.isEmpty() ? null : text;
 	}
 }

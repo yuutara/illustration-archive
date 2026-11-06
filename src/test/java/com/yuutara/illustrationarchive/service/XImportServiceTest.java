@@ -154,7 +154,7 @@ class XImportServiceTest {
 	}
 
 	private XLikeRepository.ImportItem item(long id, XLikeStatus status) {
-		return new XLikeRepository.ImportItem(id, "post" + id, "user", "artist", "Artist", status);
+		return new XLikeRepository.ImportItem(id, "post" + id, "user", "artist", "Artist", status, null);
 	}
 
 	private XLikeMedia photo(int index) {

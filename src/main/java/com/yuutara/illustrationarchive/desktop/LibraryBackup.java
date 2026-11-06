@@ -143,7 +143,15 @@ final class LibraryBackup {
 	 * in full, and only then given its name; a failed or cancelled run leaves nothing there.
 	 */
 	static Manifest create(Path home, Path destination, String appVersion, Progress progress) throws MaintenanceException {
-		Path target = checkDestination(home, destination);
+		return createAt(home, checkDestination(home, destination), appVersion, progress);
+	}
+
+	/**
+	 * {@link #create} without the destination check, for the app's own backups: {@code target} must be a new name in an
+	 * existing folder. The library's own folders are never read for anything but its database and media, so a backup
+	 * kept in the home does not end up in later backups.
+	 */
+	static Manifest createAt(Path home, Path target, String appVersion, Progress progress) throws MaintenanceException {
 		progress.update("正在读取图库…", -1);
 		Facts facts = facts(home.resolve("data"));
 		List<Source> sources = sources(home, facts);
@@ -153,7 +161,8 @@ final class LibraryBackup {
 			for (Source source : sources) {
 				total += Files.size(source.file());
 			}
-			partial = Files.createTempFile(target.getParent(), ".illustration-archive-backup-", ".partial");
+			requireSpace(target.getParent(), total);
+			partial =Files.createTempFile(target.getParent(), ".illustration-archive-backup-", ".partial");
 			Manifest manifest = write(partial, sources, facts, appVersion, new Meter(progress, "正在打包作品…", total, 0, 0.55));
 			read(partial, null, progress, "正在校验备份…", 0.55, 1);
 			if (progress.cancelled()) {

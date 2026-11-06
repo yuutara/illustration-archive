@@ -200,6 +200,8 @@ html[data-look] .sheet-batch .ed-tag.is-removing { color: var(--muted); backgrou
 .info-author { margin: 0; font: 600 16px/1.4 var(--display); text-align: left; }
 .sv-menu a[aria-disabled="true"] { pointer-events: none; }
 .sv-menu button:disabled { color: var(--faint); cursor: not-allowed; }
+/* 图片右键菜单（应用窗口，c-image-menu.js）：与看图器“更多”同一种菜单，贴着指针出现，盖过看图器 */
+.sv-menu.ctx-menu { position: fixed; top: 0; right: auto; z-index: 120; width: 168px; --fx-origin: top left; }
 .sv-notice {
     position: absolute;
     left: 50%;

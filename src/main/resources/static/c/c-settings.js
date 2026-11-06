@@ -304,6 +304,16 @@
     });
     syncTheme();
 
+    // 玻璃透明度：拖动时只改画面，松手（change）才保存
+    const glass = $('glass');
+    glass.value = String(window.CTheme.glass());
+    glass.addEventListener('input', () => window.CTheme.setGlass(glass.value, false));
+    glass.addEventListener('change', () => window.CTheme.setGlass(glass.value));
+    $('glass-reset').addEventListener('click', () => {
+        window.CTheme.setGlass(window.CTheme.GLASS_DEFAULT);
+        glass.value = String(window.CTheme.glass());
+    });
+
     loadConnection();
     loadSettings();
 })();

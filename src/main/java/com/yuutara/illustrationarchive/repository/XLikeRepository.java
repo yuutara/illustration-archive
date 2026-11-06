@@ -17,7 +17,7 @@ import java.util.List;
 @Repository
 public class XLikeRepository {
 	public record ImportItem(long id, String xPostId, String xAuthorId,
-			String authorUsername, String authorDisplayName, XLikeStatus status) {
+			String authorUsername, String authorDisplayName, XLikeStatus status, String postText) {
 	}
 	// Name the key column: H2 also returns defaulted columns (likes_order) for RETURN_GENERATED_KEYS.
 	private static final String[] GENERATED_ID = {"id"};
@@ -135,12 +135,12 @@ public class XLikeRepository {
 	}
 
 	public java.util.Optional<ImportItem> findForImport(long itemId, boolean lock) {
-		String sql = "SELECT id, x_post_id, x_author_id, author_username, author_display_name, status "
+		String sql = "SELECT id, x_post_id, x_author_id, author_username, author_display_name, status, post_text "
 				+ "FROM x_like_item WHERE id = ?" + (lock ? " FOR UPDATE" : "");
 		return jdbcTemplate.query(sql, (rs, row) -> new ImportItem(rs.getLong("id"),
 				rs.getString("x_post_id"), rs.getString("x_author_id"),
 				rs.getString("author_username"), rs.getString("author_display_name"),
-				XLikeStatus.valueOf(rs.getString("status"))), itemId).stream().findFirst();
+				XLikeStatus.valueOf(rs.getString("status")), rs.getString("post_text")), itemId).stream().findFirst();
 	}
 
 	public void markImported(long itemId, long illustrationId) {

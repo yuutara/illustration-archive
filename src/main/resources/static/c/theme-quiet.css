@@ -39,15 +39,15 @@ html[data-look="quiet"] {
     --danger: #c0362c;
     --warn: #8a5a17;
     --r-card: 8px;
-    --masthead-glass: rgba(246, 246, 245, .76);
+    --masthead-glass: rgba(246, 246, 245, min(1, calc(.76 * var(--glass-k, 1))));
     --stack-rim: rgba(255, 255, 255, .95);
     --art-edge: 0 0 0 1px rgba(0, 0, 0, .06);
     --art-shadow: var(--art-edge);
     --art-shadow-hover: var(--art-edge), 0 2px 4px rgba(0, 0, 0, .05), 0 18px 32px -18px rgba(0, 0, 0, .34);
-    --gl-bg: rgba(255, 255, 255, .7);
-    --gl-bg-hover: rgba(255, 255, 255, .88);
-    --gl-bg-panel: rgba(255, 255, 255, .82);
-    --gl-bg-bar: rgba(255, 255, 255, .76);
+    --gl-bg: rgba(255, 255, 255, min(1, calc(.7 * var(--glass-k, 1))));
+    --gl-bg-hover: rgba(255, 255, 255, min(1, calc(.88 * var(--glass-k, 1))));
+    --gl-bg-panel: rgba(255, 255, 255, min(1, calc(.82 * var(--glass-k, 1))));
+    --gl-bg-bar: rgba(255, 255, 255, min(1, calc(.76 * var(--glass-k, 1))));
     --gl-blur-s: blur(12px) saturate(1.08);
     --gl-blur-l: blur(24px) saturate(1.08);
     --gl-line: 0 0 0 1px rgba(0, 0, 0, .07);
@@ -95,15 +95,15 @@ html[data-look="quiet"][data-mode="dark"] {
     --accent-soft: #22263f;
     --danger: #f08072;
     --warn: #d9b26a;
-    --masthead-glass: rgba(17, 17, 17, .72);
+    --masthead-glass: rgba(17, 17, 17, min(1, calc(.72 * var(--glass-k, 1))));
     --stack-rim: rgba(0, 0, 0, .55);
     --art-edge: 0 0 0 1px rgba(255, 255, 255, .05);
     --art-shadow: var(--art-edge);
     --art-shadow-hover: var(--art-edge), 0 20px 36px -18px rgba(0, 0, 0, .85);
-    --gl-bg: rgba(38, 38, 38, .62);
-    --gl-bg-hover: rgba(52, 52, 52, .72);
-    --gl-bg-panel: rgba(34, 34, 34, .84);
-    --gl-bg-bar: rgba(34, 34, 34, .78);
+    --gl-bg: rgba(38, 38, 38, min(1, calc(.62 * var(--glass-k, 1))));
+    --gl-bg-hover: rgba(52, 52, 52, min(1, calc(.72 * var(--glass-k, 1))));
+    --gl-bg-panel: rgba(34, 34, 34, min(1, calc(.84 * var(--glass-k, 1))));
+    --gl-bg-bar: rgba(34, 34, 34, min(1, calc(.78 * var(--glass-k, 1))));
     --gl-line: 0 0 0 1px rgba(0, 0, 0, .5);
     --gl-inset: inset 0 1px 0 rgba(255, 255, 255, .09);
     --gl-drop: 0 1px 2px rgba(0, 0, 0, .35), 0 8px 22px -10px rgba(0, 0, 0, .7);
@@ -187,23 +187,26 @@ html[data-look="quiet"].fx-popover.fx-mat-glass .toast { border-radius: 8px; col
 html[data-look="quiet"].fx-popover.fx-mat-glass .toast::before { background: var(--gl-rim); }
 
 /* ===================== 看图器 ===================== */
-/* 跟随深浅色；工具是同一配方的中性玻璃。环境光取作品主色，铺在作品背后 */
-html[data-look="quiet"] .viewer {
+/* 跟随深浅色；工具是同一配方的中性玻璃。环境光取作品主色，铺在作品背后。
+   图片右键菜单（.ctx-menu）挂在 body 上，也用这一组玻璃：作品墙和看图器上看起来一样 */
+html[data-look="quiet"] :is(.viewer, .ctx-menu) {
     --v-bg: #efefed;
     --amb: 24%;
-    --gd-bg: rgba(255, 255, 255, .64);
-    --gd-bg-panel: rgba(255, 255, 255, .84);
+    --gd-bg: rgba(255, 255, 255, min(1, calc(.64 * var(--glass-k, 1))));
+    --gd-bg-panel: rgba(255, 255, 255, min(1, calc(.84 * var(--glass-k, 1))));
+    --gd-bg-info: rgba(255, 255, 255, .84);
     --gd-edge: inset 0 1px 0 rgba(255, 255, 255, .8), 0 0 0 1px rgba(0, 0, 0, .07);
     --gd-drop: 0 1px 2px rgba(0, 0, 0, .07), 0 12px 28px -12px rgba(0, 0, 0, .28);
     --gd-blur: blur(20px) saturate(1.08);
     --gd-rim: var(--gl-rim);
     color: var(--ink);
 }
-html[data-look="quiet"][data-mode="dark"] .viewer {
+html[data-look="quiet"][data-mode="dark"] :is(.viewer, .ctx-menu) {
     --v-bg: #0c0c0c;
     --amb: 38%;
-    --gd-bg: rgba(38, 38, 38, .58);
-    --gd-bg-panel: rgba(28, 28, 28, .72);
+    --gd-bg: rgba(38, 38, 38, min(1, calc(.58 * var(--glass-k, 1))));
+    --gd-bg-panel: rgba(28, 28, 28, min(1, calc(.72 * var(--glass-k, 1))));
+    --gd-bg-info: rgba(28, 28, 28, .72);
     --gd-edge: inset 0 1px 0 rgba(255, 255, 255, .09), 0 0 0 1px rgba(0, 0, 0, .5);
     --gd-drop: 0 12px 30px -10px rgba(0, 0, 0, .7);
 }
@@ -246,7 +249,8 @@ html[data-look="quiet"].fx-popover.fx-mat-glass .sv-menu kbd { border-color: var
 
 /* ===================== 信息栏、编辑、对话框 ===================== */
 html[data-look="quiet"] :is(.sheet, .sv-editor) { --muted: var(--sheet-muted); --faint: var(--sheet-muted); }
-html[data-look="quiet"] .sv-info { color: var(--ink); background: var(--gd-bg-panel); -webkit-backdrop-filter: var(--gd-blur); backdrop-filter: var(--gd-blur); box-shadow: -1px 0 0 var(--gl-sep); }
+/* 信息栏是成段的文字，和对话框一样不随玻璃透明度变化 */
+html[data-look="quiet"] .sv-info { color: var(--ink); background: var(--gd-bg-info); -webkit-backdrop-filter: var(--gd-blur); backdrop-filter: var(--gd-blur); box-shadow: -1px 0 0 var(--gl-sep); }
 html[data-look="quiet"] .info-tags button { border: 0; border-radius: 8px; background: var(--gl-fill-hover); }
 html[data-look="quiet"] .sv-editor { background: var(--sheet-bg); -webkit-backdrop-filter: var(--gl-blur-l); backdrop-filter: var(--gl-blur-l); box-shadow: -1px 0 0 var(--line), -24px 0 48px -12px rgba(0, 0, 0, .16); }
 html[data-look="quiet"][data-mode="dark"] .sv-editor { box-shadow: -1px 0 0 var(--line), -24px 0 48px -12px rgba(0, 0, 0, .6); }
