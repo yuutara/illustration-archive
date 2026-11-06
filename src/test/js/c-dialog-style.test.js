@@ -87,18 +87,18 @@ test("light and dark glass let the same amount of the page through", () => {
     assert.ok(Math.abs(light - dark) <= 0.05, `light ${light}, dark ${dark}`);
 });
 
-test("the glass slider reaches the floating glass in both themes but never a dialog, whose contrast is checked above", () => {
+test("the glass slider reaches all glass, and text panels only ever get more solid than the contrast checked above", () => {
     for (const selector of ['html[data-look="quiet"]', 'html[data-look="quiet"][data-mode="dark"]']) {
         const css = block(selector);
         for (const token of ["--gl-bg", "--gl-bg-hover", "--gl-bg-panel", "--gl-bg-bar", "--masthead-glass"]) {
             assert.match(value(css, token), /var\(--glass-k, 1\)/, `${token} in ${selector}`);
         }
-        assert.doesNotMatch(value(css, "--sheet-bg"), /glass-k/, `--sheet-bg in ${selector}`);
+        assert.match(value(css, "--sheet-bg"), /max\(([\d.]+), calc\(\1 \* var\(--glass-k, 1\)\)\)/, `--sheet-bg in ${selector} never below its checked alpha`);
     }
     for (const selector of ['html[data-look="quiet"] :is(.viewer, .ctx-menu)', 'html[data-look="quiet"][data-mode="dark"] :is(.viewer, .ctx-menu)']) {
         const css = block(selector);
         for (const token of ["--gd-bg", "--gd-bg-panel"]) assert.match(value(css, token), /var\(--glass-k, 1\)/, `${token} in ${selector}`);
-        assert.doesNotMatch(value(css, "--gd-bg-info"), /glass-k/, "the viewer's info text stays on steady glass");
+        assert.match(value(css, "--gd-bg-info"), /max\(([\d.]+), calc\(\1 \* var\(--glass-k, 1\)\)\)/, "the viewer's info text never gets thinner glass");
     }
     assert.match(theme, /\.sv-info \{[^}]*background: var\(--gd-bg-info\)/);
 });

@@ -12,7 +12,8 @@
  * 字：只用无衬线，字号 12 / 13 / 14 / 16 / 20，字重 400 / 600，数字等宽。
  * 圆角：作品 8、控件 8、浮层 12、对话框 16；胶囊只给玻璃控件。
  *
- * 对话框和编辑面板是同一种玻璃（--sheet-bg + --gl-blur-l），浅色和深色的通透程度一致。可读性由玻璃里的
+ * 对话框和编辑面板是同一种玻璃（--sheet-bg + --gl-blur-l），浅色和深色的通透程度一致。设置里的玻璃透明度
+ * 只能把它们调得更实：默认已是最坏背景下小字刚好清楚的通透程度，不能再透。可读性由玻璃里的
  * 小字颜色（--sheet-muted）保证，不靠把玻璃加厚；c-dialog-style.test.js 按最坏的背景核对对比度。遮罩不做模糊：外层一旦有 backdrop-filter 或 opacity，
  * 里面的玻璃就取不到页面，所以遮罩的淡入淡出走背景色。对话框里的面只有一种：
  *   凹面（--well）  半透明，所以在浅色、深色、玻璃、页面上都自然。输入框、拖放区、作品摘要、状态说明都用它
@@ -69,7 +70,7 @@ html[data-look="quiet"] {
     --well-edge: inset 0 0 0 1px rgba(0, 0, 0, .05);
     --dash: rgba(0, 0, 0, .2);
     --scrim: rgba(0, 0, 0, .3);
-    --sheet-bg: rgba(255, 255, 255, .78);
+    --sheet-bg: rgba(255, 255, 255, min(1, max(.78, calc(.78 * var(--glass-k, 1)))));
     --sheet-muted: #52524e;
     --hover-edge: #84847e;
     --sheet-shadow: var(--gl-inset), var(--gl-line), var(--gl-drop-panel);
@@ -122,7 +123,7 @@ html[data-look="quiet"][data-mode="dark"] {
     --well-edge: inset 0 0 0 1px rgba(255, 255, 255, .06), inset 0 1px 0 rgba(255, 255, 255, .03);
     --dash: rgba(255, 255, 255, .2);
     --scrim: rgba(0, 0, 0, .42);
-    --sheet-bg: rgba(28, 28, 28, .82);
+    --sheet-bg: rgba(28, 28, 28, min(1, max(.82, calc(.82 * var(--glass-k, 1)))));
     --sheet-muted: #a8a8a1;
     --hover-edge: #7f7f78;
     --sheet-shadow: var(--gl-inset), var(--gl-line), var(--gl-drop-panel);
@@ -194,7 +195,7 @@ html[data-look="quiet"] :is(.viewer, .ctx-menu) {
     --amb: 24%;
     --gd-bg: rgba(255, 255, 255, min(1, calc(.64 * var(--glass-k, 1))));
     --gd-bg-panel: rgba(255, 255, 255, min(1, calc(.84 * var(--glass-k, 1))));
-    --gd-bg-info: rgba(255, 255, 255, .84);
+    --gd-bg-info: rgba(255, 255, 255, min(1, max(.84, calc(.84 * var(--glass-k, 1)))));
     --gd-edge: inset 0 1px 0 rgba(255, 255, 255, .8), 0 0 0 1px rgba(0, 0, 0, .07);
     --gd-drop: 0 1px 2px rgba(0, 0, 0, .07), 0 12px 28px -12px rgba(0, 0, 0, .28);
     --gd-blur: blur(20px) saturate(1.08);
@@ -206,7 +207,7 @@ html[data-look="quiet"][data-mode="dark"] :is(.viewer, .ctx-menu) {
     --amb: 38%;
     --gd-bg: rgba(38, 38, 38, min(1, calc(.58 * var(--glass-k, 1))));
     --gd-bg-panel: rgba(28, 28, 28, min(1, calc(.72 * var(--glass-k, 1))));
-    --gd-bg-info: rgba(28, 28, 28, .72);
+    --gd-bg-info: rgba(28, 28, 28, min(1, max(.72, calc(.72 * var(--glass-k, 1)))));
     --gd-edge: inset 0 1px 0 rgba(255, 255, 255, .09), 0 0 0 1px rgba(0, 0, 0, .5);
     --gd-drop: 0 12px 30px -10px rgba(0, 0, 0, .7);
 }
@@ -249,7 +250,7 @@ html[data-look="quiet"].fx-popover.fx-mat-glass .sv-menu kbd { border-color: var
 
 /* ===================== 信息栏、编辑、对话框 ===================== */
 html[data-look="quiet"] :is(.sheet, .sv-editor) { --muted: var(--sheet-muted); --faint: var(--sheet-muted); }
-/* 信息栏是成段的文字，和对话框一样不随玻璃透明度变化 */
+/* 信息栏是成段的文字，和对话框一样：玻璃透明度只能把它调得更实，不会比默认更透 */
 html[data-look="quiet"] .sv-info { color: var(--ink); background: var(--gd-bg-info); -webkit-backdrop-filter: var(--gd-blur); backdrop-filter: var(--gd-blur); box-shadow: -1px 0 0 var(--gl-sep); }
 html[data-look="quiet"] .info-tags button { border: 0; border-radius: 8px; background: var(--gl-fill-hover); }
 html[data-look="quiet"] .sv-editor { background: var(--sheet-bg); -webkit-backdrop-filter: var(--gl-blur-l); backdrop-filter: var(--gl-blur-l); box-shadow: -1px 0 0 var(--line), -24px 0 48px -12px rgba(0, 0, 0, .16); }
