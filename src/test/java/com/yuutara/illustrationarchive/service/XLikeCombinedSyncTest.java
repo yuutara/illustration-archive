@@ -43,6 +43,18 @@ class XLikeCombinedSyncTest {
 	}
 
 	@Test
+	void aSyncForALimitThePageNoLongerShowsReadsNothing() throws Exception {
+		var f = new Fixture();
+		f.service.setReadLimit(() -> 200);
+		var changed = assertThrows(XSyncReadLimitChangedException.class, () -> f.service.sync(50));
+		assertEquals(200, changed.readLimit());
+		assertTrue(f.requests.isEmpty(), "not even the account check");
+
+		f.reply(page(ids(1, 25), null));
+		assertEquals(200, f.service.sync(200).scanBudget(), "the limit the page shows is accepted");
+	}
+
+	@Test
 	void aLargerReadLimitLetsRecentReadFurtherInOneSync() throws Exception {
 		var f = new Fixture();
 		f.service.setReadLimit(() -> 100);

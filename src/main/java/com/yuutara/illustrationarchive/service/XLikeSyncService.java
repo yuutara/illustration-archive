@@ -16,6 +16,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -70,10 +73,23 @@ public class XLikeSyncService {
 		return reads == null ? budget : budget.withReadLimit(reads);
 	}
 
-	/** Recent owns its resumable frontier; History keeps its independent older cursor. */
-	public synchronized XLikeSyncReport sync() {
-		var usage = new XLikeSyncBudget.Usage(currentBudget());
+	public XLikeSyncReport sync() {
+		return sync(null);
+	}
+
+	/**
+	 * Recent owns its resumable frontier; History keeps its independent older cursor.
+	 * {@code expectedReads} is the limit the user saw when pressing Sync. When the saved limit has changed since, X is
+	 * not contacted at all: the user decides again with the new figure in front of them.
+	 */
+	public synchronized XLikeSyncReport sync(Integer expectedReads) {
+		var limits = currentBudget();
+		if (expectedReads != null && expectedReads != limits.maxScanned()) {
+			throw new XSyncReadLimitChangedException(limits.maxScanned());
+		}
+		var usage = new XLikeSyncBudget.Usage(limits);
 		Scan recent = new Scan(), history = new Scan();
+		int historyPageSize = 0;
 		String attempt = evidence.xAttempt();
 		XApiClient.XUser reader = null;
 		try {
@@ -92,8 +108,10 @@ public class XLikeSyncService {
 			else if (!validHistory(state.get())) {
 				syncState.markInvalid(state.get().maxResults());
 				history.reason = "INVALID_TOKEN"; history.partial = true; history.hasMore = true;
-			} else history = scan(userId, state.get().maxResults(), state.get().nextToken(),
-					usage.limits.maxPages(), true, usage, true);
+			} else {
+				historyPageSize = state.get().maxResults();
+				history = scan(userId, historyPageSize, state.get().nextToken(), usage.limits.maxPages(), true, usage, true);
+			}
 		} catch (XApiException failure) {
 			recent.reason = "API_FAILURE"; recent.partial = true; recent.scanKnown = false;
 			recent.upstreamStatus = failure.upstreamStatus(); history.reason = "SKIPPED_AFTER_FAILURE";
@@ -101,15 +119,30 @@ public class XLikeSyncService {
 			log.warn("X Likes sync state could not be read or saved.", failure);
 			history.reason = "STATE_FAILURE"; history.partial = true;
 		}
-		XLikeSyncReport finished = report(recent, history, usage.limits);
+		XLikeSyncReport finished = report(recent, history, usage.limits, historyPageSize);
 		if (reader != null && !finished.partial()) evidence.xWorked(attempt, reader.username());
 		return finished;
 	}
 
 	private XLikeSyncReport report(Scan recent, Scan history, XLikeSyncBudget limits) {
+		return report(recent, history, limits, 0);
+	}
+
+	/**
+	 * A caught-up Recent still checks the newest page every time. When what that check leaves cannot hold one page of
+	 * the saved History cursor, History would wait forever while each sync looks complete; the report then names the
+	 * smallest limit that fits both. Page sizes and the limit are not changed behind the user's back.
+	 */
+	private XLikeSyncReport report(Scan recent, Scan history, XLikeSyncBudget limits, int historyPageSize) {
 		var progress = progress();
+		// Only Recent's single head check ran: a sync that also swept new Likes made progress and the next one may fit.
+		boolean historyStarved = historyPageSize > 0 && recent.requested <= 1 && history.requested == 0
+				&& !recent.partial && !history.partial
+				&& "CAUGHT_UP".equals(progress.recentStatus()) && "MORE".equals(progress.historyStatus())
+				&& Set.of("SCAN_BUDGET", "NEW_BUDGET", "PAGE_BUDGET").contains(history.reason);
+		Integer needed = historyStarved ? recent.reserved + historyPageSize : null;
 		return new XLikeSyncReport(recent.report(), history.report(), limits.maxPages(), limits.maxScanned(),
-				limits.maxNew(), recent.partial || history.partial, progress.historyStatus(), progress.recentStatus());
+				limits.maxNew(), recent.partial || history.partial, progress.historyStatus(), progress.recentStatus(), needed);
 	}
 
 	/**
@@ -545,35 +578,51 @@ public class XLikeSyncService {
 		return new XLikeInboxPage(pageItems, page, size, totalItems, totalPages, progress.get());
 	}
 
+	/**
+	 * Skips the items still pending. The summary names exactly those, with the one time this skip wrote on them:
+	 * together they are what an undo may take back. Items another window skipped first are not in it.
+	 */
 	@Transactional
 	public SkipSummary skip(List<Long> itemIds) {
-		if (itemIds == null || itemIds.isEmpty() || itemIds.stream().anyMatch(id -> id == null || id <= 0)) {
-			throw new IllegalArgumentException("itemIds must contain at least one positive item id.");
-		}
-		int skipped = 0;
+		requireIds(itemIds);
+		LocalDateTime at = XLikeRepository.utcNow();
+		List<Long> skipped = new ArrayList<>();
 		for (long itemId : itemIds.stream().distinct().toList()) {
-			skipped += items.skipIfPending(itemId);
+			if (items.skipIfPending(itemId, at) == 1) skipped.add(itemId);
 		}
-		return new SkipSummary(itemIds.size(), skipped);
+		return new SkipSummary(itemIds.size(), skipped.size(), List.copyOf(skipped), at.toInstant(ZoneOffset.UTC));
 	}
 
 	/**
-	 * Undo for a skip: skipped items go back to Pending. Only SKIPPED rows change, so an id sent twice, or one that
-	 * was put back elsewhere in the meantime, counts once and nothing else is touched.
+	 * Skipped items go back to Pending, in their old place. With {@code skippedAt} it is the undo of that one skip,
+	 * and an item skipped again since then stays skipped. Without it, it is Recently skipped's put back, which takes
+	 * whatever skipped item the user chose. Only SKIPPED rows ever change, and an id sent twice counts once.
 	 */
 	@Transactional
-	public UnskipSummary unskip(List<Long> itemIds) {
-		if (itemIds == null || itemIds.isEmpty() || itemIds.stream().anyMatch(id -> id == null || id <= 0)) {
-			throw new IllegalArgumentException("itemIds must contain at least one positive item id.");
-		}
+	public UnskipSummary unskip(List<Long> itemIds, Instant skippedAt) {
+		requireIds(itemIds);
+		LocalDateTime at = skippedAt == null ? null : LocalDateTime.ofInstant(skippedAt, ZoneOffset.UTC);
 		int restored = 0;
 		for (long itemId : itemIds.stream().distinct().toList()) {
-			restored += items.unskipIfSkipped(itemId);
+			restored += at == null ? items.unskipIfSkipped(itemId) : items.unskipIfSkippedAt(itemId, at);
 		}
 		return new UnskipSummary(itemIds.size(), restored);
 	}
 
-	public record SkipSummary(int requestedCount, int skippedCount) {
+	public UnskipSummary unskip(List<Long> itemIds) {
+		return unskip(itemIds, null);
+	}
+
+	private static void requireIds(List<Long> itemIds) {
+		if (itemIds == null || itemIds.isEmpty() || itemIds.stream().anyMatch(id -> id == null || id <= 0)) {
+			throw new IllegalArgumentException("itemIds must contain at least one positive item id.");
+		}
+	}
+
+	public record SkipSummary(int requestedCount, int skippedCount, List<Long> skippedIds, Instant skippedAt) {
+		public SkipSummary(int requestedCount, int skippedCount) {
+			this(requestedCount, skippedCount, List.of(), null);
+		}
 	}
 
 	public record UnskipSummary(int requestedCount, int restoredCount) {

@@ -272,7 +272,7 @@ Tag ID 会先校验存在性，并去除重复 ID，然后在同一数据库事�
 
 | Method | Path | 行为 |
 | --- | --- | --- |
-| `POST` | `/api/x-import/sync` | 页面按钮：先做持久化 Recent 追赶，再用剩余的共享预算推进 History；返回分阶段计数、停止原因和两种进度状态 |
+| `POST` | `/api/x-import/sync?readLimit=50` | 页面按钮：先做持久化 Recent 追赶，再用剩余的共享预算推进 History；返回分阶段计数、停止原因和两种进度状态。`readLimit` 是页面显示的每次读取上限，与已保存的不同时返回 409 `READ_LIMIT_CHANGED` 和当前值，不请求 X；额度装不下一页 History 时 `readLimitNeeded` 给出至少需要的条数 |
 | `POST` | `/api/x-import/sync/recent` | 保留的独立工具入口，从第一页扫描固定范围；可选 `maxResults`（默认 `X_API_DEFAULT_PAGE_SIZE`=5，范围 5..100）和 `maxPages`（默认 `X_API_DEFAULT_MAX_PAGES`=3，范围 1..10），不代表按钮的续传协议 |
 | `POST` | `/api/x-import/sync/continuation` | 保留的独立历史续扫入口（参数同上）；截断时保存游标，自然末页记为 `COMPLETE`。日常 History 推进已由上面的综合 Sync 完成 |
 | `POST` | `/api/x-import/sync/continuation/reset` | 显式重置失效的 History，同时安排从头至末尾的保守遍历；不删除帖子、不自动请求 X |
@@ -280,8 +280,8 @@ Tag ID 会先校验存在性，并去除重复 ID，然后在同一数据库事�
 | `POST` | `/api/x-import/sync/account/adopt` | 用户确认没有归属的旧进度属于同步刚识别到的账号，绑定后沿用；请求体 `{"confirmation":"<syncProgress.accountConfirmation>"}`，状态已变化时返回 409，不请求 X |
 | `POST` | `/api/x-import/sync/account/restart` | 同步实际发现账号不符且用户确认后，清除同步进度并绑定该账号；请求体同上，状态已变化时返回 409；保留 Inbox、作品与媒体，不请求 X |
 | `GET` | `/api/x-import/inbox?page=0&size=24` | 返回 `items`、`page`、`size`、`totalItems`、`totalPages` 和本地 `syncProgress`；默认每页 24 条，`size` 范围 1..100，仅查询当页 `PENDING` 及媒体，按 `likes_order DESC, discovered_at DESC, id DESC` 排序 |
-| `PATCH` | `/api/x-import/inbox/skip` | 跳过请求体 `itemIds` 中仍为 `PENDING` 的项 |
-| `PATCH` | `/api/x-import/inbox/unskip` | 把请求体 `itemIds` 中仍为 `SKIPPED` 的项放回 `PENDING`（撤销跳过），按 `likes_order` 回到原位置；返回 `restoredCount` |
+| `PATCH` | `/api/x-import/inbox/skip` | 跳过请求体 `itemIds` 中仍为 `PENDING` 的项；返回实际跳过的 `skippedIds` 和这次的 `skippedAt` |
+| `PATCH` | `/api/x-import/inbox/unskip` | 把请求体 `itemIds` 中仍为 `SKIPPED` 的项放回 `PENDING`，按 `likes_order` 回到原位置；带 `skippedAt` 时是撤销那一次跳过，只放回跳过时间相同的项；返回 `restoredCount` |
 | `GET` | `/api/x-import/inbox/skipped?page=0&size=24` | “最近跳过”：分页返回 `SKIPPED` 项及媒体，按跳过时间（`updated_at`）倒序；没有 `syncProgress` |
 | `POST` | `/api/x-import/inbox/import` | 导入请求体 `itemIds` 中的项，逐项返回 `SUCCESS`、`DUPLICATE` 或 `FAILED` |
 | `GET` | `/api/x-import/inbox/{itemId}/media/{mediaKey}/content` | 按数据库中的 `animated_gif` 记录流式转发 X CDN MP4，供 Inbox 预览使用；不接受外部 URL 参数，不落盘 |

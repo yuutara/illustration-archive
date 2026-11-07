@@ -310,3 +310,16 @@ test("archive-and-skip names both counts and says which part can be taken back",
     assert.match(ask.text, /最近跳过/);
     assert.equal(ask.ok, "归档并跳过");
 });
+
+test("history a limit cannot reach says how much it needs instead of inviting another sync", () => {
+    const M = model();
+    const summary = M.syncSummary(report(phase({ scannedCount: 25, stopReason: "CAUGHT_UP" }), phase({ stopReason: "SCAN_BUDGET" }),
+        { historyStatus: "MORE", readLimitNeeded: 125 }), [25, 50, 100, 200]);
+    assert.equal(summary.problem, null);
+    assert.equal(summary.readLimit, true);
+    assert.match(summary.detail, /至少要读 125 条/);
+    assert.match(summary.detail, /选 200 条/);
+    assert.doesNotMatch(summary.detail, /再同步一次会接着往下/);
+    assert.doesNotMatch(M.syncSummary(report(phase(), phase(), { historyStatus: "MORE", readLimitNeeded: 50 })).detail, /选 /,
+        "without the choices it only names the count");
+});

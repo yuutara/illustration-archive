@@ -190,6 +190,45 @@ class XLikeCatchupTest {
 		run.finish(60); run.assertExactIds();
 	}
 
+	@Test
+	void aLimitThatOnlyFitsTheHeadCheckSaysHowMuchHistoryNeedsAndAFittingOneMovesIt() throws Exception {
+		for (int historyPage : List.of(25, 100)) {
+			var run = new Run(true, false);
+			String cursor = run.f.saved.nextToken();
+			run.f.state(cursor, historyPage, "ACTIVE");
+			int tooSmall = historyPage == 25 ? 25 : 100;
+			run.f.service.setReadLimit(() -> tooSmall);
+			for (int i = 0; i < 2; i++) {
+				var report = run.sync();
+				assertFalse(report.partial());
+				assertEquals(0, report.history().pagesRequested(), "nothing fits after the head check");
+				assertEquals(25 + historyPage, report.readLimitNeeded(), "the head check plus one History page");
+				assertEquals(cursor, run.f.saved.nextToken());
+			}
+			int fits = historyPage == 25 ? 50 : 200;
+			run.f.service.setReadLimit(() -> fits);
+			// Run.sync() checks against the configured 100-read budget, which 200 rightly exceeds.
+			var report = run.f.service.sync();
+			assertTrue(report.recent().reservedScanCount() + report.history().reservedScanCount() <= fits);
+			assertTrue(report.history().pagesRequested() > 0, "History moves once the limit fits");
+			assertNull(report.readLimitNeeded());
+			assertTrue(run.model.requestedTokens.contains(cursor));
+			assertNotEquals(cursor, run.f.saved.nextToken());
+		}
+	}
+
+	@Test
+	void historyWaitingBehindNewLikesIsProgressNotAShortLimit() throws Exception {
+		var run = new Run(true, false);
+		run.f.state(run.f.saved.nextToken(), 25, "ACTIVE");
+		run.f.service.setReadLimit(() -> 50);
+		run.add("new", 80);
+		var report = run.sync();
+		assertEquals("ACTIVE", report.recentStatus(), "Recent is still catching up on new Likes");
+		assertEquals(0, report.history().pagesRequested());
+		assertNull(report.readLimitNeeded());
+	}
+
 	private static List<String> ids(String group, int count) {
 		return IntStream.range(0, count).mapToObj(i -> group + "-" + i).toList();
 	}

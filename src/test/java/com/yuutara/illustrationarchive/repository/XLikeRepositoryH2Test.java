@@ -77,6 +77,35 @@ class XLikeRepositoryH2Test {
 	}
 
 	@Test
+	void anUndoOnlyTakesBackWhatItsOwnSkipChanged() {
+		var service = new com.yuutara.illustrationarchive.service.XLikeSyncService(
+				org.mockito.Mockito.mock(com.yuutara.illustrationarchive.service.XApiClient.class),
+				org.mockito.Mockito.mock(com.yuutara.illustrationarchive.service.XLikePersistenceService.class), items,
+				new XLikeMediaRepository(jdbc), org.mockito.Mockito.mock(XLikeSyncStateRepository.class), 5, 3,
+				new com.yuutara.illustrationarchive.service.XLikeSyncBudget(25, 2, 6, 100, 50));
+		long mine = like("1", 20, XLikeStatus.PENDING);
+		long theirs = like("2", 10, XLikeStatus.PENDING);
+		service.skip(List.of(theirs)); // another window, first
+
+		var skip = service.skip(List.of(mine, theirs));
+		assertEquals(List.of(mine), skip.skippedIds());
+		// Even sent with both ids, the undo restores only this skip's item.
+		assertEquals(1, service.unskip(List.of(mine, theirs), skip.skippedAt()).restoredCount());
+		assertEquals(List.of(mine), ids(items.findPendingPage(10, 0)));
+		assertEquals(List.of(theirs), ids(items.findSkippedPage(10, 0)));
+
+		// Put back elsewhere and skipped again: the new skip has a later time, so the old undo no longer applies.
+		var again = service.skip(List.of(mine));
+		jdbc.update("UPDATE x_like_item SET updated_at = TIMESTAMPADD(SECOND, 1, updated_at) WHERE id = ?", mine);
+		assertEquals(0, service.unskip(List.of(mine), again.skippedAt()).restoredCount());
+		assertEquals(0, service.unskip(List.of(mine), skip.skippedAt()).restoredCount());
+		assertEquals(0, items.countPending());
+
+		// Recently skipped's put back takes whatever skipped item the user chose.
+		assertEquals(2, service.unskip(List.of(mine, theirs)).restoredCount());
+	}
+
+	@Test
 	void recentlySkippedListsTheLatestSkipFirstAndPages() {
 		long first = like("1", 30, XLikeStatus.PENDING);
 		long second = like("2", 20, XLikeStatus.PENDING);

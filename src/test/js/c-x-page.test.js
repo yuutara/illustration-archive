@@ -65,7 +65,7 @@ function setup({ start = invalidRecent, answer = () => ({ status: 204 }), capabi
     const nodes = new Map();
     const element = (id) => { if (!nodes.has(id)) nodes.set(id, new Node(id)); return nodes.get(id); };
     const app = { progress: start, posts: [], bodies: [], syncs: 0, answer, items, listed: null, hold: {}, connection, statusReads: 0,
-        skipped: [], lists: [], undoTimers: [] };
+        skipped: [], lists: [], undoTimers: [], syncUrls: [], syncReply: null, failList: false };
     const reply = (status, body) => ({ ok: status < 400, status, json: async () => body });
     const fetch = async (url, options = {}) => {
         if (url === "/api/x-auth/status") { app.statusReads++; return reply(200, { status: app.connection, clientId: app.connection.clientId || "", scanBudget: 100 }); }
@@ -76,11 +76,14 @@ function setup({ start = invalidRecent, answer = () => ({ status: 204 }), capabi
         if (url.startsWith("/api/x-import/inbox?")) {
             app.lists.push(url);
             await app.hold.list;
+            if (app.failList) return reply(500, {});
             return reply(200, { items: app.items, totalItems: app.items.length, totalPages: app.items.length ? 1 : 0, syncProgress: app.progress });
         }
-        if (url === "/api/x-import/sync") {
+        if (url === "/api/x-import/sync" || url.startsWith("/api/x-import/sync?")) {
             app.syncs++;
+            app.syncUrls.push(url);
             await app.hold.sync;
+            if (app.syncReply) return reply(...app.syncReply);
             return reply(200, app.items.length ? finishedSync : {});
         }
         app.posts.push(url);
@@ -575,20 +578,26 @@ test("a card that leaves the list releases its video; the others keep theirs", a
 function library(ids, { failSkip = false } = {}) {
     const app = setup({ start: healthy, items: ids.map((id) => post(id)) });
     app.calls = [];
+    app.skipTimes = 0;
     app.answer = async () => {
         const url = app.posts.at(-1);
         const itemIds = JSON.parse(app.bodies.at(-1)).itemIds;
-        app.calls.push([url.replace("/api/x-import/inbox/", ""), itemIds]);
+        const { skippedAt } = JSON.parse(app.bodies.at(-1));
+        app.calls.push([url.replace("/api/x-import/inbox/", ""), itemIds, ...(skippedAt ? [skippedAt] : [])]);
         if (url.endsWith("/skip")) {
             if (failSkip) return { status: 500, body: {} };
-            const moved = app.items.filter((item) => itemIds.includes(item.id));
+            const at = `t${++app.skipTimes}`;
+            const moved = app.items.filter((item) => itemIds.includes(item.id)).map((item) => ({ ...item, skippedAt: at }));
             app.items = app.items.filter((item) => !itemIds.includes(item.id));
             app.skipped = [...moved, ...app.skipped];
-            return { status: 200, body: { requestedCount: itemIds.length, skippedCount: moved.length } };
+            return { status: 200, body: { requestedCount: itemIds.length, skippedCount: moved.length,
+                skippedIds: moved.map((item) => item.id), skippedAt: at } };
         }
         if (url.endsWith("/unskip")) {
-            const back = app.skipped.filter((item) => itemIds.includes(item.id));
-            app.skipped = app.skipped.filter((item) => !itemIds.includes(item.id));
+            // 和服务端一样：带着跳过时间的撤销只放回那一次跳过的
+            const restores = (item) => itemIds.includes(item.id) && (!skippedAt || item.skippedAt === skippedAt);
+            const back = app.skipped.filter(restores);
+            app.skipped = app.skipped.filter((item) => !restores(item));
             app.items = [...app.items, ...back].sort((a, b) => a.id - b.id);
             return { status: 200, body: { requestedCount: itemIds.length, restoredCount: back.length } };
         }
@@ -621,7 +630,7 @@ test("a skip can be undone from its toast, and Ctrl+Z undoes only the latest one
 
     app.undoButton().listeners.get("click")({});
     await settle();
-    assert.deepEqual(app.calls.at(-1), ["unskip", [2]]);
+    assert.deepEqual(app.calls.at(-1), ["unskip", [2], "t1"], "the undo names the skip it belongs to");
     assert.deepEqual(app.cards(), ["1", "2", "3"], "back in its place");
     assert.match(app.element("toast").textContent, /已撤销，1 件放回待整理/);
     assert.equal(app.undoButton(), undefined, "an undo cannot itself be undone twice");
@@ -634,7 +643,7 @@ test("a skip can be undone from its toast, and Ctrl+Z undoes only the latest one
     await settle();
     app.key("z", { ctrlKey: true });
     await settle();
-    assert.deepEqual(app.calls.at(-1), ["unskip", [3]], "only the skip the toast is about");
+    assert.deepEqual(app.calls.at(-1), ["unskip", [3], "t3"], "only the skip the toast is about");
     assert.deepEqual(app.cards(), ["2", "3"]);
 
     app.select("2");
@@ -672,7 +681,7 @@ test("archive the chosen, skip the rest: asks with both counts, skips first, the
 
     app.undoButton().listeners.get("click")({});
     await settle();
-    assert.deepEqual(app.calls.at(-1), ["unskip", [2, 4]], "the archived ones are not touched");
+    assert.deepEqual(app.calls.at(-1), ["unskip", [2, 4], "t1"], "the archived ones are not touched");
     assert.deepEqual(app.cards(), ["2", "4"]);
 });
 
@@ -760,4 +769,101 @@ test("in recently skipped the preview puts the item back instead of archiving or
     await settle();
     assert.deepEqual(app.calls.at(-1), ["unskip", [1]]);
     assert.equal(app.shown(), "@author2", "the next skipped item follows");
+});
+
+test("an undo takes back only what the server says this skip changed, not what another window skipped", async () => {
+    const app = library([1, 2, 3]);
+    await settle();
+    // Another window skips 2 while this page still shows it.
+    app.skipped = [{ ...app.items.find((item) => item.id === 2), skippedAt: "elsewhere" }];
+    app.items = app.items.filter((item) => item.id !== 2);
+    app.select("1");
+    app.select("2");
+    app.click("x-skip");
+    await settle();
+    assert.match(app.element("toast").textContent, /已跳过 1 件/);
+
+    app.key("z", { ctrlKey: true });
+    await settle();
+    assert.deepEqual(app.calls.at(-1), ["unskip", [1], "t1"]);
+    assert.deepEqual(app.cards(), ["1", "3"], "the other window's skip stays");
+    assert.deepEqual(app.skipped.map((item) => item.id), [2]);
+});
+
+test("an old undo cannot take back a later skip of the same item", async () => {
+    const app = library([1, 2]);
+    await settle();
+    app.select("1");
+    app.click("x-skip");
+    await settle();
+    const stale = app.undoButton();
+    // Elsewhere: put back, then skipped again.
+    app.skipped = app.skipped.map((item) => ({ ...item, skippedAt: "later" }));
+    stale.listeners.get("click")({});
+    await settle();
+    assert.deepEqual(app.calls.at(-1), ["unskip", [1], "t1"]);
+    assert.deepEqual(app.skipped.map((item) => item.id), [1], "the later skip stands");
+    assert.match(app.element("toast").textContent, /已撤销，0 件放回待整理/);
+});
+
+test("a skip that changed nothing offers nothing to undo", async () => {
+    const app = library([1, 2]);
+    await settle();
+    app.items = [];
+    app.select("1");
+    app.click("x-skip");
+    await settle();
+    assert.match(app.element("toast").textContent, /已跳过 0 件/);
+    assert.equal(app.undoButton(), undefined);
+});
+
+test("sync asks for the limit the page shows, and a changed limit reads nothing and is shown for a new decision", async () => {
+    const app = library([1]);
+    await settle();
+    app.click("x-sync");
+    await settle();
+    assert.equal(app.syncUrls.at(-1), "/api/x-import/sync?readLimit=100");
+
+    app.syncReply = [409, { code: "READ_LIMIT_CHANGED", readLimit: 200, message: "changed" }];
+    const lists = app.lists.length;
+    app.click("x-sync");
+    await settle();
+    assert.equal(app.syncs, 2, "no second attempt by itself");
+    assert.equal(app.element("x-sync-cost-text").textContent, "每次同步最多读 200 条，约 US$0.20");
+    assert.equal(app.element("x-result-head").textContent, "读取上限已经改了，这次没有同步");
+    assert.match(app.element("x-result-detail").textContent, /没有读取 X/);
+    assert.equal(app.element("x-result-actions").children[0].href, "/c/settings.html#x-read-limit");
+    assert.equal(app.lists.length, lists, "nothing to reload: nothing was read");
+
+    app.syncReply = null;
+    app.click("x-sync");
+    await settle();
+    assert.equal(app.syncUrls.at(-1), "/api/x-import/sync?readLimit=200", "the next press is for the limit now shown");
+});
+
+test("switching lists drops the old cards at once, and a failed load shows no cards from the other list", async () => {
+    const app = library([1, 2, 3]);
+    await settle();
+    app.select("1");
+    app.click("x-skip");
+    await settle();
+    app.click("x-view-skipped");
+    await settle();
+    assert.deepEqual(app.cards(), ["1"]);
+
+    let release;
+    app.hold.list = new Promise((resolve) => { release = resolve; });
+    app.select("1");
+    app.click("x-view-pending");
+    await settle();
+    assert.deepEqual(app.cards(), [], "no skipped cards under the 待整理 label");
+    assert.equal(app.element("x-bar").hidden, true, "nothing left to act on");
+    assert.equal(app.element("x-loading").textContent, "正在载入…");
+
+    app.failList = true;
+    release();
+    await settle();
+    assert.deepEqual(app.cards(), []);
+    assert.match(app.element("x-loading").textContent, /^收件箱载入失败/);
+    assert.equal(app.element("x-loading").hidden, false);
 });

@@ -173,6 +173,8 @@ class DesktopXIntegrationTest {
 
 		HttpResponse<String> skip = send(running, cookie, "PATCH", "/api/x-import/inbox/skip", "{\"itemIds\":[" + skippedId + "]}");
 		assertEquals(1, json(skip).path("skippedCount").asInt(), skip.body());
+		assertEquals(List.of(skippedId), json(skip).path("skippedIds").valueStream().map(JsonNode::asLong).toList());
+		assertFalse(json(skip).path("skippedAt").asText().isEmpty(), skip.body());
 		assertEquals(1, json(send(running, cookie, "GET", "/api/x-import/inbox?page=0&size=24", null)).path("totalItems").asLong());
 		JsonNode skippedList = json(send(running, cookie, "GET", "/api/x-import/inbox/skipped?page=0&size=40", null));
 		assertEquals(List.of(skippedId), skippedList.path("items").valueStream().map(i -> i.path("id").asLong()).toList());
@@ -1173,7 +1175,12 @@ class DesktopXIntegrationTest {
 		assertEquals(25, new DesktopSettings(running.context().getEnvironment().getProperty(DesktopServer.HOME_PROPERTY)).reads());
 
 		connect(running, cookie);
-		JsonNode report = json(send(running, cookie, "POST", "/api/x-import/sync", ""));
+		HttpResponse<String> stale = send(running, cookie, "POST", "/api/x-import/sync?readLimit=50", "");
+		assertEquals(409, stale.statusCode(), stale.body());
+		assertEquals("READ_LIMIT_CHANGED", json(stale).path("code").asText());
+		assertEquals(25, json(stale).path("readLimit").asInt());
+		assertTrue(apiPaths.isEmpty(), "a sync for a limit the page no longer shows reads nothing from X");
+		JsonNode report = json(send(running, cookie, "POST", "/api/x-import/sync?readLimit=25", ""));
 		assertEquals(25, report.path("scanBudget").asInt(), report.toString());
 		assertEquals(25, report.path("newBudget").asInt(), report.toString());
 	}

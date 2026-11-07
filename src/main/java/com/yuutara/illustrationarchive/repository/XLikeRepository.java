@@ -49,7 +49,7 @@ public class XLikeRepository {
 	}
 
 	/** Passed in rather than calling UTC_TIMESTAMP(3), which only MySQL has; these columns hold UTC on both. */
-	private static LocalDateTime utcNow() {
+	public static LocalDateTime utcNow() {
 		return LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.MILLIS);
 	}
 
@@ -125,11 +125,28 @@ public class XLikeRepository {
 	}
 
 	public int skipIfPending(long itemId) {
+		return skipIfPending(itemId, utcNow());
+	}
+
+	/** {@code at} becomes the skip's identity: an undo only applies while the row still carries it. */
+	public int skipIfPending(long itemId, LocalDateTime at) {
 		return jdbcTemplate.update("""
 				UPDATE x_like_item
 				SET status = 'SKIPPED', updated_at = ?
 				WHERE id = ? AND status = 'PENDING'
-				""", utcNow(), itemId);
+				""", at, itemId);
+	}
+
+	/**
+	 * Undo of one particular skip. A row put back and skipped again since then carries a later time, so this skip's
+	 * undo leaves that newer skip alone.
+	 */
+	public int unskipIfSkippedAt(long itemId, LocalDateTime skippedAt) {
+		return jdbcTemplate.update("""
+				UPDATE x_like_item
+				SET status = 'PENDING', updated_at = ?
+				WHERE id = ? AND status = 'SKIPPED' AND updated_at = ?
+				""", utcNow(), itemId, skippedAt);
 	}
 
 	/** Back to the Inbox, where likes_order puts it in its original place. Anything not skipped stays as it is. */

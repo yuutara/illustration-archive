@@ -30,7 +30,8 @@
         connected: false, scanBudget: 50, busy: false, recovering: false, progress: null,
         view: 'pending', // pending：待整理；skipped：最近跳过
         connectCard: null, emptyText: '同步后，待整理的收藏会出现在这里。',
-        undo: null, // { ids, label }：提示条上还能撤销的那次跳过；提示条消失或被下一条换掉，就不能再撤销
+        scanBudgets: [],
+        undo: null, // { ids, skippedAt, label }：提示条上还能撤销的那次跳过；提示条消失或被下一条换掉，就不能再撤销
         preview: null // { item, index, media }：item 是正在展示的那件，index 只是它在列表里的位置，刷新后要重新对上
     };
     let loadSeq = 0;
@@ -255,7 +256,7 @@
         } catch (e) {
             if (seq !== loadSeq) return true;
             $('x-loading').hidden = false;
-            $('x-loading').textContent = `收件箱载入失败：${e.message}`;
+            $('x-loading').textContent = `${skipped ? '最近跳过' : '收件箱'}载入失败：${e.message}`;
             return false;
         }
     }
@@ -274,17 +275,28 @@
         renderRecovery();
     }
 
+    /*
+     * 切换时旧列表立刻清空：新列表到之前、或者载入失败时，页面上不能留着另一个列表的作品，
+     * 否则选中它们再点按钮，操作的会是标签没说的那一边。
+     */
     function setView(view) {
         if (state.busy || state.view === view) return;
         state.view = view;
         state.selected.clear();
+        state.items = [];
+        state.total = 0;
+        state.totalPages = 0;
         renderView();
+        renderList();
+        $('x-empty').hidden = true;
+        $('x-loading').hidden = false;
+        $('x-loading').textContent = '正在载入…';
         load(0).then(() => window.scrollTo(0, 0));
     }
 
     /* ---------------- 连接状态与同步 ---------------- */
 
-    function showResult(head, detail, { problem = false, settings = false } = {}) {
+    function showResult(head, detail, { problem = false, settings = false, settingsHash = 'x' } = {}) {
         $('x-result').hidden = false;
         $('x-result').classList.toggle('is-problem', problem);
         $('x-result-head').textContent = head;
@@ -293,7 +305,7 @@
         actions.replaceChildren();
         if (settings) {
             const link = el('a', 'link', '打开设置');
-            link.href = '/c/settings.html#x';
+            link.href = `/c/settings.html#${settingsHash}`;
             actions.appendChild(link);
         }
     }
@@ -307,6 +319,7 @@
             connection = await response.json();
             state.connected = connection.status.savedLogin === 'USABLE';
             state.scanBudget = connection.scanBudget;
+            state.scanBudgets = connection.scanBudgets || [];
         } catch (e) {
             state.connected = false;
         }
@@ -365,12 +378,25 @@
         button.textContent = '正在同步…';
         syncSelection();
         try {
-            const response = await fetch('/api/x-import/sync', { method: 'POST', headers: { Accept: 'application/json' } });
+            // 带上页面写着的上限：别处改过设置时，服务端在读 X 之前拒绝，按新额度重新决定
+            const response = await fetch(`/api/x-import/sync?readLimit=${encodeURIComponent(state.scanBudget)}`,
+                { method: 'POST', headers: { Accept: 'application/json' } });
             const body = await response.json().catch(() => ({}));
+            if (response.status === 409 && body.code === 'READ_LIMIT_CHANGED') {
+                state.scanBudget = body.readLimit;
+                renderView();
+                showResult('读取上限已经改了，这次没有同步',
+                    `现在${M.syncEstimate(body.readLimit)}。没有读取 X，也没有产生费用；确认后再点“同步”。`,
+                    { problem: true, settings: true, settingsHash: 'x-read-limit' });
+                return;
+            }
             if (!response.ok) throw new Error(body.message || `HTTP ${response.status}`);
-            const summary = M.syncSummary(body);
-            showResult(summary.problem || summary.headline, summary.problem ? summary.headline + '。' + summary.detail : summary.detail,
-                { problem: !!summary.problem, settings: !!summary.problem && /设置/.test(summary.problem) });
+            const summary = M.syncSummary(body, state.scanBudgets);
+            showResult(summary.problem || summary.headline, summary.problem ? summary.headline + '。' + summary.detail : summary.detail, {
+                problem: !!summary.problem,
+                settings: summary.readLimit || (!!summary.problem && /设置/.test(summary.problem)),
+                settingsHash: summary.readLimit ? 'x-read-limit' : 'x'
+            });
             await load(0);
         } catch (e) {
             showResult('同步没有完成', `${e.message}。已保存的进度不受影响。`, { problem: true });
@@ -482,7 +508,7 @@
         const outcome = await archiveEach(keep);
         await load();
         settle();
-        toast(`${M.archiveSummary(outcome)}，跳过 ${skipped.skippedCount} 件`, { ids: rest, label: '撤销跳过' });
+        toast(`${M.archiveSummary(outcome)}，跳过 ${skipped.skippedCount} 件`, undoFor(skipped, '撤销跳过'));
     }
 
     // 列表刷新完才算结束：刷新途中再按一次，处理的还是刚才那一件
@@ -491,11 +517,11 @@
         syncSelection();
     }
 
-    async function patchItems(url, ids) {
+    async function patchItems(url, ids, extra = {}) {
         const response = await fetch(url, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-            body: JSON.stringify({ itemIds: ids })
+            body: JSON.stringify({ itemIds: ids, ...extra })
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return response.json();
@@ -503,6 +529,13 @@
 
     const postSkip = (ids) => patchItems('/api/x-import/inbox/skip', ids);
     const forget = (ids) => ids.forEach((id) => { state.selected.delete(id); state.problems.delete(id); });
+
+    /*
+     * 撤销只认服务端确认这一次跳过的作品和跳过时间：请求里别处已经跳过的不算，
+     * 放回后又被重新跳过的也不算，它们带着更晚的跳过时间。一件都没跳过就没有可撤销的。
+     */
+    const undoFor = (result, label) => (result.skippedIds && result.skippedIds.length
+        ? { ids: result.skippedIds, skippedAt: result.skippedAt, label } : null);
 
     async function skip(ids) {
         if (state.busy || !ids.length || isSkippedView()) return false;
@@ -512,7 +545,7 @@
         try {
             const result = await postSkip(ids);
             forget(ids);
-            toast(`已跳过 ${result.skippedCount} 件`, { ids, label: '撤销' });
+            toast(`已跳过 ${result.skippedCount} 件`, undoFor(result, '撤销'));
             done = true;
         } catch (e) {
             toast('没有确认跳过结果，请看刷新后的列表');
@@ -532,7 +565,7 @@
         state.undo = null;
         $('toast').hidden = true;
         try {
-            const result = await patchItems('/api/x-import/inbox/unskip', undo.ids);
+            const result = await patchItems('/api/x-import/inbox/unskip', undo.ids, { skippedAt: undo.skippedAt });
             toast(`已撤销，${result.restoredCount} 件放回待整理`);
         } catch (e) {
             toast('没有确认撤销结果，请看刷新后的列表');

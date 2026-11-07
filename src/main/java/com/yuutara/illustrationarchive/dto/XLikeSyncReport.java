@@ -1,8 +1,16 @@
 package com.yuutara.illustrationarchive.dto;
 
-/** Counts describe this operation, never the full Pending Inbox. No pagination tokens are exposed. */
+/**
+ * Counts describe this operation, never the full Pending Inbox. No pagination tokens are exposed.
+ * {@code readLimitNeeded} is set when History has more but this limit cannot reach it after Recent's check of the
+ * newest page: the smallest per-sync read that would. Null otherwise.
+ */
 public record XLikeSyncReport(Phase recent, Phase history, int pageBudget, int scanBudget,
-		int newBudget, boolean partial, String historyStatus, String recentStatus) {
+		int newBudget, boolean partial, String historyStatus, String recentStatus, Integer readLimitNeeded) {
+	public XLikeSyncReport(Phase recent, Phase history, int pageBudget, int scanBudget,
+			int newBudget, boolean partial, String historyStatus, String recentStatus) {
+		this(recent, history, pageBudget, scanBudget, newBudget, partial, historyStatus, recentStatus, null);
+	}
 	public XLikeSyncReport(Phase recent, Phase history, int pageBudget, int scanBudget,
 			int newBudget, boolean partial, String historyStatus) {
 		this(recent, history, pageBudget, scanBudget, newBudget, partial, historyStatus, "UNKNOWN");

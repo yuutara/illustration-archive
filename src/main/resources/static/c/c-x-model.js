@@ -50,8 +50,12 @@
         return '无法连接 X，请检查网络或设置中的代理。进度已保存。';
     }
 
-    // 同步报告 → { headline, detail, problem }。计数都来自服务端，这里只负责说人话
-    function syncSummary(report) {
+    /*
+     * 同步报告 → { headline, detail, problem, readLimit }。计数都来自服务端，这里只负责说人话。
+     * readLimitNeeded：每次先核对最新一页后，剩下的额度装不下一页更早的收藏，再同步也不会往下，
+     * 这时不说“再同步一次”，而是说至少要读多少条，并按设置里的选项给出建议（choices 为空就只说条数）。
+     */
+    function syncSummary(report, choices = []) {
         const recent = report.recent, history = report.history;
         const found = recent.newCount + history.newCount;
         const existing = recent.existingCount + history.existingCount;
@@ -74,11 +78,18 @@
             else problem = '这次同步没有全部完成，进度已保存，可以再试一次。';
         }
 
+        const needed = !problem && report.readLimitNeeded ? report.readLimitNeeded : null;
         const more = report.historyStatus === 'MORE' || report.recentStatus === 'ACTIVE' || report.recentStatus === 'VERIFY';
+        let next = '';
+        if (needed) {
+            const suggest = choices.find((reads) => reads >= needed);
+            next = `更早的收藏这次没有读：先核对最新的收藏后，剩下的额度不够读一页更早的，再同步也不会往下。每次至少要读 ${needed} 条才能接着读${suggest ? `，可以到设置里选 ${suggest} 条` : ''}。`;
+        } else if (!problem && more) next = '更早的收藏还没取完，再同步一次会接着往下。';
         return {
             headline: found ? `新发现 ${found} 件收藏` : '没有发现新的收藏',
-            detail: parts.join('，') + (parts.length ? '。' : '') + (!problem && more ? '更早的收藏还没取完，再同步一次会接着往下。' : ''),
-            problem
+            detail: parts.join('，') + (parts.length ? '。' : '') + next,
+            problem,
+            readLimit: !!needed
         };
     }
 

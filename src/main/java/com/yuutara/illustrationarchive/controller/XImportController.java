@@ -7,6 +7,7 @@ import com.yuutara.illustrationarchive.service.XApiException;
 import com.yuutara.illustrationarchive.service.XLikeSyncService;
 import com.yuutara.illustrationarchive.service.XImportService;
 import com.yuutara.illustrationarchive.service.XSyncConfirmationExpiredException;
+import com.yuutara.illustrationarchive.service.XSyncReadLimitChangedException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
 import java.util.List;
 
 @RestController
@@ -31,9 +33,10 @@ public class XImportController {
 		this.importService = importService;
 	}
 
+	/** {@code readLimit}: the per-sync limit the page showed. A different saved limit is refused before reading X. */
 	@PostMapping("/sync")
-	public XLikeSyncReport sync() {
-		return syncService.sync();
+	public XLikeSyncReport sync(@RequestParam(required = false) Integer readLimit) {
+		return syncService.sync(readLimit);
 	}
 
 	@PostMapping("/sync/recent")
@@ -84,8 +87,8 @@ public class XImportController {
 	}
 
 	@PatchMapping("/inbox/unskip")
-	public XLikeSyncService.UnskipSummary unskip(@RequestBody SkipRequest request) {
-		return syncService.unskip(request.itemIds());
+	public XLikeSyncService.UnskipSummary unskip(@RequestBody UnskipRequest request) {
+		return syncService.unskip(request.itemIds(), request.skippedAt());
 	}
 
 	@GetMapping("/inbox/skipped")
@@ -110,6 +113,12 @@ public class XImportController {
 				.body(new ApiError("CONFIRMATION_EXPIRED", null, exception.getMessage()));
 	}
 
+	@ExceptionHandler(XSyncReadLimitChangedException.class)
+	public ResponseEntity<ReadLimitChanged> readLimitChanged(XSyncReadLimitChangedException exception) {
+		return ResponseEntity.status(HttpStatus.CONFLICT)
+				.body(new ReadLimitChanged("READ_LIMIT_CHANGED", exception.readLimit(), exception.getMessage()));
+	}
+
 	@ExceptionHandler(XApiException.class)
 	public ResponseEntity<ApiError> xApiFailure(XApiException exception) {
 		Integer upstreamStatus = exception.upstreamStatus();
@@ -128,6 +137,13 @@ public class XImportController {
 	}
 
 	public record SkipRequest(List<Long> itemIds) {
+	}
+
+	/** {@code skippedAt} from a skip's summary makes this the undo of that skip; without it, a plain put back. */
+	public record UnskipRequest(List<Long> itemIds, Instant skippedAt) {
+	}
+
+	public record ReadLimitChanged(String code, int readLimit, String message) {
 	}
 
 	public record AccountConfirmation(String confirmation) {
