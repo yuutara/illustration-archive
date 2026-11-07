@@ -22,6 +22,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -515,18 +516,23 @@ class XLikeSyncServiceTest {
 		XLikeRepository items = mock(XLikeRepository.class);
 		XLikeSyncService service = new XLikeSyncService(mock(XApiClient.class),
 				mock(XLikePersistenceService.class), items, mock(XLikeMediaRepository.class), mock(XLikeSyncStateRepository.class), 5, 3, new XLikeSyncBudget(25, 2, 6, 100, 50));
-		when(items.skipIfPending(eq(1L), any())).thenReturn(1);
-		when(items.skipIfPending(eq(2L), any())).thenReturn(1);
+		when(items.skipIfPending(eq(1L), any(), anyString())).thenReturn(1);
+		when(items.skipIfPending(eq(2L), any(), anyString())).thenReturn(1);
 		// An already skipped, unsupported or unknown id returns zero from the conditional SQL update.
 		var result = service.skip(List.of(1L, 2L, 2L, 3L, 4L, 99L));
 
 		assertEquals(6, result.requestedCount());
 		assertEquals(2, result.skippedCount());
 		assertEquals(List.of(1L, 2L), result.skippedIds(), "only what this skip changed can be undone");
-		var at = org.mockito.ArgumentCaptor.forClass(java.time.LocalDateTime.class);
-		verify(items, times(5)).skipIfPending(anyLong(), at.capture());
-		assertEquals(1, new HashSet<>(at.getAllValues()).size(), "one time for the whole skip");
-		assertEquals(at.getValue().toInstant(java.time.ZoneOffset.UTC), result.skippedAt());
+		var token = org.mockito.ArgumentCaptor.forClass(String.class);
+		verify(items, times(5)).skipIfPending(anyLong(), any(), token.capture());
+		assertEquals(1, new HashSet<>(token.getAllValues()).size(), "one token for the whole skip");
+		assertEquals(token.getValue(), result.skipToken());
+		assertNotEquals(result.skipToken(), service.skip(List.of(1L, 2L)).skipToken(), "a token never repeats");
+		when(items.skipIfPending(anyLong(), any(), anyString())).thenReturn(0);
+		var nothing = service.skip(List.of(1L));
+		assertNull(nothing.skipToken(), "a skip that changed nothing has nothing to undo");
+		assertTrue(nothing.skippedIds().isEmpty());
 	}
 	@Test
 	void putBackCountsOnlySkippedTransitionsAndRejectsBadIds() {

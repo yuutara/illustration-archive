@@ -33,7 +33,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /** The copy logic against an H2 source; {@code LegacyMigrationMySqlTest} repeats the essentials on real MySQL. */
 class LegacyMigrationTest {
 
-	/** Every table a V8 library has, for row-by-row comparison. */
+	/** Every table a current library has, for row-by-row comparison. */
 	static final List<String> TABLES = List.of("author", "tag", "illustration", "asset", "illustration_tag",
 			"x_like_item", "x_like_media", "x_like_sync_state", "x_like_sync_seen_token", "x_like_sync_account");
 
@@ -124,6 +124,17 @@ class LegacyMigrationTest {
 		return all;
 	}
 
+	/** An upgraded copy, minus the columns later migrations added with no value for old rows, so it compares with V7. */
+	static Map<String, List<Map<String, Object>>> asV7(Map<String, List<Map<String, Object>>> upgraded) {
+		Map<String, List<Map<String, Object>>> all = new LinkedHashMap<>();
+		upgraded.forEach((table, rows) -> all.put(table, rows.stream().map(row -> {
+			Map<String, Object> kept = new LinkedHashMap<>(row);
+			if ("x_like_item".equals(table)) assertEquals("NULL", kept.remove("skip_token"), "V9 adds skip_token empty");
+			return kept;
+		}).toList()));
+		return all;
+	}
+
 	static JdbcTemplate library(Path home) {
 		return new JdbcTemplate(new DriverManagerDataSource(LibraryBackup.url(home.resolve("data")), "sa", ""));
 	}
@@ -135,8 +146,8 @@ class LegacyMigrationTest {
 
 		assertEquals(1L, result.rows().get("illustration"));
 		assertEquals(1L, result.rows().get("x_like_sync_seen_token"));
-		assertEquals("8", result.schemaBefore());
-		assertEquals("8", result.schemaAfter());
+		assertEquals("9", result.schemaBefore());
+		assertEquals("9", result.schemaAfter());
 		assertEquals(1, result.files());
 		assertTrue(result.problems().isEmpty());
 		assertEquals("image-bytes", Files.readString(target.resolve("media").resolve("2026-10").resolve("work.png")));
@@ -171,13 +182,13 @@ class LegacyMigrationTest {
 			LegacyMigration.Result result = LegacyMigration.execute(v7, v7Media, target, false);
 
 			assertEquals("7", result.schemaBefore());
-			assertEquals("8", result.schemaAfter());
+			assertEquals("9", result.schemaAfter());
 			assertFalse(result.rows().containsKey("x_like_sync_account"), "a table V7 does not have is not read");
 			JdbcTemplate copied = library(target);
-			assertEquals(before, everyRow(copied, v7Tables));
+			assertEquals(before, asV7(everyRow(copied, v7Tables)));
 			assertEquals(0, copied.queryForObject("SELECT COUNT(*) FROM x_like_sync_account", Integer.class),
 					"V7 progress has no owner yet; the first sync asks");
-			assertEquals("8", copied.queryForObject(
+			assertEquals("9", copied.queryForObject(
 					"SELECT MAX(CAST(version AS INT)) FROM flyway_schema_history WHERE success = TRUE", String.class));
 			assertEquals(before, everyRow(v7Jdbc, v7Tables), "the source is only read");
 			assertEquals(history, v7Jdbc.queryForList("SELECT * FROM flyway_schema_history"), "and is not upgraded");
@@ -243,14 +254,14 @@ class LegacyMigrationTest {
 	void aNewerFailedOrIncompleteSchemaIsRefusedAndNothingIsLeft() throws Exception {
 		Path target = workspace.resolve("new-home");
 		sourceJdbc.update("INSERT INTO flyway_schema_history (installed_rank, version, description, type, script, checksum,"
-				+ " installed_by, execution_time, success) VALUES (99, '9', 'future', 'SQL', 'V9__future.sql', 1, 'sa', 1, TRUE)");
+				+ " installed_by, execution_time, success) VALUES (99, '10', 'future', 'SQL', 'V10__future.sql', 1, 'sa', 1, TRUE)");
 		assertRefused(target, "更新版本");
 
-		sourceJdbc.update("DELETE FROM flyway_schema_history WHERE version = '9'");
-		sourceJdbc.update("UPDATE flyway_schema_history SET success = FALSE WHERE version = '8'");
+		sourceJdbc.update("DELETE FROM flyway_schema_history WHERE version = '10'");
+		sourceJdbc.update("UPDATE flyway_schema_history SET success = FALSE WHERE version = '9'");
 		assertRefused(target, "没有完成的升级");
 
-		sourceJdbc.update("UPDATE flyway_schema_history SET success = TRUE WHERE version = '8'");
+		sourceJdbc.update("UPDATE flyway_schema_history SET success = TRUE WHERE version = '9'");
 		sourceJdbc.update("DELETE FROM flyway_schema_history WHERE version = '5'");
 		assertRefused(target, "对不上");
 

@@ -17,7 +17,7 @@ IllustrationArchive.exe (jpackage 启动器 + 自带 Java 21 运行时)
             ├─ instance.lock 单实例锁
             ├─ DesktopServer.start(home)  → Spring profile "desktop"
             │    ├─ 文件型 H2：<home>\data\archive.mv.db（MODE=MySQL, IGNORECASE）
-            │    ├─ Flyway：classpath:db/migration-h2（V1–V8 的 H2 等价版本）
+            │    ├─ Flyway：classpath:db/migration-h2（V1–V9 的 H2 等价版本）
             │    ├─ 媒体：<home>\media（数据库仍只存相对 storage_key）
             │    ├─ Tomcat 只监听 127.0.0.1（默认 47391，被占用时随机端口）
             │    └─ LocalAccessFilter：启动令牌 → SameSite=Strict Cookie
@@ -32,7 +32,7 @@ IllustrationArchive.exe (jpackage 启动器 + 自带 Java 21 运行时)
 ### 关键设计
 
 - **配置隔离**：所有隔离相关属性由 `DesktopServer` 以命令行参数传入（最高优先级）。原因是 `X_API_ENABLED`、`AI_ANALYSIS_ENABLED`、`SPRING_DATASOURCE_URL` 等环境变量经宽松绑定会覆盖 profile 文件。`spring.config.import` 改为 `${illustration-archive.local-config:./config/application-local.properties}`：MySQL 模式默认值不变，桌面模式指向 `<home>\config\desktop.properties`（可选，默认不存在），因此不会读取 `./config/application-local.properties`。
-- **H2 迁移**：V2/V4/V6/V7 使用了 H2 不支持的 MySQL 多子句 `ALTER TABLE`，所以 `db/migration-h2` 提供语义等价的版本（现为 V1–V8），未改动任何已应用的 MySQL migration。MySQL `TEXT` 映射为 `VARCHAR(65535)`，使 `IGNORECASE` 生效，保持与 `utf8mb4_unicode_ci` 一致的大小写不敏感搜索和标签唯一性。**代价：若保留桌面 PoC，后续每个 schema 变更都要同时写一份 H2 版本。**
+- **H2 迁移**：V2/V4/V6/V7 使用了 H2 不支持的 MySQL 多子句 `ALTER TABLE`，所以 `db/migration-h2` 提供语义等价的版本（现为 V1–V9），未改动任何已应用的 MySQL migration。MySQL `TEXT` 映射为 `VARCHAR(65535)`，使 `IGNORECASE` 生效，保持与 `utf8mb4_unicode_ci` 一致的大小写不敏感搜索和标签唯一性。**代价：若保留桌面 PoC，后续每个 schema 变更都要同时写一份 H2 版本。**
 - **Repository 唯一改动**：H2 对 `RETURN_GENERATED_KEYS` 会把带默认值的列（`created_at` 等）一起作为生成键返回，`KeyHolder.getKey()` 因此失败。Illustration / Asset / Author / Tag 的插入改为按列名 `{"id"}` 取键；MySQL Connector/J 同样支持该写法。X 相关 Repository 不在 PoC 范围内，未改动（其中仍有 `UTC_TIMESTAMP` 等 MySQL 专用 SQL）。
 - **本机访问保护**（无用户鉴权的前提下）：
   - 只绑定 `127.0.0.1`，局域网不可达；
@@ -819,10 +819,11 @@ $h = 'D:\Temp\ia-config-20261102\acceptance-home'
 ## 收图顺手（R4.1，2026-11-07）
 
 - **归档选中，跳过其余**：批量条在本页还有没选的作品时多一个“归档，跳过其余 N 件”，先确认“归档 X 件，跳过本页其余 Y 件？”。先一次请求跳过没选的（没确认就不归档），再逐件归档；某件归档失败只留下它和原因。“其余”只指当前页。
-- **撤销与最近跳过**：每次跳过后提示条停 10 秒，带“撤销”（也可 Ctrl+Z），只撤最近一次；组合操作只撤跳过，不动已归档的。X 收藏顶部切换“待整理 / 最近跳过”，后者按跳过时间倒序，可多选或在预览里“放回待整理”。放回只改仍是 `SKIPPED` 的行，按点赞顺序回到原位置；不加迁移，`updated_at` 就是跳过时间。
+- **撤销与最近跳过**：每次跳过后提示条停 10 秒，带“撤销”（也可 Ctrl+Z），只撤最近一次；组合操作只撤跳过，不动已归档的。X 收藏顶部切换“待整理 / 最近跳过”，后者按跳过时间倒序，可多选或在预览里“放回待整理”。放回只改仍是 `SKIPPED` 的行，按点赞顺序回到原位置；`updated_at` 就是跳过时间，最近跳过按它排序。
 - **同步条数**：设置页 X 账号下选“每次同步最多读取”，X 收藏页标题下一直显示“每次同步最多读 N 条，约 US$…”并链到这项设置。预算如何套用见 [X_LIKES_SYNC_CONSISTENCY](X_LIKES_SYNC_CONSISTENCY.md)。
-- 文案统一用页面已有的“待整理”。没有改同步引擎的衔接逻辑，也没有改数据库结构。
-- **C 级审核修复**（`f543eb5` 未通过，2026-11-07，记录 `D:\Temp\ia-r41-review-20261107\result.md`）：撤销只认服务端返回的本次 `skippedIds` 和 `skippedAt`，放回时要求跳过时间相同，别处先跳过或放回后重新跳过的都不受影响（同一毫秒内“放回再跳过”理论上仍会被认作同一次，实际不会发生，不为此加迁移）；额度装不下 History 时说明原因和至少需要的条数；同步带页面显示的上限，变了就不读 X、让用户重新决定；切换列表立即清空旧卡片和选择，载入失败也不留旧列表。
+- 文案统一用页面已有的“待整理”。没有改同步引擎的衔接逻辑。
+- **C 级复验**（`eaca378` 未通过，2026-11-07，证据 `D:\Temp\ia-r41-recheck-20261107\result.md`）：额度装不下 History 时提示需要的条数，设置变化时拒绝按旧额度读取，切换列表时立即清空旧卡片，三项通过。撤销使用服务端返回的 `skippedIds` 和 `skippedAt`，不同毫秒的交错操作通过。同一件在同一毫秒内被放回并重新跳过时，两次凭据相同，H2 已复现旧撤销误放回该件。
+- **跳过凭据（V9）**：`x_like_item` 加可空列 `skip_token`（MySQL 与 H2 各一份 V9）。每次跳过请求生成新的 UUID 写在这次跳过的行上，返回给页面；撤销按 `status = SKIPPED AND skip_token = ?` 放回，放回时清空。凭据不靠时间，同一毫秒的两次跳过、放回后再跳过都互不影响。V9 之前跳过的行没有凭据，只能在最近跳过里手动放回。`skippedAt` 已从接口移除。原图库下次用新版打开时会从 V7 直接升到 V9。
 
 ## 材质与动效（R4.2，2026-11-06）
 

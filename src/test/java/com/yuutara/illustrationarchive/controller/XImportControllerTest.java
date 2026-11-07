@@ -148,7 +148,7 @@ class XImportControllerTest {
 	@Test
 	void putBackAndRecentlySkippedForwardToTheService() throws Exception {
 		XLikeSyncService service = mock(XLikeSyncService.class);
-		when(service.unskip(List.of(3L, 4L), Instant.parse("2026-11-07T01:02:03.456Z"))).thenReturn(new XLikeSyncService.UnskipSummary(2, 1));
+		when(service.unskip(List.of(3L, 4L), "0b6f6e5c-6a7d-4f0e-9b1e-2f6c8a1d3e4f")).thenReturn(new XLikeSyncService.UnskipSummary(2, 1));
 		when(service.sync(50)).thenThrow(new com.yuutara.illustrationarchive.service.XSyncReadLimitChangedException(200));
 		when(service.skipped(1, 40)).thenReturn(new XLikeInboxPage(List.of(new XLikeInboxItem(3L, "33", "Artist", "artist",
 				null, null, Instant.parse("2026-11-01T09:00:00Z"), List.of())), 1, 40, 41, 2));
@@ -159,7 +159,7 @@ class XImportControllerTest {
 				.andExpect(jsonPath("$.code").value("READ_LIMIT_CHANGED"))
 				.andExpect(jsonPath("$.readLimit").value(200));
 		mvc(service).perform(patch("/api/x-import/inbox/unskip").contentType("application/json")
-						.content("{\"itemIds\":[3,4],\"skippedAt\":\"2026-11-07T01:02:03.456Z\"}"))
+						.content("{\"itemIds\":[3,4],\"skipToken\":\"0b6f6e5c-6a7d-4f0e-9b1e-2f6c8a1d3e4f\"}"))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.requestedCount").value(2))
 				.andExpect(jsonPath("$.restoredCount").value(1));

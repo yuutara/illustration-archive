@@ -86,7 +86,7 @@ class DesktopServerIntegrationTest {
 		assertEquals("true", environment.getProperty("ai.analysis.enabled"));
 		assertEquals("", environment.getProperty("gemini.api-key"), "no key is read from the environment");
 		assertEquals("", environment.getProperty("x.oauth.client-secret"), "no secret is read from the environment");
-		assertEquals(8, jdbc(first).queryForObject(
+		assertEquals(9, jdbc(first).queryForObject(
 				"SELECT COUNT(*) FROM \"flyway_schema_history\" WHERE \"success\" = TRUE AND \"version\" IS NOT NULL", Integer.class));
 
 		String cookie = openSession(first);
@@ -797,7 +797,7 @@ class DesktopServerIntegrationTest {
 			try (var connection = running.context().getBean(javax.sql.DataSource.class).getConnection()) {
 				assertTrue(connection.getMetaData().getURL().startsWith(expected), connection.getMetaData().getURL());
 			}
-			assertEquals(8, flyway.info().applied().length, "migrations ran against the PoC database");
+			assertEquals(9, flyway.info().applied().length, "migrations ran against the PoC database");
 			var environment = running.context().getEnvironment();
 			assertEquals("90", environment.getProperty("ai.analysis.timeout-seconds"));
 			assertEquals("6", environment.getProperty("x.sync.max-pages"));

@@ -435,7 +435,7 @@ class LibraryMaintenanceTest {
 		JsonNode preview = ready.get("importPreview");
 		assertEquals("mysql.example:3306 / illustration_archive", preview.get("source").asString());
 		assertEquals("7", preview.get("schemaBefore").asString());
-		assertEquals("8", preview.get("schemaAfter").asString());
+		assertEquals("9", preview.get("schemaAfter").asString());
 		assertEquals(1, preview.get("incoming").get("works").asLong());
 		assertEquals(1, preview.get("incoming").get("inbox").asLong());
 		assertEquals(1, preview.get("current").get("works").asLong(), "what would be replaced is shown beside it");
@@ -454,7 +454,7 @@ class LibraryMaintenanceTest {
 		assertTrue(imported.succeeded(), imported.message());
 		assertEquals(LibraryMaintenance.Kind.IMPORT, imported.kind());
 		assertTrue(imported.message().contains("X 登录不会导入"), imported.message());
-		assertEquals(oldRows, LegacyMigrationTest.everyRow(jdbc(), v7Tables), "the library is now the old one, ids included");
+		assertEquals(oldRows, LegacyMigrationTest.asV7(LegacyMigrationTest.everyRow(jdbc(), v7Tables)), "the library is now the old one, ids included");
 		assertEquals(0, jdbc().queryForObject("SELECT COUNT(*) FROM x_like_sync_account", Integer.class));
 		assertEquals(0, jdbc().queryForObject("SELECT COUNT(*) FROM tag WHERE name = '导入前才有'", Integer.class));
 		HttpResponse<String> original = send("GET", "/api/assets/21/content", null);

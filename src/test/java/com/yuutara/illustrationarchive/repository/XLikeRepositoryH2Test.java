@@ -90,19 +90,42 @@ class XLikeRepositoryH2Test {
 		var skip = service.skip(List.of(mine, theirs));
 		assertEquals(List.of(mine), skip.skippedIds());
 		// Even sent with both ids, the undo restores only this skip's item.
-		assertEquals(1, service.unskip(List.of(mine, theirs), skip.skippedAt()).restoredCount());
+		assertEquals(1, service.unskip(List.of(mine, theirs), skip.skipToken()).restoredCount());
 		assertEquals(List.of(mine), ids(items.findPendingPage(10, 0)));
 		assertEquals(List.of(theirs), ids(items.findSkippedPage(10, 0)));
 
-		// Put back elsewhere and skipped again: the new skip has a later time, so the old undo no longer applies.
+		// Skipped again: the old undo no longer applies, the new one does.
 		var again = service.skip(List.of(mine));
-		jdbc.update("UPDATE x_like_item SET updated_at = TIMESTAMPADD(SECOND, 1, updated_at) WHERE id = ?", mine);
-		assertEquals(0, service.unskip(List.of(mine), again.skippedAt()).restoredCount());
-		assertEquals(0, service.unskip(List.of(mine), skip.skippedAt()).restoredCount());
+		assertEquals(0, service.unskip(List.of(mine), skip.skipToken()).restoredCount());
+		assertEquals(1, service.unskip(List.of(mine), again.skipToken()).restoredCount());
+		service.skip(List.of(mine));
 		assertEquals(0, items.countPending());
 
 		// Recently skipped's put back takes whatever skipped item the user chose.
 		assertEquals(2, service.unskip(List.of(mine, theirs)).restoredCount());
+	}
+
+	/** Two skips in one millisecond, made deterministic by giving both the same time: only the token tells them apart. */
+	@Test
+	void twoSkipsInTheSameMillisecondKeepTheirOwnUndo() {
+		long first = like("1", 20, XLikeStatus.PENDING);
+		long second = like("2", 10, XLikeStatus.PENDING);
+		java.time.LocalDateTime sameMoment = java.time.LocalDateTime.of(2026, 11, 7, 12, 0, 0, 123_000_000);
+
+		assertEquals(1, items.skipIfPending(first, sameMoment, "token-a"));
+		assertEquals(1, items.skipIfPending(second, sameMoment, "token-b"));
+		assertEquals(0, items.unskipIfSkippedBy(second, "token-a"), "another skip's token");
+
+		// Put back and skipped again within the same millisecond: the old token is spent, the new one works.
+		assertEquals(1, items.unskipIfSkipped(first));
+		assertEquals(1, items.skipIfPending(first, sameMoment, "token-c"));
+		assertEquals(0, items.unskipIfSkippedBy(first, "token-a"));
+		assertEquals(List.of(second, first), ids(items.findSkippedPage(10, 0)), "the same skip time falls back to the newer row");
+		assertEquals(1, items.unskipIfSkippedBy(first, "token-c"));
+		assertEquals(0, items.unskipIfSkippedBy(first, "token-c"), "an undo only works once");
+		assertEquals(1, items.unskipIfSkippedBy(second, "token-b"));
+		assertEquals(java.util.Arrays.asList(null, null), jdbc.queryForList("SELECT skip_token FROM x_like_item ORDER BY id", String.class),
+				"putting back clears the token");
 	}
 
 	@Test

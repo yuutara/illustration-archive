@@ -19,7 +19,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.Instant;
 import java.util.List;
 
 @RestController
@@ -88,7 +87,7 @@ public class XImportController {
 
 	@PatchMapping("/inbox/unskip")
 	public XLikeSyncService.UnskipSummary unskip(@RequestBody UnskipRequest request) {
-		return syncService.unskip(request.itemIds(), request.skippedAt());
+		return syncService.unskip(request.itemIds(), request.skipToken());
 	}
 
 	@GetMapping("/inbox/skipped")
@@ -139,8 +138,8 @@ public class XImportController {
 	public record SkipRequest(List<Long> itemIds) {
 	}
 
-	/** {@code skippedAt} from a skip's summary makes this the undo of that skip; without it, a plain put back. */
-	public record UnskipRequest(List<Long> itemIds, Instant skippedAt) {
+	/** {@code skipToken} from a skip's summary makes this the undo of that skip; without it, a plain put back. */
+	public record UnskipRequest(List<Long> itemIds, String skipToken) {
 	}
 
 	public record ReadLimitChanged(String code, int readLimit, String message) {

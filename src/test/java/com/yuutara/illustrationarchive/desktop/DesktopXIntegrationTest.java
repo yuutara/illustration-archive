@@ -174,7 +174,7 @@ class DesktopXIntegrationTest {
 		HttpResponse<String> skip = send(running, cookie, "PATCH", "/api/x-import/inbox/skip", "{\"itemIds\":[" + skippedId + "]}");
 		assertEquals(1, json(skip).path("skippedCount").asInt(), skip.body());
 		assertEquals(List.of(skippedId), json(skip).path("skippedIds").valueStream().map(JsonNode::asLong).toList());
-		assertFalse(json(skip).path("skippedAt").asText().isEmpty(), skip.body());
+		assertFalse(json(skip).path("skipToken").asText().isEmpty(), skip.body());
 		assertEquals(1, json(send(running, cookie, "GET", "/api/x-import/inbox?page=0&size=24", null)).path("totalItems").asLong());
 		JsonNode skippedList = json(send(running, cookie, "GET", "/api/x-import/inbox/skipped?page=0&size=40", null));
 		assertEquals(List.of(skippedId), skippedList.path("items").valueStream().map(i -> i.path("id").asLong()).toList());

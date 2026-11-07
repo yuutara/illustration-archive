@@ -16,9 +16,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -26,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
@@ -579,32 +578,33 @@ public class XLikeSyncService {
 	}
 
 	/**
-	 * Skips the items still pending. The summary names exactly those, with the one time this skip wrote on them:
-	 * together they are what an undo may take back. Items another window skipped first are not in it.
+	 * Skips the items still pending. The summary names exactly those, with a token new to this skip: together they are
+	 * what an undo may take back. Items another window skipped first are not in it, and a token never repeats, so
+	 * timing cannot make two skips look like one.
 	 */
 	@Transactional
 	public SkipSummary skip(List<Long> itemIds) {
 		requireIds(itemIds);
 		LocalDateTime at = XLikeRepository.utcNow();
+		String token = UUID.randomUUID().toString();
 		List<Long> skipped = new ArrayList<>();
 		for (long itemId : itemIds.stream().distinct().toList()) {
-			if (items.skipIfPending(itemId, at) == 1) skipped.add(itemId);
+			if (items.skipIfPending(itemId, at, token) == 1) skipped.add(itemId);
 		}
-		return new SkipSummary(itemIds.size(), skipped.size(), List.copyOf(skipped), at.toInstant(ZoneOffset.UTC));
+		return new SkipSummary(itemIds.size(), skipped.size(), List.copyOf(skipped), skipped.isEmpty() ? null : token);
 	}
 
 	/**
-	 * Skipped items go back to Pending, in their old place. With {@code skippedAt} it is the undo of that one skip,
-	 * and an item skipped again since then stays skipped. Without it, it is Recently skipped's put back, which takes
+	 * Skipped items go back to Pending, in their old place. With {@code skipToken} it is the undo of that one skip, and
+	 * an item skipped again since then stays skipped. Without it, it is Recently skipped's put back, which takes
 	 * whatever skipped item the user chose. Only SKIPPED rows ever change, and an id sent twice counts once.
 	 */
 	@Transactional
-	public UnskipSummary unskip(List<Long> itemIds, Instant skippedAt) {
+	public UnskipSummary unskip(List<Long> itemIds, String skipToken) {
 		requireIds(itemIds);
-		LocalDateTime at = skippedAt == null ? null : LocalDateTime.ofInstant(skippedAt, ZoneOffset.UTC);
 		int restored = 0;
 		for (long itemId : itemIds.stream().distinct().toList()) {
-			restored += at == null ? items.unskipIfSkipped(itemId) : items.unskipIfSkippedAt(itemId, at);
+			restored += skipToken == null ? items.unskipIfSkipped(itemId) : items.unskipIfSkippedBy(itemId, skipToken);
 		}
 		return new UnskipSummary(itemIds.size(), restored);
 	}
@@ -619,7 +619,7 @@ public class XLikeSyncService {
 		}
 	}
 
-	public record SkipSummary(int requestedCount, int skippedCount, List<Long> skippedIds, Instant skippedAt) {
+	public record SkipSummary(int requestedCount, int skippedCount, List<Long> skippedIds, String skipToken) {
 		public SkipSummary(int requestedCount, int skippedCount) {
 			this(requestedCount, skippedCount, List.of(), null);
 		}

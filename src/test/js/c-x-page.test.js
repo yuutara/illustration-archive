@@ -582,20 +582,20 @@ function library(ids, { failSkip = false } = {}) {
     app.answer = async () => {
         const url = app.posts.at(-1);
         const itemIds = JSON.parse(app.bodies.at(-1)).itemIds;
-        const { skippedAt } = JSON.parse(app.bodies.at(-1));
-        app.calls.push([url.replace("/api/x-import/inbox/", ""), itemIds, ...(skippedAt ? [skippedAt] : [])]);
+        const { skipToken } = JSON.parse(app.bodies.at(-1));
+        app.calls.push([url.replace("/api/x-import/inbox/", ""), itemIds, ...(skipToken ? [skipToken] : [])]);
         if (url.endsWith("/skip")) {
             if (failSkip) return { status: 500, body: {} };
             const at = `t${++app.skipTimes}`;
-            const moved = app.items.filter((item) => itemIds.includes(item.id)).map((item) => ({ ...item, skippedAt: at }));
+            const moved = app.items.filter((item) => itemIds.includes(item.id)).map((item) => ({ ...item, skipToken: at }));
             app.items = app.items.filter((item) => !itemIds.includes(item.id));
             app.skipped = [...moved, ...app.skipped];
             return { status: 200, body: { requestedCount: itemIds.length, skippedCount: moved.length,
-                skippedIds: moved.map((item) => item.id), skippedAt: at } };
+                skippedIds: moved.map((item) => item.id), skipToken: moved.length ? at : null } };
         }
         if (url.endsWith("/unskip")) {
-            // 和服务端一样：带着跳过时间的撤销只放回那一次跳过的
-            const restores = (item) => itemIds.includes(item.id) && (!skippedAt || item.skippedAt === skippedAt);
+            // 和服务端一样：带着凭据的撤销只放回那一次跳过的
+            const restores = (item) => itemIds.includes(item.id) && (!skipToken || item.skipToken === skipToken);
             const back = app.skipped.filter(restores);
             app.skipped = app.skipped.filter((item) => !restores(item));
             app.items = [...app.items, ...back].sort((a, b) => a.id - b.id);
@@ -775,7 +775,7 @@ test("an undo takes back only what the server says this skip changed, not what a
     const app = library([1, 2, 3]);
     await settle();
     // Another window skips 2 while this page still shows it.
-    app.skipped = [{ ...app.items.find((item) => item.id === 2), skippedAt: "elsewhere" }];
+    app.skipped = [{ ...app.items.find((item) => item.id === 2), skipToken: "elsewhere" }];
     app.items = app.items.filter((item) => item.id !== 2);
     app.select("1");
     app.select("2");
@@ -798,7 +798,7 @@ test("an old undo cannot take back a later skip of the same item", async () => {
     await settle();
     const stale = app.undoButton();
     // Elsewhere: put back, then skipped again.
-    app.skipped = app.skipped.map((item) => ({ ...item, skippedAt: "later" }));
+    app.skipped = app.skipped.map((item) => ({ ...item, skipToken: "later" }));
     stale.listeners.get("click")({});
     await settle();
     assert.deepEqual(app.calls.at(-1), ["unskip", [1], "t1"]);

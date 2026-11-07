@@ -280,8 +280,8 @@ Tag ID 会先校验存在性，并去除重复 ID，然后在同一数据库事�
 | `POST` | `/api/x-import/sync/account/adopt` | 用户确认没有归属的旧进度属于同步刚识别到的账号，绑定后沿用；请求体 `{"confirmation":"<syncProgress.accountConfirmation>"}`，状态已变化时返回 409，不请求 X |
 | `POST` | `/api/x-import/sync/account/restart` | 同步实际发现账号不符且用户确认后，清除同步进度并绑定该账号；请求体同上，状态已变化时返回 409；保留 Inbox、作品与媒体，不请求 X |
 | `GET` | `/api/x-import/inbox?page=0&size=24` | 返回 `items`、`page`、`size`、`totalItems`、`totalPages` 和本地 `syncProgress`；默认每页 24 条，`size` 范围 1..100，仅查询当页 `PENDING` 及媒体，按 `likes_order DESC, discovered_at DESC, id DESC` 排序 |
-| `PATCH` | `/api/x-import/inbox/skip` | 跳过请求体 `itemIds` 中仍为 `PENDING` 的项；返回实际跳过的 `skippedIds` 和这次的 `skippedAt` |
-| `PATCH` | `/api/x-import/inbox/unskip` | 把请求体 `itemIds` 中仍为 `SKIPPED` 的项放回 `PENDING`，按 `likes_order` 回到原位置；带 `skippedAt` 时是撤销那一次跳过，只放回跳过时间相同的项；返回 `restoredCount` |
+| `PATCH` | `/api/x-import/inbox/skip` | 跳过请求体 `itemIds` 中仍为 `PENDING` 的项；返回实际跳过的 `skippedIds` 和这次跳过的凭据 `skipToken`（一件都没跳过时为空） |
+| `PATCH` | `/api/x-import/inbox/unskip` | 把请求体 `itemIds` 中仍为 `SKIPPED` 的项放回 `PENDING`，按 `likes_order` 回到原位置；带 `skipToken` 时是撤销那一次跳过，只放回仍带着该凭据的项；返回 `restoredCount` |
 | `GET` | `/api/x-import/inbox/skipped?page=0&size=24` | “最近跳过”：分页返回 `SKIPPED` 项及媒体，按跳过时间（`updated_at`）倒序；没有 `syncProgress` |
 | `POST` | `/api/x-import/inbox/import` | 导入请求体 `itemIds` 中的项，逐项返回 `SUCCESS`、`DUPLICATE` 或 `FAILED` |
 | `GET` | `/api/x-import/inbox/{itemId}/media/{mediaKey}/content` | 按数据库中的 `animated_gif` 记录流式转发 X CDN MP4，供 Inbox 预览使用；不接受外部 URL 参数，不落盘 |
@@ -319,7 +319,8 @@ Tag ID 会先校验存在性，并去除重复 ID，然后在同一数据库事�
 │  │     │  ├─ V5__add_x_like_sync_continuation.sql
 │  │     │  ├─ V6__index_x_like_inbox_discovery.sql
 │  │     │  ├─ V7__add_x_like_api_order.sql
-│  │     │  └─ V8__add_x_like_sync_account.sql
+│  │     │  ├─ V8__add_x_like_sync_account.sql
+│  │     │  └─ V9__add_x_like_skip_token.sql
 │  │     ├─ static/
 │  │     │  ├─ index.html / app.js            # Gallery
 │  │     │  ├─ detail.html / detail.js        # Detail

@@ -125,35 +125,35 @@ public class XLikeRepository {
 	}
 
 	public int skipIfPending(long itemId) {
-		return skipIfPending(itemId, utcNow());
-	}
-
-	/** {@code at} becomes the skip's identity: an undo only applies while the row still carries it. */
-	public int skipIfPending(long itemId, LocalDateTime at) {
-		return jdbcTemplate.update("""
-				UPDATE x_like_item
-				SET status = 'SKIPPED', updated_at = ?
-				WHERE id = ? AND status = 'PENDING'
-				""", at, itemId);
+		return skipIfPending(itemId, utcNow(), java.util.UUID.randomUUID().toString());
 	}
 
 	/**
-	 * Undo of one particular skip. A row put back and skipped again since then carries a later time, so this skip's
-	 * undo leaves that newer skip alone.
+	 * {@code skipToken} names this skip; an undo only applies while the row still carries it. {@code at} is only the
+	 * skip time that Recently skipped sorts by, so two skips in the same millisecond stay apart.
 	 */
-	public int unskipIfSkippedAt(long itemId, LocalDateTime skippedAt) {
+	public int skipIfPending(long itemId, LocalDateTime at, String skipToken) {
 		return jdbcTemplate.update("""
 				UPDATE x_like_item
-				SET status = 'PENDING', updated_at = ?
-				WHERE id = ? AND status = 'SKIPPED' AND updated_at = ?
-				""", utcNow(), itemId, skippedAt);
+				SET status = 'SKIPPED', updated_at = ?, skip_token = ?
+				WHERE id = ? AND status = 'PENDING'
+				""", at, skipToken, itemId);
+	}
+
+	/** Undo of one particular skip. A row put back and skipped again since then carries another token. */
+	public int unskipIfSkippedBy(long itemId, String skipToken) {
+		return jdbcTemplate.update("""
+				UPDATE x_like_item
+				SET status = 'PENDING', updated_at = ?, skip_token = NULL
+				WHERE id = ? AND status = 'SKIPPED' AND skip_token = ?
+				""", utcNow(), itemId, skipToken);
 	}
 
 	/** Back to the Inbox, where likes_order puts it in its original place. Anything not skipped stays as it is. */
 	public int unskipIfSkipped(long itemId) {
 		return jdbcTemplate.update("""
 				UPDATE x_like_item
-				SET status = 'PENDING', updated_at = ?
+				SET status = 'PENDING', updated_at = ?, skip_token = NULL
 				WHERE id = ? AND status = 'SKIPPED'
 				""", utcNow(), itemId);
 	}

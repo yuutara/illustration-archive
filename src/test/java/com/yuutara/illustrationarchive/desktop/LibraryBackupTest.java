@@ -82,7 +82,7 @@ class LibraryBackupTest {
 		assertFalse(listing.contains(home.toString().replace("\\", "\\\\")), "the manifest names no machine path");
 		assertEquals(new LibraryBackup.Summary(1, 1, 1, 1, 1, 3, manifest.summary().bytes()), manifest.summary());
 		assertEquals("0.6.0", manifest.appVersion());
-		assertEquals("8", manifest.migrations().get(manifest.migrations().size() - 1).version());
+		assertEquals("9", manifest.migrations().get(manifest.migrations().size() - 1).version());
 		try (Stream<Path> left = Files.list(outside)) {
 			assertEquals(List.of(backup), left.toList(), "no temporary file is left next to the backup");
 		}
@@ -169,8 +169,8 @@ class LibraryBackupTest {
 		write(home.resolve("media").resolve("2026-11").resolve("new.png"), "new");
 
 		LibraryRestore.Candidate candidate = LibraryRestore.prepare(home, backup, QUIET);
-		assertEquals("8", candidate.schemaBefore());
-		assertEquals("8", candidate.schemaAfter());
+		assertEquals("9", candidate.schemaBefore());
+		assertEquals("9", candidate.schemaAfter());
 		assertEquals(1, candidate.manifest().summary().works());
 		assertEquals(0, jdbc(home, null).queryForObject("SELECT COUNT(*) FROM illustration", Integer.class),
 				"checking a backup leaves the library as it is");
@@ -304,10 +304,10 @@ class LibraryBackupTest {
 		LibraryRestore.Candidate candidate = LibraryRestore.prepare(home, backup, QUIET);
 
 		assertEquals("7", candidate.schemaBefore());
-		assertEquals("8", candidate.schemaAfter());
+		assertEquals("9", candidate.schemaAfter());
 		assertArrayEquals(zip, Files.readAllBytes(backup), "the backup itself is only read");
 		LibraryRestore.switchTo(home, candidate.id());
-		assertEquals(8, jdbc(home, null).queryForObject(
+		assertEquals(9, jdbc(home, null).queryForObject(
 				"SELECT COUNT(*) FROM flyway_schema_history WHERE success = TRUE AND version IS NOT NULL", Integer.class));
 		assertEquals("旧", jdbc(home, null).queryForObject("SELECT title FROM illustration WHERE id = 1", String.class));
 	}

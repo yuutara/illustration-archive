@@ -31,7 +31,7 @@
         view: 'pending', // pending：待整理；skipped：最近跳过
         connectCard: null, emptyText: '同步后，待整理的收藏会出现在这里。',
         scanBudgets: [],
-        undo: null, // { ids, skippedAt, label }：提示条上还能撤销的那次跳过；提示条消失或被下一条换掉，就不能再撤销
+        undo: null, // { ids, skipToken, label }：提示条上还能撤销的那次跳过；提示条消失或被下一条换掉，就不能再撤销
         preview: null // { item, index, media }：item 是正在展示的那件，index 只是它在列表里的位置，刷新后要重新对上
     };
     let loadSeq = 0;
@@ -531,11 +531,11 @@
     const forget = (ids) => ids.forEach((id) => { state.selected.delete(id); state.problems.delete(id); });
 
     /*
-     * 撤销只认服务端确认这一次跳过的作品和跳过时间：请求里别处已经跳过的不算，
-     * 放回后又被重新跳过的也不算，它们带着更晚的跳过时间。一件都没跳过就没有可撤销的。
+     * 撤销只认服务端确认这一次跳过的作品和这次跳过的凭据：请求里别处已经跳过的不算，
+     * 放回后又被重新跳过的也不算，那是另一次跳过、另一个凭据。一件都没跳过就没有可撤销的。
      */
-    const undoFor = (result, label) => (result.skippedIds && result.skippedIds.length
-        ? { ids: result.skippedIds, skippedAt: result.skippedAt, label } : null);
+    const undoFor = (result, label) => (result.skippedIds && result.skippedIds.length && result.skipToken
+        ? { ids: result.skippedIds, skipToken: result.skipToken, label } : null);
 
     async function skip(ids) {
         if (state.busy || !ids.length || isSkippedView()) return false;
@@ -565,7 +565,7 @@
         state.undo = null;
         $('toast').hidden = true;
         try {
-            const result = await patchItems('/api/x-import/inbox/unskip', undo.ids, { skippedAt: undo.skippedAt });
+            const result = await patchItems('/api/x-import/inbox/unskip', undo.ids, { skipToken: undo.skipToken });
             toast(`已撤销，${result.restoredCount} 件放回待整理`);
         } catch (e) {
             toast('没有确认撤销结果，请看刷新后的列表');

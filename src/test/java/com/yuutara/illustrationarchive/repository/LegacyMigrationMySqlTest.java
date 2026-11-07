@@ -106,7 +106,7 @@ class LegacyMigrationMySqlTest {
 		var result = LegacyMigrationProbe.prepare(config, incoming);
 
 		assertEquals("7", result.schemaBefore());
-		assertEquals("8", result.schemaAfter());
+		assertEquals("9", result.schemaAfter());
 		assertTrue(result.problems().isEmpty(), result.problems().toString());
 		JdbcTemplate copied = new JdbcTemplate(new DriverManagerDataSource("jdbc:h2:file:"
 				+ incoming.resolve("data").resolve("archive") + DesktopServer.H2_COMPATIBILITY, "sa", ""));
