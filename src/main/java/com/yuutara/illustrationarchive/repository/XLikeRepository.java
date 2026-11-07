@@ -33,6 +33,14 @@ public class XLikeRepository {
 			ORDER BY likes_order DESC, discovered_at DESC, id DESC
 			LIMIT ? OFFSET ?
 			""";
+	/** Skipping is the last change a skipped row gets, so updated_at is when it was skipped. */
+	private static final String FIND_SKIPPED_PAGE = """
+			SELECT id, x_post_id, author_display_name, author_username, post_text, post_created_at, discovered_at
+			FROM x_like_item
+			WHERE status = 'SKIPPED'
+			ORDER BY updated_at DESC, id DESC
+			LIMIT ? OFFSET ?
+			""";
 
 	private final JdbcTemplate jdbcTemplate;
 
@@ -124,6 +132,15 @@ public class XLikeRepository {
 				""", utcNow(), itemId);
 	}
 
+	/** Back to the Inbox, where likes_order puts it in its original place. Anything not skipped stays as it is. */
+	public int unskipIfSkipped(long itemId) {
+		return jdbcTemplate.update("""
+				UPDATE x_like_item
+				SET status = 'PENDING', updated_at = ?
+				WHERE id = ? AND status = 'SKIPPED'
+				""", utcNow(), itemId);
+	}
+
 	/** Conditional update holds the row lock until the page transaction also refreshes media. */
 	public Long reopenUnsupported(String postId) {
 		int changed = jdbcTemplate.update("""
@@ -157,8 +174,21 @@ public class XLikeRepository {
 		return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM x_like_item WHERE status = 'PENDING'", Long.class);
 	}
 
+	public long countSkipped() {
+		return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM x_like_item WHERE status = 'SKIPPED'", Long.class);
+	}
+
 	public List<XLikeInboxItem> findPendingPage(int size, long offset) {
-		return jdbcTemplate.query(FIND_PENDING_PAGE, (rs, row) -> {
+		return findPage(FIND_PENDING_PAGE, size, offset);
+	}
+
+	/** Most recently skipped first. */
+	public List<XLikeInboxItem> findSkippedPage(int size, long offset) {
+		return findPage(FIND_SKIPPED_PAGE, size, offset);
+	}
+
+	private List<XLikeInboxItem> findPage(String sql, int size, long offset) {
+		return jdbcTemplate.query(sql, (rs, row) -> {
 			LocalDateTime created = rs.getObject("post_created_at", LocalDateTime.class);
 			Instant createdAt = created == null ? null : created.toInstant(ZoneOffset.UTC);
 			Instant discoveredAt = rs.getObject("discovered_at", LocalDateTime.class).toInstant(ZoneOffset.UTC);

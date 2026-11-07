@@ -19,6 +19,28 @@
         return `每次同步最多读取 ${scanBudget} 条点赞。授权账号就是应用所有者时约 ${costEstimate(scanBudget)}，否则单价可能更高；确认账号身份的读取另计，官方没有写明单价。价格可能调整，实际费用以 X 开发者控制台为准。`;
     }
 
+    // 同步按钮旁一直显示的上限和估价：点之前就知道最多花多少
+    function syncEstimate(scanBudget) {
+        return `每次同步最多读 ${scanBudget} 条，约 ${costEstimate(scanBudget)}`;
+    }
+
+    // 设置页下拉框里的一项
+    function readLimitLabel(reads) {
+        return `${reads} 条（约 ${costEstimate(reads)}）`;
+    }
+
+    /*
+     * “归档选中，跳过其余”之前先说件数。其余只指这一页上没选的，跳过的 10 秒内能撤销，之后也能在“最近跳过”里放回；
+     * 归档要下载原图，不能撤销，所以只说跳过可以找回。
+     */
+    function archiveRestConfirm(keep, rest) {
+        return {
+            title: `归档 ${keep} 件，跳过本页其余 ${rest} 件？`,
+            text: `选中的 ${keep} 件会下载原图存入图库；本页没选的 ${rest} 件不归档，移出待整理。跳过的 10 秒内可以撤销，之后也能在“最近跳过”里放回。`,
+            ok: '归档并跳过'
+        };
+    }
+
     function upstreamProblem(status) {
         if (status === 401) return 'X 不再接受这次登录，请到设置中重新连接。';
         if (status === 402) return 'X 开发者账号的额度不足，请到开发者控制台充值后再试。';
@@ -281,5 +303,5 @@
         };
     }
 
-    root.XInboxModel = { costEstimate, syncCost, syncSummary, recovery, runRecovery, archiveAll, archiveSummary, archiveProblem, photoVariant, connectionProblem, connectionSteps, aiSteps, connectionCard };
+    root.XInboxModel = { costEstimate, syncCost, syncEstimate, readLimitLabel, archiveRestConfirm, syncSummary, recovery, runRecovery, archiveAll, archiveSummary, archiveProblem, photoVariant, connectionProblem, connectionSteps, aiSteps, connectionCard };
 })(typeof window !== 'undefined' ? window : globalThis);

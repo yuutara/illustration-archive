@@ -1,5 +1,6 @@
 package com.yuutara.illustrationarchive.desktop;
 
+import com.yuutara.illustrationarchive.service.XLikeSyncReadLimit;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
@@ -14,6 +15,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Instant;
+import java.util.List;
 import java.util.Properties;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -21,12 +23,17 @@ import java.util.regex.Pattern;
 /** Non-secret preferences from Settings, in {@code <home>\config\settings.properties}. Tokens and keys live elsewhere. */
 @Component
 @Profile(DesktopServer.PROFILE)
-public class DesktopSettings {
+public class DesktopSettings implements XLikeSyncReadLimit {
+
+	/** The choices Settings offers for "read at most this many Likes per sync". Every one fits the page budget. */
+	public static final List<Integer> X_READ_LIMITS = List.of(25, 50, 100, 200);
+	static final int DEFAULT_X_READ_LIMIT = 50;
 
 	private static final Pattern PROXY = Pattern.compile("([A-Za-z0-9.-]+):(\\d{1,5})");
 	private static final String X_CLIENT_ID = "x.client-id";
 	private static final String PROXY_ADDRESS = "proxy.address";
 	private static final String CLOSE_ACTION = "window.close-action";
+	private static final String X_READ_LIMIT = "x.sync.read-limit";
 	private static final String X_VERIFIED_LOGIN = "x.verified-login";
 	private static final String X_VERIFIED_AT = "x.verified-at";
 	private static final String X_VERIFIED_ACCOUNT = "x.verified-account";
@@ -66,6 +73,24 @@ public class DesktopSettings {
 
 	public synchronized void saveXClientId(String clientId) {
 		change(() -> values.setProperty(X_CLIENT_ID, clientId));
+	}
+
+	/** A value edited by hand into something Settings never offers counts as unset, so a sync never reads more by accident. */
+	@Override
+	public synchronized Integer reads() {
+		try {
+			int saved = Integer.parseInt(values.getProperty(X_READ_LIMIT, "").trim());
+			return X_READ_LIMITS.contains(saved) ? saved : DEFAULT_X_READ_LIMIT;
+		} catch (NumberFormatException unset) {
+			return DEFAULT_X_READ_LIMIT;
+		}
+	}
+
+	public synchronized void saveReads(int reads) {
+		if (!X_READ_LIMITS.contains(reads)) {
+			throw new IllegalArgumentException("Read limit must be one of " + X_READ_LIMITS + ".");
+		}
+		change(() -> values.setProperty(X_READ_LIMIT, Integer.toString(reads)));
 	}
 
 	/** The login the saved X proof is about. {@link DesktopEvidence} decides whether the proof applies. */

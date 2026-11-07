@@ -44,8 +44,13 @@
         <div>
             <h1>X 收藏</h1>
             <p id="x-count" aria-live="polite"></p>
+            <p class="x-sync-cost" id="x-sync-cost" hidden><span id="x-sync-cost-text"></span> · <a class="link" href="/c/settings.html#x-read-limit">调整</a></p>
         </div>
         <div class="app-head-actions">
+            <div class="x-views" role="group" aria-label="显示">
+                <button type="button" id="x-view-pending" aria-pressed="true">待整理</button>
+                <button type="button" id="x-view-skipped" aria-pressed="false">最近跳过</button>
+            </div>
             <button class="btn" id="x-select-page" type="button" hidden>全选本页</button>
             <button class="btn btn-ink" id="x-sync" type="button" hidden>同步</button>
         </div>
@@ -71,7 +76,7 @@
 
     <p class="x-loading" id="x-loading">正在载入…</p>
     <div class="empty" id="x-empty" hidden>
-        <p class="empty-title">收件箱是空的</p>
+        <p class="empty-title" id="x-empty-title">收件箱是空的</p>
         <p id="x-empty-text">同步后，待整理的收藏会出现在这里。</p>
     </div>
     <div class="x-grid" id="x-grid"></div>
@@ -88,6 +93,8 @@
     <span class="bb-sep" aria-hidden="true"></span>
     <button class="bb-btn" id="x-skip" type="button" title="不归档，从收件箱移走（S）">跳过</button>
     <button class="bb-btn bb-primary" id="x-archive" type="button" title="下载原图并存入图库（A）">归档</button>
+    <button class="bb-btn bb-primary" id="x-archive-rest" type="button" title="选中的归档，这一页没选的跳过" hidden></button>
+    <button class="bb-btn bb-primary" id="x-restore" type="button" title="放回待整理，排回原来的位置" hidden>放回待整理</button>
 </div>
 
 <!-- 预览：逐件过，A 归档、S 跳过后自动到下一件 -->
@@ -105,6 +112,7 @@
         <footer>
             <button class="btn btn-ink" id="x-side-archive" type="button">归档 <kbd>A</kbd></button>
             <button class="btn" id="x-side-skip" type="button">跳过 <kbd>S</kbd></button>
+            <button class="btn btn-ink" id="x-side-restore" type="button" hidden>放回待整理</button>
             <button class="btn" id="x-side-close" type="button">关闭 <kbd>Esc</kbd></button>
         </footer>
     </aside>

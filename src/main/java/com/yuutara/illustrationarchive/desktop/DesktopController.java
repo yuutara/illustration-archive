@@ -1,7 +1,6 @@
 package com.yuutara.illustrationarchive.desktop;
 
 import com.yuutara.illustrationarchive.service.GeminiKeyStore;
-import com.yuutara.illustrationarchive.service.XLikeSyncBudget;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Set;
 
 /** Everything the Settings page and the app shell need from the desktop launcher's side of the server. */
@@ -36,11 +36,10 @@ public class DesktopController {
 	private final DesktopActivation activation;
 	private final DesktopEvidence evidence;
 	private final GeminiKeyStore geminiKeys;
-	private final XLikeSyncBudget budget;
 	private final Path home;
 
 	public DesktopController(XAuthorizationService authorization, DesktopSettings settings, DesktopExternal external,
-			DesktopActivation activation, DesktopEvidence evidence, GeminiKeyStore geminiKeys, XLikeSyncBudget budget,
+			DesktopActivation activation, DesktopEvidence evidence, GeminiKeyStore geminiKeys,
 			@Value("${" + DesktopServer.HOME_PROPERTY + "}") String home) {
 		this.authorization = authorization;
 		this.settings = settings;
@@ -48,13 +47,15 @@ public class DesktopController {
 		this.activation = activation;
 		this.evidence = evidence;
 		this.geminiKeys = geminiKeys;
-		this.budget = budget;
 		this.home = Path.of(home);
 	}
 
-	/** {@code verifiedAt} and {@code verifiedAccount} come only from a finished sync on the current login, never from a guess. */
+	/**
+	 * {@code verifiedAt} and {@code verifiedAccount} come only from a finished sync on the current login, never from a
+	 * guess. {@code scanBudget} is the saved read limit, one of {@code scanBudgets}.
+	 */
 	public record XConnection(XAuthorizationService.Status status, String clientId, String callbackUrl, String scopes,
-			int scanBudget, String verifiedAt, String verifiedAccount) {
+			int scanBudget, List<Integer> scanBudgets, String verifiedAt, String verifiedAccount) {
 	}
 
 	public record SettingsView(String dataDirectory, String version, String proxy, boolean geminiKeySaved,
@@ -65,6 +66,9 @@ public class DesktopController {
 	}
 
 	public record ProxyRequest(String address) {
+	}
+
+	public record ReadLimitRequest(Integer reads) {
 	}
 
 	public record CloseActionRequest(CloseAction action) {
@@ -129,6 +133,15 @@ public class DesktopController {
 		return ResponseEntity.noContent().build();
 	}
 
+	@PutMapping("/api/desktop/settings/x-read-limit")
+	public XConnection saveReadLimit(@RequestBody ReadLimitRequest request) {
+		if (request.reads() == null) {
+			throw new IllegalArgumentException("Read limit is required.");
+		}
+		settings.saveReads(request.reads());
+		return connection(authorization.status());
+	}
+
 	@PutMapping("/api/desktop/settings/proxy")
 	public ResponseEntity<Void> saveProxy(@RequestBody ProxyRequest request) {
 		settings.saveProxy(request.address() == null ? "" : request.address().trim());
@@ -181,6 +194,6 @@ public class DesktopController {
 
 	private XConnection connection(XAuthorizationService.Status status) {
 		return new XConnection(status, settings.xClientId(), authorization.callbackUrl(), XAuthorizationService.SCOPES,
-				budget.maxScanned(), evidence.xVerifiedAt(), evidence.xVerifiedAccount());
+				settings.reads(), DesktopSettings.X_READ_LIMITS, evidence.xVerifiedAt(), evidence.xVerifiedAccount());
 	}
 }

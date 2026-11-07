@@ -83,6 +83,17 @@ public class XImportController {
 		return syncService.skip(request.itemIds());
 	}
 
+	@PatchMapping("/inbox/unskip")
+	public XLikeSyncService.UnskipSummary unskip(@RequestBody SkipRequest request) {
+		return syncService.unskip(request.itemIds());
+	}
+
+	@GetMapping("/inbox/skipped")
+	public XLikeInboxPage skipped(@RequestParam(required = false) Integer page,
+			@RequestParam(required = false) Integer size) {
+		return syncService.skipped(page, size);
+	}
+
 	@PostMapping("/inbox/import")
 	public XImportService.Summary importSelected(@RequestBody SkipRequest request) {
 		return importService.importSelected(request.itemIds());

@@ -296,3 +296,35 @@ test("removing a key says so, and a failed removal keeps offering it", async () 
     assert.equal(app.element("ai-clear").hidden, true);
     assert.equal(app.element("ai-save").textContent, "保存");
 });
+
+test("the read limit offers the server's choices with their cost, saves a pick, and falls back when saving fails", async () => {
+    const connection = connectionOf("CONNECTED", "USABLE", { scanBudget: 50, scanBudgets: [25, 50, 100, 200] });
+    let fail = false;
+    const app = await setup({ connection, answer: async (url, options) => {
+        if (fail) return [500, { message: "写入数据文件夹失败" }];
+        return [200, { ...connection, scanBudget: JSON.parse(options.body).reads }];
+    } });
+    const radios = () => app.element("x-read-limit-choices").children.map((label) => label.children[0]);
+    assert.equal(app.element("x-read-limit").hidden, false);
+    assert.deepEqual(app.element("x-read-limit-choices").children.map((label) => label.children[1].textContent),
+        ["25 条（约 US$0.03）", "50 条（约 US$0.05）", "100 条（约 US$0.10）", "200 条（约 US$0.20）"]);
+    assert.equal(radios().find((radio) => radio.checked).value, "50");
+
+    radios()[3].listeners.get("change")();
+    await settle();
+    assert.deepEqual(app.sent.at(-1)[0], "/api/desktop/settings/x-read-limit");
+    assert.deepEqual(JSON.parse(app.sent.at(-1)[1].body), { reads: 200 });
+    assert.equal(radios().find((radio) => radio.checked).value, "200");
+    assert.match(app.element("x-cost").textContent, /最多读取 200 条/);
+
+    fail = true;
+    radios()[0].listeners.get("change")();
+    await settle();
+    assert.equal(radios().find((radio) => radio.checked).value, "200", "what is checked is what was saved");
+    assert.match(app.element("x-read-limit-error").textContent, /没有保存/);
+});
+
+test("without choices from the server the read limit is not shown", async () => {
+    const app = await setup({ connection: connectionOf("CONNECTED", "USABLE") });
+    assert.equal(app.element("x-read-limit").hidden, true);
+});

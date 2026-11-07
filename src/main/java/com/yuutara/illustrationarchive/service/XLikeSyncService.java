@@ -23,6 +23,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 
 @Service
 public class XLikeSyncService {
@@ -36,6 +38,7 @@ public class XLikeSyncService {
 	private final int defaultMaxPages;
 	private final XLikeSyncBudget budget;
 	private IntegrationEvidence evidence = new IntegrationEvidence() { };
+	private XLikeSyncReadLimit readLimit = () -> null;
 
 	public XLikeSyncService(XApiClient client, XLikePersistenceService persistence,
 			XLikeRepository items, XLikeMediaRepository media, XLikeSyncStateRepository syncState,
@@ -56,9 +59,20 @@ public class XLikeSyncService {
 		this.evidence = evidence;
 	}
 
+	@Autowired(required = false)
+	public void setReadLimit(XLikeSyncReadLimit readLimit) {
+		this.readLimit = readLimit;
+	}
+
+	/** The configured budget, with the user's read limit when there is one. Read once per sync. */
+	public XLikeSyncBudget currentBudget() {
+		Integer reads = readLimit.reads();
+		return reads == null ? budget : budget.withReadLimit(reads);
+	}
+
 	/** Recent owns its resumable frontier; History keeps its independent older cursor. */
 	public synchronized XLikeSyncReport sync() {
-		var usage = new XLikeSyncBudget.Usage(budget);
+		var usage = new XLikeSyncBudget.Usage(currentBudget());
 		Scan recent = new Scan(), history = new Scan();
 		String attempt = evidence.xAttempt();
 		XApiClient.XUser reader = null;
@@ -66,7 +80,7 @@ public class XLikeSyncService {
 			XApiClient.XUser user = client.resolveUser();
 			if (!ownsProgress(user)) {
 				recent.reason = "ACCOUNT_MISMATCH"; recent.partial = true; history.reason = "SKIPPED_AFTER_FAILURE";
-				return report(recent, history);
+				return report(recent, history, usage.limits);
 			}
 			reader = user;
 			String userId = user.id();
@@ -79,7 +93,7 @@ public class XLikeSyncService {
 				syncState.markInvalid(state.get().maxResults());
 				history.reason = "INVALID_TOKEN"; history.partial = true; history.hasMore = true;
 			} else history = scan(userId, state.get().maxResults(), state.get().nextToken(),
-					budget.maxPages(), true, usage, true);
+					usage.limits.maxPages(), true, usage, true);
 		} catch (XApiException failure) {
 			recent.reason = "API_FAILURE"; recent.partial = true; recent.scanKnown = false;
 			recent.upstreamStatus = failure.upstreamStatus(); history.reason = "SKIPPED_AFTER_FAILURE";
@@ -87,15 +101,15 @@ public class XLikeSyncService {
 			log.warn("X Likes sync state could not be read or saved.", failure);
 			history.reason = "STATE_FAILURE"; history.partial = true;
 		}
-		XLikeSyncReport finished = report(recent, history);
+		XLikeSyncReport finished = report(recent, history, usage.limits);
 		if (reader != null && !finished.partial()) evidence.xWorked(attempt, reader.username());
 		return finished;
 	}
 
-	private XLikeSyncReport report(Scan recent, Scan history) {
+	private XLikeSyncReport report(Scan recent, Scan history, XLikeSyncBudget limits) {
 		var progress = progress();
-		return new XLikeSyncReport(recent.report(), history.report(), budget.maxPages(), budget.maxScanned(),
-				budget.maxNew(), recent.partial || history.partial, progress.historyStatus(), progress.recentStatus());
+		return new XLikeSyncReport(recent.report(), history.report(), limits.maxPages(), limits.maxScanned(),
+				limits.maxNew(), recent.partial || history.partial, progress.historyStatus(), progress.recentStatus());
 	}
 
 	/**
@@ -179,11 +193,11 @@ public class XLikeSyncService {
 				if (!"ACTIVE".equals(current.status())) {
 					completeRecentScan(total, current); return total;
 				}
-				if (budget.recentMaxPages() == 1) {
+				if (usage.limits.recentMaxPages() == 1) {
 					String stop = usage.stopBefore(current.maxResults());
 					total.reason = stop == null ? "RECENT_WINDOW" : stop; total.hasMore = true; return total;
 				}
-				Scan tail = scan(userId, current.maxResults(), current.nextToken(), budget.recentMaxPages() - 1,
+				Scan tail = scan(userId, current.maxResults(), current.nextToken(), usage.limits.recentMaxPages() - 1,
 						false, usage, true, current);
 				total.add(tail); return total;
 			} else if (current.headIds() != null && usage.limits.maxPages() - usage.pages >= 2
@@ -194,7 +208,7 @@ public class XLikeSyncService {
 				total.add(probe);
 				if (probe.partial) return total;
 			}
-			Scan tail = scan(userId, current.maxResults(), current.nextToken(), budget.recentMaxPages(), false, usage, true, current);
+			Scan tail = scan(userId, current.maxResults(), current.nextToken(), usage.limits.recentMaxPages(), false, usage, true, current);
 			total.add(tail);
 		} catch (RuntimeException failure) {
 			log.warn("X Likes recent checkpoint could not be read or saved.", failure);
@@ -496,25 +510,39 @@ public class XLikeSyncService {
 	}
 
 	public XLikeInboxPage inbox(Integer requestedPage, Integer requestedSize) {
+		return page(requestedPage, requestedSize, items::countPending, items::findPendingPage, this::progress);
+	}
+
+	/** Skipped items, most recently skipped first, so a skip made by mistake is found at the top. */
+	public XLikeInboxPage skipped(Integer requestedPage, Integer requestedSize) {
+		return page(requestedPage, requestedSize, items::countSkipped, items::findSkippedPage, () -> null);
+	}
+
+	private interface PageQuery {
+		List<XLikeInboxItem> find(int size, long offset);
+	}
+
+	/** Validates before touching the database, so a bad request reads nothing. */
+	private XLikeInboxPage page(Integer requestedPage, Integer requestedSize, LongSupplier count, PageQuery query,
+			Supplier<XLikeSyncReport.Progress> progress) {
 		int page = requestedPage == null ? 0 : requestedPage;
 		int size = requestedSize == null ? 24 : requestedSize;
 		if (page < 0) throw new IllegalArgumentException("page must be greater than or equal to 0.");
 		if (size < 1 || size > 100) throw new IllegalArgumentException("size must be between 1 and 100.");
-		long totalItems = items.countPending();
+		long totalItems = count.getAsLong();
 		int totalPages = Math.toIntExact(totalItems == 0 ? 0 : (totalItems - 1) / size + 1);
-		List<XLikeInboxItem> pending = page >= totalPages ? List.of()
-				: items.findPendingPage(size, (long) page * size);
+		List<XLikeInboxItem> found = page >= totalPages ? List.of() : query.find(size, (long) page * size);
 		Map<Long, List<XLikeMedia>> byItem = new HashMap<>();
-		if (!pending.isEmpty()) {
-			for (XLikeMediaRepository.PendingMedia row : media.findForItemIds(pending.stream().map(XLikeInboxItem::id).toList())) {
+		if (!found.isEmpty()) {
+			for (XLikeMediaRepository.PendingMedia row : media.findForItemIds(found.stream().map(XLikeInboxItem::id).toList())) {
 				byItem.computeIfAbsent(row.itemId(), ignored -> new ArrayList<>()).add(row.media());
 			}
 		}
-		List<XLikeInboxItem> pageItems = pending.stream().map(item -> new XLikeInboxItem(item.id(), item.xPostId(),
+		List<XLikeInboxItem> pageItems = found.stream().map(item -> new XLikeInboxItem(item.id(), item.xPostId(),
 				item.authorDisplayName(), item.authorUsername(), item.postText(),
 				item.postCreatedAt(), item.discoveredAt(),
 				List.copyOf(byItem.getOrDefault(item.id(), List.of())))).toList();
-		return new XLikeInboxPage(pageItems, page, size, totalItems, totalPages, progress());
+		return new XLikeInboxPage(pageItems, page, size, totalItems, totalPages, progress.get());
 	}
 
 	@Transactional
@@ -529,6 +557,25 @@ public class XLikeSyncService {
 		return new SkipSummary(itemIds.size(), skipped);
 	}
 
+	/**
+	 * Undo for a skip: skipped items go back to Pending. Only SKIPPED rows change, so an id sent twice, or one that
+	 * was put back elsewhere in the meantime, counts once and nothing else is touched.
+	 */
+	@Transactional
+	public UnskipSummary unskip(List<Long> itemIds) {
+		if (itemIds == null || itemIds.isEmpty() || itemIds.stream().anyMatch(id -> id == null || id <= 0)) {
+			throw new IllegalArgumentException("itemIds must contain at least one positive item id.");
+		}
+		int restored = 0;
+		for (long itemId : itemIds.stream().distinct().toList()) {
+			restored += items.unskipIfSkipped(itemId);
+		}
+		return new UnskipSummary(itemIds.size(), restored);
+	}
+
 	public record SkipSummary(int requestedCount, int skippedCount) {
+	}
+
+	public record UnskipSummary(int requestedCount, int restoredCount) {
 	}
 }

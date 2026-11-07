@@ -1,0 +1,97 @@
+package com.yuutara.illustrationarchive.repository;
+
+import com.yuutara.illustrationarchive.desktop.DesktopServer;
+import com.yuutara.illustrationarchive.dto.XLikeCandidate;
+import com.yuutara.illustrationarchive.dto.XLikeInboxItem;
+import com.yuutara.illustrationarchive.dto.XLikeStatus;
+import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+
+import java.util.List;
+import java.util.UUID;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+/** Skip, put back and the recently-skipped list against the real H2 schema the desktop app uses. */
+class XLikeRepositoryH2Test {
+
+	private JdbcTemplate jdbc;
+	private XLikeRepository items;
+
+	@BeforeEach
+	void open() {
+		var dataSource = new DriverManagerDataSource("jdbc:h2:mem:x-like-" + UUID.randomUUID()
+				+ DesktopServer.H2_COMPATIBILITY + ";DB_CLOSE_DELAY=-1", "sa", "");
+		Flyway.configure().dataSource(dataSource).locations("classpath:db/migration-h2").load().migrate();
+		jdbc = new JdbcTemplate(dataSource);
+		items = new XLikeRepository(jdbc);
+	}
+
+	@AfterEach
+	void close() {
+		jdbc.execute("DROP ALL OBJECTS");
+	}
+
+	private long like(String postId, long order, XLikeStatus status) {
+		return items.insertIfAbsent(new XLikeCandidate(postId, "a" + postId, "author" + postId, "Artist",
+				null, null, status, List.of()), order);
+	}
+
+	private static List<Long> ids(List<XLikeInboxItem> page) {
+		return page.stream().map(XLikeInboxItem::id).toList();
+	}
+
+	@Test
+	void putBackReturnsASkippedLikeToItsOriginalPlaceInTheInbox() {
+		long newest = like("3", 30, XLikeStatus.PENDING);
+		long middle = like("2", 20, XLikeStatus.PENDING);
+		long oldest = like("1", 10, XLikeStatus.PENDING);
+
+		assertEquals(1, items.skipIfPending(middle));
+		assertEquals(List.of(newest, oldest), ids(items.findPendingPage(10, 0)));
+		assertEquals(1, items.countSkipped());
+
+		assertEquals(1, items.unskipIfSkipped(middle));
+		assertEquals(List.of(newest, middle, oldest), ids(items.findPendingPage(10, 0)), "back where it was, not on top");
+		assertEquals(0, items.countSkipped());
+		assertEquals(0, items.unskipIfSkipped(middle), "a second undo changes nothing");
+	}
+
+	@Test
+	void putBackOnlyTouchesSkippedLikes() {
+		long pending = like("1", 10, XLikeStatus.PENDING);
+		long unsupported = like("2", 20, XLikeStatus.UNSUPPORTED);
+		long imported = like("3", 30, XLikeStatus.PENDING);
+		jdbc.update("UPDATE x_like_item SET status = 'IMPORTED' WHERE id = ?", imported);
+
+		assertEquals(0, items.unskipIfSkipped(pending));
+		assertEquals(0, items.unskipIfSkipped(unsupported));
+		assertEquals(0, items.unskipIfSkipped(imported));
+		assertEquals(0, items.unskipIfSkipped(999));
+		assertEquals(List.of("PENDING", "UNSUPPORTED", "IMPORTED"), jdbc.queryForList(
+				"SELECT status FROM x_like_item ORDER BY id", String.class));
+	}
+
+	@Test
+	void recentlySkippedListsTheLatestSkipFirstAndPages() {
+		long first = like("1", 30, XLikeStatus.PENDING);
+		long second = like("2", 20, XLikeStatus.PENDING);
+		long third = like("3", 10, XLikeStatus.PENDING);
+		like("4", 40, XLikeStatus.PENDING);
+		items.skipIfPending(first);
+		items.skipIfPending(second);
+		items.skipIfPending(third);
+		// Skip time decides, not the like order or the id.
+		jdbc.update("UPDATE x_like_item SET updated_at = TIMESTAMP '2026-11-07 10:00:00' WHERE id = ?", first);
+		jdbc.update("UPDATE x_like_item SET updated_at = TIMESTAMP '2026-11-07 12:00:00' WHERE id = ?", second);
+		jdbc.update("UPDATE x_like_item SET updated_at = TIMESTAMP '2026-11-07 11:00:00' WHERE id = ?", third);
+
+		assertEquals(3, items.countSkipped());
+		assertEquals(List.of(second, third, first), ids(items.findSkippedPage(10, 0)));
+		assertEquals(List.of(third), ids(items.findSkippedPage(1, 1)));
+	}
+}

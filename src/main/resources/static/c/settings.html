@@ -66,6 +66,12 @@
         </div>
         <p class="set-error" id="x-error" role="alert" hidden></p>
         <div class="set-actions" id="x-actions"></div>
+        <div class="set-limit" id="x-read-limit" hidden>
+            <p class="set-limit-title" id="x-read-limit-title">每次同步最多读取</p>
+            <div class="set-choices set-choices-row" id="x-read-limit-choices" role="radiogroup" aria-labelledby="x-read-limit-title"></div>
+            <p class="set-error" id="x-read-limit-error" role="alert" hidden></p>
+            <p class="set-hint">平时每周同步一次，50 条一般够用。追历史点赞时可以调大，读到的条数越多，每次花费越高；没有新收藏时读不满也不会多扣。</p>
+        </div>
         <p class="set-note">授权在默认浏览器中进行，应用看不到你的 X 密码。授权本身不读取 X 的数据；只有在“X 收藏”点“同步”才会读取，费用从你的开发者预付额度中扣除，不会在后台自动同步。<span id="x-cost"></span></p>
     </section>
 

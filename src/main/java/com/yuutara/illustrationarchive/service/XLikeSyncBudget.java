@@ -19,6 +19,18 @@ public record XLikeSyncBudget(
 		}
 	}
 
+	/**
+	 * The user's "read at most this many Likes per sync". It caps reads and, since every new item is also a read, new
+	 * items too. Pages grow only as far as needed to spend it in full-size pages plus one head probe, and Recent may
+	 * use all of them, so a larger limit also catches up a backlog of new Likes faster instead of only reading
+	 * further back in History. Page sizes stay as configured, so saved cursors keep working.
+	 */
+	public XLikeSyncBudget withReadLimit(int reads) {
+		int pages = Math.min(10, Math.max(maxPages, Math.ceilDiv(reads, recentPageSize) + 1));
+		int recentPages = Math.max(recentMaxPages, Math.min(pages - 1, reads / recentPageSize));
+		return new XLikeSyncBudget(recentPageSize, recentPages, pages, reads, reads);
+	}
+
 	static final class Usage {
 		final XLikeSyncBudget limits;
 		int pages;

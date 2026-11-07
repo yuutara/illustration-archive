@@ -137,7 +137,7 @@ class DesktopXIntegrationTest {
 		JsonNode initial = json(send(running, cookie, "GET", "/api/x-auth/status", null));
 		assertEquals("DISCONNECTED", initial.path("status").path("state").asText());
 		assertEquals("http://127.0.0.1:" + callbackPort + "/x/callback", initial.path("callbackUrl").asText());
-		assertEquals(100, initial.path("scanBudget").asInt());
+		assertEquals(50, initial.path("scanBudget").asInt(), "Settings offers 50 reads per sync until the user picks another");
 
 		HttpResponse<String> unconnected = send(running, cookie, "POST", "/api/x-import/sync", "");
 		assertEquals(200, unconnected.statusCode(), unconnected.body());
@@ -174,6 +174,15 @@ class DesktopXIntegrationTest {
 		HttpResponse<String> skip = send(running, cookie, "PATCH", "/api/x-import/inbox/skip", "{\"itemIds\":[" + skippedId + "]}");
 		assertEquals(1, json(skip).path("skippedCount").asInt(), skip.body());
 		assertEquals(1, json(send(running, cookie, "GET", "/api/x-import/inbox?page=0&size=24", null)).path("totalItems").asLong());
+		JsonNode skippedList = json(send(running, cookie, "GET", "/api/x-import/inbox/skipped?page=0&size=40", null));
+		assertEquals(List.of(skippedId), skippedList.path("items").valueStream().map(i -> i.path("id").asLong()).toList());
+		HttpResponse<String> putBack = send(running, cookie, "PATCH", "/api/x-import/inbox/unskip", "{\"itemIds\":[" + skippedId + "]}");
+		assertEquals(1, json(putBack).path("restoredCount").asInt(), putBack.body());
+		assertEquals(List.of("1003", "1001"), json(send(running, cookie, "GET", "/api/x-import/inbox?page=0&size=24", null))
+				.path("items").valueStream().map(i -> i.path("xPostId").asText()).toList(), "back in its place");
+		assertEquals(0, json(send(running, cookie, "GET", "/api/x-import/inbox/skipped", null)).path("totalItems").asLong());
+		assertEquals(1, json(send(running, cookie, "PATCH", "/api/x-import/inbox/skip", "{\"itemIds\":[" + skippedId + "]}"))
+				.path("skippedCount").asInt());
 
 		long pendingId = multiImage.path("id").asLong();
 		var context = running.context();
@@ -1146,6 +1155,27 @@ class DesktopXIntegrationTest {
 		assertEquals(400, send(running, cookie, "POST", "/api/desktop/open-external", "{\"url\":\"https://evil.example/\"}").statusCode());
 		assertEquals(400, send(running, cookie, "POST", "/api/desktop/open-external", "{\"url\":\"file:///C:/Windows/notepad.exe\"}").statusCode());
 		assertEquals(200, send(running, cookie, "POST", "/api/desktop/open-external", "{\"url\":\"https://x.com/i/status/1\"}").statusCode());
+	}
+
+	@Test
+	void theReadLimitChosenInSettingsBoundsTheNextSyncAndSurvivesARestart() throws Exception {
+		DesktopServer.Running running = start();
+		String cookie = sessionCookie(running);
+		JsonNode initial = json(send(running, cookie, "GET", "/api/x-auth/status", null));
+		assertEquals(List.of(25, 50, 100, 200), initial.path("scanBudgets").valueStream().map(JsonNode::asInt).toList());
+
+		HttpResponse<String> saved = send(running, cookie, "PUT", "/api/desktop/settings/x-read-limit", "{\"reads\":25}");
+		assertEquals(200, saved.statusCode(), saved.body());
+		assertEquals(25, json(saved).path("scanBudget").asInt());
+		assertEquals(400, send(running, cookie, "PUT", "/api/desktop/settings/x-read-limit", "{\"reads\":77}").statusCode());
+		assertEquals(400, send(running, cookie, "PUT", "/api/desktop/settings/x-read-limit", "{}").statusCode());
+		assertEquals(25, json(send(running, cookie, "GET", "/api/x-auth/status", null)).path("scanBudget").asInt());
+		assertEquals(25, new DesktopSettings(running.context().getEnvironment().getProperty(DesktopServer.HOME_PROPERTY)).reads());
+
+		connect(running, cookie);
+		JsonNode report = json(send(running, cookie, "POST", "/api/x-import/sync", ""));
+		assertEquals(25, report.path("scanBudget").asInt(), report.toString());
+		assertEquals(25, report.path("newBudget").asInt(), report.toString());
 	}
 
 	@Test

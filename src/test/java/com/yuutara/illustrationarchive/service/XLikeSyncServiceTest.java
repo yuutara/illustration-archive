@@ -528,4 +528,45 @@ class XLikeSyncServiceTest {
 		verify(items).skipIfPending(4L);
 		verify(items).skipIfPending(99L);
 	}
+	@Test
+	void putBackCountsOnlySkippedTransitionsAndRejectsBadIds() {
+		XLikeRepository items = mock(XLikeRepository.class);
+		XLikeSyncService service = new XLikeSyncService(mock(XApiClient.class),
+				mock(XLikePersistenceService.class), items, mock(XLikeMediaRepository.class), mock(XLikeSyncStateRepository.class), 5, 3, new XLikeSyncBudget(25, 2, 6, 100, 50));
+		when(items.unskipIfSkipped(1L)).thenReturn(1);
+		var result = service.unskip(List.of(1L, 1L, 2L));
+
+		assertEquals(3, result.requestedCount());
+		assertEquals(1, result.restoredCount());
+		verify(items).unskipIfSkipped(1L);
+		verify(items).unskipIfSkipped(2L);
+		assertThrows(IllegalArgumentException.class, () -> service.unskip(List.of()));
+		assertThrows(IllegalArgumentException.class, () -> service.unskip(java.util.Arrays.asList(1L, null)));
+		assertThrows(IllegalArgumentException.class, () -> service.unskip(List.of(0L)));
+		verifyNoMoreInteractions(items);
+	}
+
+	@Test
+	void recentlySkippedPagesWithMediaAndCarriesNoSyncProgress() {
+		XLikeRepository items = mock(XLikeRepository.class);
+		XLikeMediaRepository media = mock(XLikeMediaRepository.class);
+		XLikeSyncStateRepository state = mock(XLikeSyncStateRepository.class);
+		XLikeSyncService service = new XLikeSyncService(mock(XApiClient.class),
+				mock(XLikePersistenceService.class), items, media, state, 5, 3, new XLikeSyncBudget(25, 2, 6, 100, 50));
+		when(items.countSkipped()).thenReturn(3L);
+		when(items.findSkippedPage(2, 2L)).thenReturn(List.of(
+				new XLikeInboxItem(9, "skipped", "Artist", "artist", null, null, Instant.parse("2026-11-01T09:00:00Z"), List.of())));
+		when(media.findForItemIds(List.of(9L))).thenReturn(List.of(
+				new XLikeMediaRepository.PendingMedia(9, new XLikeMedia("p", 0, "photo", "https://img/p", 1, 1))));
+
+		var result = service.skipped(1, 2);
+
+		assertEquals(List.of("skipped"), result.items().stream().map(XLikeInboxItem::xPostId).toList());
+		assertEquals("p", result.items().get(0).media().get(0).mediaKey());
+		assertEquals(3, result.totalItems());
+		assertEquals(2, result.totalPages());
+		assertNull(result.syncProgress(), "the skipped list has nothing to do with sync progress");
+		verifyNoInteractions(state);
+		assertThrows(IllegalArgumentException.class, () -> service.skipped(0, 101));
+	}
 }

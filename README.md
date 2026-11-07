@@ -281,6 +281,8 @@ Tag ID 会先校验存在性，并去除重复 ID，然后在同一数据库事�
 | `POST` | `/api/x-import/sync/account/restart` | 同步实际发现账号不符且用户确认后，清除同步进度并绑定该账号；请求体同上，状态已变化时返回 409；保留 Inbox、作品与媒体，不请求 X |
 | `GET` | `/api/x-import/inbox?page=0&size=24` | 返回 `items`、`page`、`size`、`totalItems`、`totalPages` 和本地 `syncProgress`；默认每页 24 条，`size` 范围 1..100，仅查询当页 `PENDING` 及媒体，按 `likes_order DESC, discovered_at DESC, id DESC` 排序 |
 | `PATCH` | `/api/x-import/inbox/skip` | 跳过请求体 `itemIds` 中仍为 `PENDING` 的项 |
+| `PATCH` | `/api/x-import/inbox/unskip` | 把请求体 `itemIds` 中仍为 `SKIPPED` 的项放回 `PENDING`（撤销跳过），按 `likes_order` 回到原位置；返回 `restoredCount` |
+| `GET` | `/api/x-import/inbox/skipped?page=0&size=24` | “最近跳过”：分页返回 `SKIPPED` 项及媒体，按跳过时间（`updated_at`）倒序；没有 `syncProgress` |
 | `POST` | `/api/x-import/inbox/import` | 导入请求体 `itemIds` 中的项，逐项返回 `SUCCESS`、`DUPLICATE` 或 `FAILED` |
 | `GET` | `/api/x-import/inbox/{itemId}/media/{mediaKey}/content` | 按数据库中的 `animated_gif` 记录流式转发 X CDN MP4，供 Inbox 预览使用；不接受外部 URL 参数，不落盘 |
 
@@ -463,7 +465,7 @@ Compose 用现有 A1 环境变量向应用注入 `jdbc:mysql://db:3306/illustrat
 | `X_API_BASE_URL` | 可选：默认 `https://api.x.com` |
 | `X_API_DEFAULT_PAGE_SIZE`、`X_API_DEFAULT_MAX_PAGES` | 显式 Recent / History 单独入口的默认页大小 5、最多页数 3；不再限制 Sync 按钮 |
 | `X_SYNC_RECENT_PAGE_SIZE`、`X_SYNC_RECENT_MAX_PAGES` | Recent 每轮遍历默认每页 25，每次续传至多 2 页；预算允许时另探测 1 页头部，也计入共享预算。已保存游标保持原页大小 |
-| `X_SYNC_MAX_PAGES`、`X_SYNC_MAX_SCANNED`、`X_SYNC_MAX_NEW` | 按钮共享预算：最多 6 次 Likes 请求尝试、预留最多 100 条扫描量、新增最多 50 条；认证重试也消耗请求/扫描预算，按整页保守停止 |
+| `X_SYNC_MAX_PAGES`、`X_SYNC_MAX_SCANNED`、`X_SYNC_MAX_NEW` | 按钮共享预算：最多 6 次 Likes 请求尝试、预留最多 100 条扫描量、新增最多 50 条；认证重试也消耗请求/扫描预算，按整页保守停止。桌面版改用设置页的“每次同步最多读取”（25 / 50 / 100 / 200，默认 50） |
 | `X_OAUTH_CLIENT_ID`、`X_OAUTH_CLIENT_SECRET` | 启用 X 同步时必需：当前 App 的 OAuth 2.0 confidential-client 凭据，只放在本机 secret 配置中 |
 | `X_OAUTH_CREDENTIAL_FILE` | 可选：动态用户凭据文件；默认 `./config/x-oauth-tokens.properties`，该默认路径已被 Git 忽略 |
 

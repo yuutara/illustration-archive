@@ -1,6 +1,7 @@
 /*
  * X 收藏：把同步来的点赞过一遍。选中多件批量处理，或打开预览逐件按 A 归档、S 跳过。
- * 同步是付费的，只在用户点按钮时发生；第一次会先说明费用。
+ * 跳过后 10 秒内可以撤销（Ctrl+Z），之后在“最近跳过”里放回。
+ * 同步是付费的，只在用户点按钮时发生；按钮旁一直写着最多读多少条、约多少钱，第一次还会先说明费用。
  */
 (function () {
     'use strict';
@@ -18,22 +19,38 @@
     const COST_NOTICE_KEY = 'ia-x-sync-cost-seen';
     const PREVIEW_CLOSE_MILLIS = 160;
     const CONNECTION_POLL_MILLIS = 1500;
+    const TOAST_MILLIS = 3200;
+    const UNDO_MILLIS = 10000;
 
     let connectionTimer = 0;
 
     const state = {
         page: 0, totalPages: 0, total: 0, items: [],
         selected: new Set(), problems: new Map(),
-        connected: false, scanBudget: 100, busy: false, recovering: false, progress: null,
+        connected: false, scanBudget: 50, busy: false, recovering: false, progress: null,
+        view: 'pending', // pending：待整理；skipped：最近跳过
+        connectCard: null, emptyText: '同步后，待整理的收藏会出现在这里。',
+        undo: null, // { ids, label }：提示条上还能撤销的那次跳过；提示条消失或被下一条换掉，就不能再撤销
         preview: null // { item, index, media }：item 是正在展示的那件，index 只是它在列表里的位置，刷新后要重新对上
     };
+    let loadSeq = 0;
 
-    function toast(text) {
+    const isSkippedView = () => state.view === 'skipped';
+
+    // 提示条一次只说一件事。带撤销的那条停 10 秒，被下一条换掉就不能再撤销，免得撤到看不见的那一次
+    function toast(text, undo = null) {
         const t = $('toast');
         t.textContent = text;
+        state.undo = undo;
+        if (undo) {
+            const button = el('button', 'toast-action', undo.label);
+            button.type = 'button';
+            button.addEventListener('click', undoSkip);
+            t.appendChild(button);
+        }
         t.hidden = false;
         clearTimeout(toast.timer);
-        toast.timer = setTimeout(() => { t.hidden = true; }, 3200);
+        toast.timer = setTimeout(() => { t.hidden = true; state.undo = null; }, undo ? UNDO_MILLIS : TOAST_MILLIS);
     }
 
     const postUrl = (item) => `https://x.com/${encodeURIComponent(item.authorUsername)}/status/${encodeURIComponent(item.xPostId)}`;
@@ -153,9 +170,19 @@
             card.setAttribute('aria-checked', String(on));
         });
         const count = state.selected.size;
+        const skipped = isSkippedView();
+        const rest = state.items.length - count;
         $('x-bar').hidden = count === 0;
         $('x-selected').textContent = `已选 ${count} 件`;
-        ['x-archive', 'x-skip', 'x-clear', 'x-sync'].forEach((id) => { $(id).disabled = state.busy; });
+        $('x-skip').hidden = skipped;
+        $('x-archive').hidden = skipped;
+        // 用户习惯先全选本页、再去掉不要的：这时一步做完；全选了就只是归档
+        $('x-archive-rest').hidden = skipped || rest === 0;
+        $('x-archive-rest').textContent = `归档，跳过其余 ${rest} 件`;
+        $('x-archive').classList.toggle('bb-primary', !skipped && rest === 0);
+        $('x-restore').hidden = !skipped;
+        ['x-archive', 'x-archive-rest', 'x-restore', 'x-skip', 'x-clear', 'x-sync', 'x-view-pending', 'x-view-skipped']
+            .forEach((id) => { $(id).disabled = state.busy; });
         $('x-recovery-actions').querySelectorAll('button').forEach((button) => { button.disabled = state.busy; });
         const all = state.items.length > 0 && state.items.every((item) => state.selected.has(item.id));
         $('x-select-page').textContent = all ? '取消全选' : '全选本页';
@@ -184,7 +211,10 @@
             if (grid.children[index] !== card) grid.insertBefore(card, grid.children[index] || null);
         });
         $('x-loading').hidden = true;
-        $('x-count').textContent = state.total ? `${state.total} 件待整理` : '';
+        const skipped = isSkippedView();
+        $('x-count').textContent = !state.total ? '' : skipped ? `${state.total} 件已跳过，最近跳过的在前` : `${state.total} 件待整理`;
+        $('x-empty-title').textContent = skipped ? '没有跳过的收藏' : '收件箱是空的';
+        $('x-empty-text').textContent = skipped ? '在待整理里跳过的收藏会出现在这里，可以放回。' : state.emptyText;
         $('x-empty').hidden = state.total > 0;
         $('x-select-page').hidden = state.items.length === 0;
         $('x-pager').hidden = state.totalPages <= 1;
@@ -194,22 +224,27 @@
         syncSelection();
     }
 
+    // 切换列表时前一次载入可能还没回来，只有最后发出的那次能画到页面上
     async function load(page = state.page) {
+        const seq = ++loadSeq;
+        const skipped = isSkippedView();
+        const list = skipped ? '/api/x-import/inbox/skipped' : '/api/x-import/inbox';
         try {
             let target = page;
             let data;
             for (;;) {
-                const response = await fetch(`/api/x-import/inbox?page=${target}&size=${PAGE_SIZE}`, { headers: { Accept: 'application/json' } });
+                const response = await fetch(`${list}?page=${target}&size=${PAGE_SIZE}`, { headers: { Accept: 'application/json' } });
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 data = await response.json();
                 if (target === 0 || target < data.totalPages) break;
                 target = Math.max(0, data.totalPages - 1); // 这一页被处理空了，退回最后一页
             }
+            if (seq !== loadSeq) return true;
             state.page = target;
             state.items = data.items;
             state.total = data.totalItems;
             state.totalPages = data.totalPages;
-            state.progress = data.syncProgress;
+            if (!skipped) state.progress = data.syncProgress; // 最近跳过与同步进度无关，保留待整理读到的
             const present = new Set(data.items.map((item) => item.id));
             state.selected.forEach((id) => { if (!present.has(id)) state.selected.delete(id); });
             renderList();
@@ -218,10 +253,33 @@
             if (window.AppShell) window.AppShell.refreshInbox();
             return true;
         } catch (e) {
+            if (seq !== loadSeq) return true;
             $('x-loading').hidden = false;
             $('x-loading').textContent = `收件箱载入失败：${e.message}`;
             return false;
         }
+    }
+
+    /* ---------------- 待整理 / 最近跳过 ---------------- */
+
+    // 同步、费用和进度提示都只属于待整理
+    function renderView() {
+        const skipped = isSkippedView();
+        $('x-view-pending').setAttribute('aria-pressed', String(!skipped));
+        $('x-view-skipped').setAttribute('aria-pressed', String(skipped));
+        $('x-sync').hidden = skipped || !state.connected;
+        $('x-sync-cost').hidden = skipped || !state.connected;
+        $('x-sync-cost-text').textContent = M.syncEstimate(state.scanBudget);
+        $('x-connect').hidden = skipped || !state.connectCard;
+        renderRecovery();
+    }
+
+    function setView(view) {
+        if (state.busy || state.view === view) return;
+        state.view = view;
+        state.selected.clear();
+        renderView();
+        load(0).then(() => window.scrollTo(0, 0));
     }
 
     /* ---------------- 连接状态与同步 ---------------- */
@@ -253,15 +311,15 @@
             state.connected = false;
         }
         const card = M.connectionCard(connection);
-        $('x-connect').hidden = !card;
+        state.connectCard = card;
         if (card) {
             $('x-connect-title').textContent = card.title;
             $('x-connect-text').textContent = card.text;
             $('x-connect-link').textContent = card.action;
         }
-        $('x-sync').hidden = !state.connected;
-        $('x-empty-text').textContent = state.connected ? '点“同步”取回你在 X 上新点赞的作品。' : '连接 X 账号后，待整理的收藏会出现在这里。';
-        renderRecovery();
+        state.emptyText = state.connected ? '点“同步”取回你在 X 上新点赞的作品。' : '连接 X 账号后，待整理的收藏会出现在这里。';
+        if (!isSkippedView()) $('x-empty-text').textContent = state.emptyText;
+        renderView();
         clearTimeout(connectionTimer);
         if (connection && connection.status.state === 'WAITING') connectionTimer = setTimeout(loadConnection, CONNECTION_POLL_MILLIS);
     }
@@ -327,7 +385,7 @@
     /* ---------------- 同步进度需要处理时 ---------------- */
 
     function renderRecovery() {
-        const found = window.UiCapabilities?.xImport === false ? null : M.recovery(state.progress, state.scanBudget);
+        const found = window.UiCapabilities?.xImport === false || isSkippedView() ? null : M.recovery(state.progress, state.scanBudget);
         $('x-recovery').hidden = !found;
         if (!found) return;
         $('x-recovery-title').textContent = found.title;
@@ -377,19 +435,54 @@
         return response.json();
     }
 
-    async function archive(ids) {
-        if (state.busy || !ids.length) return null;
-        state.busy = true;
-        syncSelection();
+    async function archiveEach(ids) {
         const outcome = await M.archiveAll(ids, postArchive, (done, total) => {
             $('x-selected').textContent = `正在归档 ${done + 1} / ${total}`;
         });
         outcome.problems.forEach((text, id) => state.problems.set(id, text));
         outcome.archived.forEach((id) => { state.problems.delete(id); state.selected.delete(id); });
+        return outcome;
+    }
+
+    async function archive(ids) {
+        if (state.busy || !ids.length || isSkippedView()) return null;
+        state.busy = true;
+        syncSelection();
+        const outcome = await archiveEach(ids);
         await load();
         settle();
         toast(M.archiveSummary(outcome));
         return outcome;
+    }
+
+    /*
+     * 归档选中的，这一页没选的跳过。先跳过：一次请求就能确认，没选的马上离开页面；跳过没有确认时什么都不归档。
+     * 再逐件归档，某件失败只留下它自己和原因。最后提示条只撤销跳过，已经归档的不受影响。
+     */
+    async function archiveRest() {
+        if (state.busy || isSkippedView()) return;
+        const keep = state.items.filter((item) => state.selected.has(item.id)).map((item) => item.id);
+        const rest = state.items.filter((item) => !state.selected.has(item.id)).map((item) => item.id);
+        if (!keep.length || !rest.length) return;
+        const ask = M.archiveRestConfirm(keep.length, rest.length);
+        if (!(await confirmSheet(ask.title, ask.text, ask.ok)) || state.busy) return;
+        state.busy = true;
+        syncSelection();
+        let skipped;
+        try {
+            skipped = await postSkip(rest);
+            forget(rest);
+        } catch (e) {
+            await load();
+            settle();
+            toast('没有确认跳过结果，这次没有归档。请看刷新后的列表');
+            return;
+        }
+        await load();
+        const outcome = await archiveEach(keep);
+        await load();
+        settle();
+        toast(`${M.archiveSummary(outcome)}，跳过 ${skipped.skippedCount} 件`, { ids: rest, label: '撤销跳过' });
     }
 
     // 列表刷新完才算结束：刷新途中再按一次，处理的还是刚才那一件
@@ -398,24 +491,68 @@
         syncSelection();
     }
 
+    async function patchItems(url, ids) {
+        const response = await fetch(url, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify({ itemIds: ids })
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json();
+    }
+
+    const postSkip = (ids) => patchItems('/api/x-import/inbox/skip', ids);
+    const forget = (ids) => ids.forEach((id) => { state.selected.delete(id); state.problems.delete(id); });
+
     async function skip(ids) {
-        if (state.busy || !ids.length) return false;
+        if (state.busy || !ids.length || isSkippedView()) return false;
         state.busy = true;
         syncSelection();
         let done = false;
         try {
-            const response = await fetch('/api/x-import/inbox/skip', {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-                body: JSON.stringify({ itemIds: ids })
-            });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const result = await response.json();
-            ids.forEach((id) => { state.selected.delete(id); state.problems.delete(id); });
-            toast(`已跳过 ${result.skippedCount} 件`);
+            const result = await postSkip(ids);
+            forget(ids);
+            toast(`已跳过 ${result.skippedCount} 件`, { ids, label: '撤销' });
             done = true;
         } catch (e) {
             toast('没有确认跳过结果，请看刷新后的列表');
+        }
+        await load();
+        settle();
+        return done;
+    }
+
+    /*
+     * 撤销只针对提示条上那一次。放回只改仍是“已跳过”的，所以在别处已经放回或处理过的不会被动到。
+     * 不等其他操作结束：它碰的是另一批作品，列表随后按服务端刷新。
+     */
+    async function undoSkip() {
+        const undo = state.undo;
+        if (!undo) return;
+        state.undo = null;
+        $('toast').hidden = true;
+        try {
+            const result = await patchItems('/api/x-import/inbox/unskip', undo.ids);
+            toast(`已撤销，${result.restoredCount} 件放回待整理`);
+        } catch (e) {
+            toast('没有确认撤销结果，请看刷新后的列表');
+        }
+        await load();
+    }
+
+    // 最近跳过里挑出来的，按点赞顺序排回待整理原来的位置
+    async function restore(ids) {
+        if (state.busy || !ids.length || !isSkippedView()) return false;
+        state.busy = true;
+        syncSelection();
+        let done = false;
+        try {
+            const result = await patchItems('/api/x-import/inbox/unskip', ids);
+            forget(ids);
+            toast(`已放回 ${result.restoredCount} 件，排在待整理原来的位置`);
+            done = true;
+        } catch (e) {
+            toast('没有确认放回结果，请看刷新后的列表');
         }
         await load();
         settle();
@@ -443,6 +580,10 @@
         $('x-side-handle').textContent = '@' + item.authorUsername;
         $('x-side-text').textContent = item.postText || '';
         $('x-side-open').href = postUrl(item);
+        const skipped = isSkippedView();
+        $('x-side-archive').hidden = skipped;
+        $('x-side-skip').hidden = skipped;
+        $('x-side-restore').hidden = !skipped;
         renderPreviewStatus();
         preloadNext(preview.index);
     }
@@ -544,19 +685,29 @@
             if (e.key === 'Escape') $('x-confirm-cancel').click();
             return;
         }
+        if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && state.undo
+            && !(e.target instanceof Element && e.target.closest('input, textarea'))) {
+            e.preventDefault();
+            undoSkip();
+            return;
+        }
         if (state.preview) {
             if (e.key === 'Escape') closePreview();
             else if (e.key === 'ArrowRight') moveMedia(1);
             else if (e.key === 'ArrowLeft') moveMedia(-1);
             else if (e.key === 'ArrowDown') movePreview(1);
             else if (e.key === 'ArrowUp') movePreview(-1);
-            else if (e.key.toLowerCase() === 'a') decide(archive);
-            else if (e.key.toLowerCase() === 's') decide(skip);
+            else if (e.key.toLowerCase() === 'a' && !isSkippedView()) decide(archive);
+            else if (e.key.toLowerCase() === 's' && !isSkippedView()) decide(skip);
             else return;
             e.preventDefault();
             return;
         }
         if (e.target instanceof Element && e.target.closest('input, textarea')) return;
+        if (isSkippedView()) {
+            if (e.key === 'Escape' && state.selected.size) { state.selected.clear(); syncSelection(); }
+            return;
+        }
         if (state.selected.size && e.key.toLowerCase() === 'a' && !e.ctrlKey) archive([...state.selected]);
         else if (state.selected.size && e.key.toLowerCase() === 's' && !e.ctrlKey) skip([...state.selected]);
         else if (e.key === 'Escape' && state.selected.size) { state.selected.clear(); syncSelection(); }
@@ -573,6 +724,10 @@
     $('x-sync').addEventListener('click', sync);
     $('x-archive').addEventListener('click', () => archive([...state.selected]));
     $('x-skip').addEventListener('click', () => skip([...state.selected]));
+    $('x-archive-rest').addEventListener('click', archiveRest);
+    $('x-restore').addEventListener('click', () => restore([...state.selected]));
+    $('x-view-pending').addEventListener('click', () => setView('pending'));
+    $('x-view-skipped').addEventListener('click', () => setView('skipped'));
     $('x-clear').addEventListener('click', () => { state.selected.clear(); syncSelection(); });
     $('x-select-page').addEventListener('click', () => {
         const all = state.items.every((item) => state.selected.has(item.id));
@@ -583,6 +738,7 @@
     $('x-next').addEventListener('click', () => load(state.page + 1).then(() => window.scrollTo(0, 0)));
     $('x-side-archive').addEventListener('click', () => decide(archive));
     $('x-side-skip').addEventListener('click', () => decide(skip));
+    $('x-side-restore').addEventListener('click', () => decide(restore));
     $('x-side-close').addEventListener('click', closePreview);
     $('x-stage').addEventListener('click', (e) => { if (e.target === $('x-stage')) closePreview(); });
 

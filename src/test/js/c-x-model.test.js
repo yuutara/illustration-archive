@@ -295,3 +295,18 @@ test("the sync cost gives a ceiling and who decides it, not a promise", () => {
     assert.match(text, /开发者控制台为准/);
     assert.doesNotMatch(text, /免费/);
 });
+
+test("the sync estimate and each read-limit choice show the count with its rough cost", () => {
+    const M = model();
+    assert.equal(M.syncEstimate(50), "每次同步最多读 50 条，约 US$0.05");
+    assert.equal(M.readLimitLabel(200), "200 条（约 US$0.20）");
+});
+
+test("archive-and-skip names both counts and says which part can be taken back", () => {
+    const M = model();
+    const ask = M.archiveRestConfirm(3, 37);
+    assert.equal(ask.title, "归档 3 件，跳过本页其余 37 件？");
+    assert.match(ask.text, /10 秒内可以撤销/);
+    assert.match(ask.text, /最近跳过/);
+    assert.equal(ask.ok, "归档并跳过");
+});

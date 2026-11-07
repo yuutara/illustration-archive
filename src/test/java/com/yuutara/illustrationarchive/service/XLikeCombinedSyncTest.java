@@ -31,6 +31,51 @@ class XLikeCombinedSyncTest {
 	}
 
 	@Test
+	void readLimitCapsReadsAndNewItemsAndGrowsPagesOnlyAsFarAsNeeded() {
+		var configured = new XLikeSyncBudget(25, 2, 6, 100, 50);
+		assertEquals(new XLikeSyncBudget(25, 2, 6, 25, 25), configured.withReadLimit(25));
+		assertEquals(new XLikeSyncBudget(25, 2, 6, 50, 50), configured.withReadLimit(50));
+		// Recent may spend the whole limit, so a backlog of new Likes catches up as fast as the user chose.
+		assertEquals(new XLikeSyncBudget(25, 4, 6, 100, 100), configured.withReadLimit(100));
+		// 8 full pages plus one head probe; never past the 10-page safety cap.
+		assertEquals(new XLikeSyncBudget(25, 8, 9, 200, 200), configured.withReadLimit(200));
+		assertEquals(new XLikeSyncBudget(25, 9, 10, 1000, 1000), configured.withReadLimit(1000));
+	}
+
+	@Test
+	void aLargerReadLimitLetsRecentReadFurtherInOneSync() throws Exception {
+		var f = new Fixture();
+		f.service.setReadLimit(() -> 100);
+		f.reply(page(ids(1, 25), "r2"));
+		f.reply(page(ids(26, 50), "r3"));
+		f.reply(page(ids(51, 75), "r4"));
+		f.reply(page(ids(76, 100), "r5"));
+		var result = f.service.sync();
+		assertEquals(4, f.likesRequests().size());
+		assertEquals(100, result.recent().newCount());
+		assertEquals("ACTIVE", result.recentStatus(), "more to read next time, from where this one stopped");
+		assertEquals(4, f.order.entrySet().stream().filter(e -> Set.of("1", "25", "26", "100").contains(e.getKey())).count());
+		assertTrue(f.order.get("1") > f.order.get("100"), "newest first across all four pages");
+	}
+
+	@Test
+	void savedReadLimitStopsTheSyncAndIsWhatTheReportShows() throws Exception {
+		var f = new Fixture();
+		f.service.setReadLimit(() -> 25);
+		f.reply(page(ids(1, 25), "recent-2"));
+		var result = f.service.sync();
+		assertEquals(1, f.likesRequests().size(), "a second page would read past the limit");
+		assertEquals(25, result.recent().scannedCount());
+		assertEquals("SCAN_BUDGET", result.recent().stopReason());
+		assertEquals(25, result.scanBudget());
+		assertEquals(25, result.newBudget());
+
+		var unset = new Fixture();
+		unset.service.setReadLimit(() -> null);
+		assertEquals(new XLikeSyncBudget(25, 2, 6, 100, 50), unset.service.currentBudget(), "server mode keeps x.sync.*");
+	}
+
+	@Test
 	void oversizedApiPageCannotExceedTheNewItemBudget() throws Exception {
 		var f = new Fixture(new XLikeSyncBudget(5, 1, 1, 5, 5));
 		f.reply(page(ids(1, 6), null));

@@ -146,6 +146,28 @@ class XImportControllerTest {
 	}
 
 	@Test
+	void putBackAndRecentlySkippedForwardToTheService() throws Exception {
+		XLikeSyncService service = mock(XLikeSyncService.class);
+		when(service.unskip(List.of(3L, 4L))).thenReturn(new XLikeSyncService.UnskipSummary(2, 1));
+		when(service.skipped(1, 40)).thenReturn(new XLikeInboxPage(List.of(new XLikeInboxItem(3L, "33", "Artist", "artist",
+				null, null, Instant.parse("2026-11-01T09:00:00Z"), List.of())), 1, 40, 41, 2));
+		when(service.unskip(List.of())).thenThrow(new IllegalArgumentException("itemIds must contain at least one positive item id."));
+
+		mvc(service).perform(patch("/api/x-import/inbox/unskip").contentType("application/json").content("{\"itemIds\":[3,4]}"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.requestedCount").value(2))
+				.andExpect(jsonPath("$.restoredCount").value(1));
+		mvc(service).perform(patch("/api/x-import/inbox/unskip").contentType("application/json").content("{\"itemIds\":[]}"))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+		mvc(service).perform(get("/api/x-import/inbox/skipped?page=1&size=40"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.items[0].id").value(3))
+				.andExpect(jsonPath("$.totalItems").value(41))
+				.andExpect(jsonPath("$.syncProgress").doesNotExist());
+	}
+
+	@Test
 	void inboxForwardsPageParametersAndRejectsInvalidValues() throws Exception {
 		XLikeSyncService service = mock(XLikeSyncService.class);
 		when(service.inbox(1, 24)).thenReturn(new XLikeInboxPage(List.of(), 1, 24, 24, 1));

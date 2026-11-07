@@ -26,6 +26,10 @@ class Node {
         this.textContent = "";
         this.onclick = null;
     }
+    // 和浏览器一样，写文字会清掉原来的子节点（提示条上的撤销按钮就是这样消失的）
+    get textContent() { return this.text; }
+    set textContent(value) { this.text = value; this.children = []; }
+    closest() { return null; }
     addEventListener(type, fn) { this.listeners.set(type, fn); }
     get src() { return this.attributes.get("src"); }
     set src(url) { this.attributes.set("src", url); }
@@ -60,11 +64,17 @@ function setup({ start = invalidRecent, answer = () => ({ status: 204 }), capabi
     connection = { state: "CONNECTED", savedLogin: "USABLE" } } = {}) {
     const nodes = new Map();
     const element = (id) => { if (!nodes.has(id)) nodes.set(id, new Node(id)); return nodes.get(id); };
-    const app = { progress: start, posts: [], bodies: [], syncs: 0, answer, items, listed: null, hold: {}, connection, statusReads: 0 };
+    const app = { progress: start, posts: [], bodies: [], syncs: 0, answer, items, listed: null, hold: {}, connection, statusReads: 0,
+        skipped: [], lists: [], undoTimers: [] };
     const reply = (status, body) => ({ ok: status < 400, status, json: async () => body });
     const fetch = async (url, options = {}) => {
         if (url === "/api/x-auth/status") { app.statusReads++; return reply(200, { status: app.connection, clientId: app.connection.clientId || "", scanBudget: 100 }); }
+        if (url.startsWith("/api/x-import/inbox/skipped?")) {
+            app.lists.push(url);
+            return reply(200, { items: app.skipped, totalItems: app.skipped.length, totalPages: app.skipped.length ? 1 : 0, syncProgress: null });
+        }
         if (url.startsWith("/api/x-import/inbox?")) {
+            app.lists.push(url);
             await app.hold.list;
             return reply(200, { items: app.items, totalItems: app.items.length, totalPages: app.items.length ? 1 : 0, syncProgress: app.progress });
         }
@@ -86,7 +96,11 @@ function setup({ start = invalidRecent, answer = () => ({ status: 204 }), capabi
     const timers = [];
     const context = {
         window, fetch, Number, Map, Set, Promise, console, Date,
-        setTimeout: (fn, millis) => { if (millis === 1500) { timers.push(fn); return 0; } return setTimeout(fn, millis); },
+        setTimeout: (fn, millis) => {
+            if (millis === 1500) { timers.push(fn); return 0; }
+            if (millis === 10000) { app.undoTimers.push(fn); return 0; }
+            return setTimeout(fn, millis);
+        },
         clearTimeout,
         Image: class { },
         Element: Node, localStorage: { getItem: () => "1", setItem() { } },
@@ -108,7 +122,10 @@ function setup({ start = invalidRecent, answer = () => ({ status: 204 }), capabi
         click: (id) => element(id).listeners.get("click")({}),
         buttons: () => element("x-recovery-actions").children,
         press: (index = 0) => app.element("x-recovery-actions").children[index].listeners.get("click")({}),
-        key: (key) => keys.forEach((fn) => fn({ key, target: new Node(), preventDefault() { } })),
+        key: (key, extra = {}) => keys.forEach((fn) => fn({ key, target: new Node(), preventDefault() { }, ...extra })),
+        select: (id) => app.card(id).listeners.get("click")({ target: new Node() }),
+        cards: () => element("x-grid").children.map((card) => String(card.dataset.id)),
+        undoButton: () => element("toast").children.find((child) => child.className === "toast-action"),
         card: (id) => element("x-grid").children.find((card) => String(card.dataset.id) === id),
         open: (id) => app.card(id).listeners.get("dblclick")(),
         shown: () => element("x-side-handle").textContent,
@@ -549,4 +566,198 @@ test("a card that leaves the list releases its video; the others keep theirs", a
     assert.equal(leaving.loads, 1);
     assert.equal(staying.loads, undefined);
     assert.ok(staying.src);
+});
+
+/*
+ * 一个按请求真正改状态的收藏库：跳过移到“最近跳过”，放回按 id 排回原位，归档就离开。
+ * 每个请求的地址和 id 都记下来，用来核对先后顺序。
+ */
+function library(ids, { failSkip = false } = {}) {
+    const app = setup({ start: healthy, items: ids.map((id) => post(id)) });
+    app.calls = [];
+    app.answer = async () => {
+        const url = app.posts.at(-1);
+        const itemIds = JSON.parse(app.bodies.at(-1)).itemIds;
+        app.calls.push([url.replace("/api/x-import/inbox/", ""), itemIds]);
+        if (url.endsWith("/skip")) {
+            if (failSkip) return { status: 500, body: {} };
+            const moved = app.items.filter((item) => itemIds.includes(item.id));
+            app.items = app.items.filter((item) => !itemIds.includes(item.id));
+            app.skipped = [...moved, ...app.skipped];
+            return { status: 200, body: { requestedCount: itemIds.length, skippedCount: moved.length } };
+        }
+        if (url.endsWith("/unskip")) {
+            const back = app.skipped.filter((item) => itemIds.includes(item.id));
+            app.skipped = app.skipped.filter((item) => !itemIds.includes(item.id));
+            app.items = [...app.items, ...back].sort((a, b) => a.id - b.id);
+            return { status: 200, body: { requestedCount: itemIds.length, restoredCount: back.length } };
+        }
+        app.items = app.items.filter((item) => item.id !== itemIds[0]);
+        return { status: 200, body: { items: [{ status: "SUCCESS" }], requestedCount: 1 } };
+    };
+    return app;
+}
+
+test("the sync button always says how many likes it may read and roughly what that costs", async () => {
+    const app = setup({ start: healthy });
+    await settle();
+    assert.equal(app.element("x-sync-cost").hidden, false);
+    assert.equal(app.element("x-sync-cost-text").textContent, "每次同步最多读 100 条，约 US$0.10");
+    assert.match(html, /href="\/c\/settings\.html#x-read-limit">调整</);
+
+    const away = setup({ start: healthy, connection: { state: "DISCONNECTED", savedLogin: "NONE" } });
+    await settle();
+    assert.equal(away.element("x-sync-cost").hidden, true, "no estimate without a sync to estimate");
+});
+
+test("a skip can be undone from its toast, and Ctrl+Z undoes only the latest one while it shows", async () => {
+    const app = library([1, 2, 3]);
+    await settle();
+    app.select("2");
+    app.click("x-skip");
+    await settle();
+    assert.deepEqual(app.cards(), ["1", "3"]);
+    assert.equal(app.undoButton().textContent, "撤销");
+
+    app.undoButton().listeners.get("click")({});
+    await settle();
+    assert.deepEqual(app.calls.at(-1), ["unskip", [2]]);
+    assert.deepEqual(app.cards(), ["1", "2", "3"], "back in its place");
+    assert.match(app.element("toast").textContent, /已撤销，1 件放回待整理/);
+    assert.equal(app.undoButton(), undefined, "an undo cannot itself be undone twice");
+
+    app.select("1");
+    app.click("x-skip");
+    await settle();
+    app.select("3");
+    app.click("x-skip");
+    await settle();
+    app.key("z", { ctrlKey: true });
+    await settle();
+    assert.deepEqual(app.calls.at(-1), ["unskip", [3]], "only the skip the toast is about");
+    assert.deepEqual(app.cards(), ["2", "3"]);
+
+    app.select("2");
+    app.click("x-skip");
+    await settle();
+    app.undoTimers.at(-1)();
+    const before = app.calls.length;
+    app.key("z", { ctrlKey: true });
+    await settle();
+    assert.equal(app.calls.length, before, "after ten seconds the toast is gone and so is the undo");
+});
+
+test("archive the chosen, skip the rest: asks with both counts, skips first, then archives one by one", async () => {
+    const app = library([1, 2, 3, 4]);
+    await settle();
+    assert.equal(app.element("x-bar").hidden, true);
+    app.select("1");
+    app.select("3");
+    assert.equal(app.element("x-archive-rest").hidden, false);
+    assert.equal(app.element("x-archive-rest").textContent, "归档，跳过其余 2 件");
+
+    app.click("x-archive-rest");
+    await settle();
+    assert.equal(app.element("x-confirm").hidden, false);
+    assert.equal(app.element("x-confirm-title").textContent, "归档 2 件，跳过本页其余 2 件？");
+    assert.equal(app.calls.length, 0, "nothing happens before the answer");
+    app.element("x-confirm-ok").click();
+    await settle();
+    await settle();
+
+    assert.deepEqual(app.calls, [["skip", [2, 4]], ["import", [1]], ["import", [3]]]);
+    assert.deepEqual(app.cards(), []);
+    assert.match(app.element("toast").textContent, /已归档 2 件，跳过 2 件/);
+    assert.equal(app.undoButton().textContent, "撤销跳过");
+
+    app.undoButton().listeners.get("click")({});
+    await settle();
+    assert.deepEqual(app.calls.at(-1), ["unskip", [2, 4]], "the archived ones are not touched");
+    assert.deepEqual(app.cards(), ["2", "4"]);
+});
+
+test("archive-and-skip is offered only when something on the page is left unchosen, and cancelling does nothing", async () => {
+    const app = library([1, 2]);
+    await settle();
+    app.click("x-select-page");
+    assert.equal(app.element("x-archive-rest").hidden, true, "with everything chosen it is just Archive");
+    app.select("2");
+    assert.equal(app.element("x-archive-rest").hidden, false);
+
+    app.click("x-archive-rest");
+    await settle();
+    app.element("x-confirm-cancel").click();
+    await settle();
+    assert.deepEqual(app.calls, []);
+    assert.deepEqual(app.cards(), ["1", "2"]);
+});
+
+test("when the skip cannot be confirmed, nothing is archived", async () => {
+    const app = library([1, 2], { failSkip: true });
+    await settle();
+    app.select("1");
+    app.click("x-archive-rest");
+    await settle();
+    app.element("x-confirm-ok").click();
+    await settle();
+    assert.deepEqual(app.calls, [["skip", [2]]]);
+    assert.match(app.element("toast").textContent, /这次没有归档/);
+    assert.equal(app.undoButton(), undefined);
+});
+
+test("recently skipped lists the skipped, puts chosen ones back, and offers no sync, archive or skip", async () => {
+    const app = library([1, 2, 3]);
+    await settle();
+    app.select("1");
+    app.select("2");
+    app.click("x-skip");
+    await settle();
+
+    app.click("x-view-skipped");
+    await settle();
+    assert.match(app.lists.at(-1), /^\/api\/x-import\/inbox\/skipped\?page=0&size=40$/);
+    assert.equal(app.element("x-view-skipped").attributes.get("aria-pressed"), "true");
+    assert.equal(app.element("x-sync").hidden, true);
+    assert.equal(app.element("x-sync-cost").hidden, true);
+    assert.equal(app.element("x-recovery").hidden, true);
+    assert.match(app.element("x-count").textContent, /2 件已跳过/);
+
+    app.select("2");
+    assert.equal(app.element("x-restore").hidden, false);
+    assert.equal(app.element("x-archive").hidden, true);
+    assert.equal(app.element("x-skip").hidden, true);
+    assert.equal(app.element("x-archive-rest").hidden, true);
+    app.key("a");
+    app.key("s");
+    await settle();
+    assert.equal(app.calls.length, 1, "the archive and skip keys do nothing here");
+
+    app.click("x-restore");
+    await settle();
+    assert.deepEqual(app.calls.at(-1), ["unskip", [2]]);
+    assert.deepEqual(app.cards(), ["1"]);
+    assert.match(app.element("toast").textContent, /已放回 1 件/);
+
+    app.click("x-view-pending");
+    await settle();
+    assert.deepEqual(app.cards(), ["2", "3"]);
+    assert.equal(app.element("x-sync").hidden, false);
+});
+
+test("in recently skipped the preview puts the item back instead of archiving or skipping it", async () => {
+    const app = library([1, 2]);
+    await settle();
+    app.click("x-select-page");
+    app.click("x-skip");
+    await settle();
+    app.click("x-view-skipped");
+    await settle();
+    app.open("1");
+    assert.equal(app.element("x-side-archive").hidden, true);
+    assert.equal(app.element("x-side-skip").hidden, true);
+    assert.equal(app.element("x-side-restore").hidden, false);
+    app.click("x-side-restore");
+    await settle();
+    assert.deepEqual(app.calls.at(-1), ["unskip", [1]]);
+    assert.equal(app.shown(), "@author2", "the next skipped item follows");
 });
