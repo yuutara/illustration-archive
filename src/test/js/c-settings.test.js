@@ -60,11 +60,13 @@ async function setup({ host = true, saved = "TRAY", accept = true, connection = 
     };
     const glass = [];
     const window = { CTheme: { get: () => "light", set() { }, glass: () => 50, GLASS_DEFAULT: 50,
-        setGlass: (level, save = true) => glass.push([String(level), save]) } };
+        setGlass: (level, save = true) => glass.push([String(level), save]),
+        proto: () => ({ glass: false, jelly: false, fps: false }), setProto() { } } };
     app.glass = glass;
     if (host) window.iaDesktop = () => { };
     const context = {
         window, fetch, clearTimeout, URLSearchParams, Promise, Date, String,
+        matchMedia: () => ({ matches: false, addEventListener() { } }),
         setTimeout: (fn, millis) => { if (millis === 1500) app.timers.push(fn); return 0; },
         location: app.location,
         navigator: { clipboard: { writeText: async () => { } } },

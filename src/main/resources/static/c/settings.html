@@ -12,6 +12,7 @@
     <link rel="stylesheet" href="theme-quiet.css">
     <link rel="stylesheet" href="c.css">
     <link rel="stylesheet" href="app.css">
+    <link rel="stylesheet" href="r42.css">
     <script src="theme-mode.js"></script>
     <script src="/ui-capabilities.js"></script>
     <script>if (window.UiCapabilities && UiCapabilities.desktop) document.documentElement.classList.add('is-desktop');</script>
@@ -121,6 +122,14 @@
             </div>
         </div>
         <p class="set-note" id="glass-note">调整应用里所有的玻璃。对话框、编辑面板和看图器信息栏里是成段的文字，只会变得更实，不会比默认更透，保证在任何作品上都看得清。只保存在这台电脑上。</p>
+        <p class="set-note" id="glass-off" hidden>Windows 的“透明效果”已关闭，所有玻璃都显示为实色，这个滑块暂时不起作用。到 Windows 设置 → 个性化 → 颜色 打开“透明效果”后即可调整。</p>
+        <!-- R4.2 原型的临时开关：用来和现状对比，定稿后去掉 -->
+        <fieldset class="set-proto">
+            <legend>原型对比（临时）</legend>
+            <label class="set-choice"><input type="checkbox" id="proto-glass">新玻璃：看图器透出模糊的作品墙，面板更透</label>
+            <label class="set-choice"><input type="checkbox" id="proto-jelly">果冻感：菜单、选择器、对话框、提示条弹出时回弹</label>
+            <label class="set-choice"><input type="checkbox" id="proto-fps">显示帧率（右下角）</label>
+        </fieldset>
     </section>
 
     <!-- 只有应用窗口才有托盘；回退到浏览器时没有这一项 -->

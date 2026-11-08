@@ -437,6 +437,14 @@
         return m ? `rgba(${m[1]}, ${m[2]}, ${m[3]}, 0)` : 'transparent';
     }
 
+    /*
+     * R4.2 原型“新玻璃”：看图器背后是模糊的作品墙（r42.css 的纱）。看图器本身不能做 opacity 动画，
+     * 否则纱取不到作品墙；进出时改为让纱从清晰、透明过渡到模糊、着色（--veil-o）。
+     */
+    const noTransparency = matchMedia('(prefers-reduced-transparency: reduce)');
+    const veiled = () => root.classList.contains('ng-glass') && !noTransparency.matches;
+    const veilIn = (v, duration) => v.animate([{ '--veil-o': 0 }, { '--veil-o': 1 }], { duration, easing: 'ease-out' });
+
     function viewerOpened(id) {
         // 关闭途中又点开同一件：从替身图此刻的位置接着放大，而不是先跳回缩略图
         const resume = closing && closing.id === id ? closing.clone.getBoundingClientRect() : null;
@@ -445,11 +453,20 @@
         snapPulls();
         if (!has('viewer')) return;
         const v = api.viewer;
-        if (reduced()) { v.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 120 }); return; }
+        if (reduced()) {
+            if (veiled()) veilIn(v, 120);
+            else v.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 120 });
+            return;
+        }
         const t = thumbRect(id);
         const from = resume || (t && t.r);
         if (!from || !from.width) {
-            v.animate([{ opacity: 0, transform: 'scale(.985)' }, { opacity: 1, transform: 'none' }], { duration: 300, easing: SNAPPY });
+            if (veiled()) {
+                veilIn(v, 320);
+                api.canvas.animate([{ opacity: 0, transform: 'scale(.985)' }, { opacity: 1, transform: 'none' }], { duration: 300, easing: SNAPPY });
+            } else {
+                v.animate([{ opacity: 0, transform: 'scale(.985)' }, { opacity: 1, transform: 'none' }], { duration: 300, easing: SNAPPY });
+            }
             return;
         }
         const img = api.img;
@@ -467,7 +484,7 @@
                 { translate: `${tx}px ${ty}px`, scale: `${kx} ${ky}`, borderRadius: `${4 / kx}px` },
                 { translate: '0px 0px', scale: '1 1', borderRadius: '0px' }
             ], { duration: 500, easing: OPEN }),
-            v.animate([{ backgroundColor: transparentOf(tint) }, { backgroundColor: tint }], { duration: 320, easing: 'ease-out' })
+            veiled() ? veilIn(v, 320) : v.animate([{ backgroundColor: transparentOf(tint) }, { backgroundColor: tint }], { duration: 320, easing: 'ease-out' })
         ];
         // 工具栏和标题在图片飞到一半时开始淡入，与落位重叠，而不是等它停稳
         const chromeTimer = setTimeout(() => v.classList.remove('fx-chrome-wait'), 170);
@@ -502,10 +519,20 @@
         if (!has('viewer')) return;
         const backdrop = document.createElement('div');
         backdrop.className = 'fx-flight-backdrop';
-        backdrop.style.background = bg;
+        // 新玻璃：替身底也是纱（带主色光晕），淡出时模糊一起退掉，不用 opacity
+        const veil = root.classList.contains('ng-glass');
+        const fade = (duration) => backdrop.animate(veil ? [{ '--veil-o': 1 }, { '--veil-o': 0 }] : [{ opacity: 1 }, { opacity: 0 }],
+            { duration, easing: 'ease-out', fill: 'forwards' });
+        if (veil) {
+            backdrop.classList.add('ng-veil');
+            backdrop.style.setProperty('--tone', v.style.getPropertyValue('--tone') || 'transparent');
+            backdrop.style.setProperty('--amb', getComputedStyle(v).getPropertyValue('--amb').trim() || '0%');
+        } else {
+            backdrop.style.background = bg;
+        }
         document.body.appendChild(backdrop);
         if (reduced() || zoomedIn || !fr.width) {
-            const a = backdrop.animate([{ opacity: 1 }, { opacity: 0 }], { duration: reduced() ? 120 : 220, easing: 'ease-out', fill: 'forwards' });
+            const a = fade(reduced() ? 120 : 220);
             a.onfinish = () => backdrop.remove();
             return;
         }
@@ -515,7 +542,7 @@
         clone.src = img.currentSrc || img.src;
         place(clone, fr);
         document.body.appendChild(clone);
-        const anims = [backdrop.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 300, easing: 'ease-out', fill: 'forwards' })];
+        const anims = [fade(300)];
         const mine = {
             id, clone, anims, thumb: null,
             cleanup: () => { backdrop.remove(); clone.remove(); if (mine.thumb) mine.thumb.style.visibility = ''; }
@@ -1072,6 +1099,88 @@
         settle: () => { settleOpening(); stopInertia(); },
         navigate, pageShown, panStart, panMove, panEnd, startPage
     };
+
+    /*
+     * R4.2 原型工具：帧率读数（设置页“显示帧率”）。按 requestAnimationFrame 的间隔统计最近 1 秒的帧数、
+     * 最近 2 秒里最长的一帧和超过 25 ms 的帧数。关掉时不跑循环。定稿后删除。
+     */
+    (function fpsMeter() {
+        const meter = document.createElement('div');
+        meter.className = 'ng-fps-meter';
+        meter.setAttribute('aria-hidden', 'true');
+        document.body.appendChild(meter);
+        let frames = [], last = 0, raf = 0;
+        function tick(now) {
+            if (last) frames.push([now, now - last]);
+            last = now;
+            frames = frames.filter(([t]) => now - t <= 2000);
+            const lastSecond = frames.filter(([t]) => now - t <= 1000).length;
+            const worst = frames.reduce((m, [, d]) => Math.max(m, d), 0);
+            const slow = frames.filter(([, d]) => d > 25).length;
+            meter.textContent = `${lastSecond} fps · 最长 ${worst.toFixed(0)} ms · 慢帧 ${slow}`;
+            raf = requestAnimationFrame(tick);
+        }
+        let benching = false;
+        function sync() {
+            const on = root.classList.contains('ng-fps') && !benching;
+            if (on && !raf) { last = 0; frames = []; raf = requestAnimationFrame(tick); }
+            if (!on && raf) { cancelAnimationFrame(raf); raf = 0; }
+        }
+        new MutationObserver(sync).observe(root, { attributes: true, attributeFilter: ['class'] });
+        sync();
+
+        /*
+         * F9：在当前窗口里跑一遍固定的看图操作（打开、连翻 12 次、开关信息栏、滚轮缩放、关闭），
+         * 现状、新玻璃默认档、新玻璃最透档各一遍，结果留在右下角，点一下页面收起。用来量 WebView2 的真实帧率。
+         */
+        const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+        async function runOnce() {
+            const deltas = [];
+            let prev = 0, going = true;
+            const step = (t) => { if (prev) deltas.push(t - prev); prev = t; if (going) requestAnimationFrame(step); };
+            requestAnimationFrame(step);
+            document.querySelectorAll('.piece-open')[4].click();
+            await wait(700);
+            for (let i = 0; i < 8; i++) { $('sv-next').click(); await wait(260); }
+            $('sv-info-toggle').click(); await wait(700);
+            for (let i = 0; i < 4; i++) { $('sv-prev').click(); await wait(260); }
+            $('sv-info-toggle').click(); await wait(700);
+            const r = api.canvas.getBoundingClientRect();
+            for (let i = 0; i < 10; i++) {
+                api.canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: i < 5 ? -120 : 120, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, bubbles: true, cancelable: true }));
+                await wait(120);
+            }
+            $('sv-back').click(); await wait(800);
+            going = false;
+            deltas.sort((a, b) => a - b);
+            const n = deltas.length, total = deltas.reduce((s, d) => s + d, 0);
+            return `${(n / total * 1000).toFixed(1)} fps · 中位 ${deltas[n >> 1].toFixed(1)} · p95 ${deltas[Math.floor(n * 0.95)].toFixed(1)} · 最长 ${deltas[n - 1].toFixed(0)} ms · 慢帧 ${deltas.filter((d) => d > 25).length}/${n}`;
+        }
+        async function bench() {
+            if (benching || api.state.viewer || document.querySelectorAll('.piece-open').length < 13) return;
+            benching = true;
+            const hadGlass = root.classList.contains('ng-glass');
+            const level = window.CTheme.glass();
+            if (raf) { cancelAnimationFrame(raf); raf = 0; }
+            meter.style.cssText = 'display: block; white-space: pre';
+            const lines = [`${innerWidth}×${innerHeight} @${devicePixelRatio} · ${window.CTheme.get()}`];
+            for (const [name, glassOn, lv] of [['现状', false, 50], ['新玻璃 默认', true, 50], ['新玻璃 最透', true, 100], ['现状 复测', false, 50]]) {
+                meter.textContent = lines.concat(`测量中：${name}…`).join('\n');
+                root.classList.toggle('ng-glass', glassOn);
+                window.CTheme.setGlass(lv, false);
+                await wait(400);
+                lines.push(`${name}：${await runOnce()}`);
+            }
+            root.classList.toggle('ng-glass', hadGlass);
+            window.CTheme.setGlass(level, false);
+            meter.textContent = lines.join('\n');
+            console.log('[r42 bench]\n' + lines.join('\n'));
+            document.addEventListener('pointerdown', () => { benching = false; meter.style.cssText = ''; sync(); }, { once: true });
+        }
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'F9' && !e.altKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); bench(); }
+        });
+    })();
 
     /* ---------------- 实验面板（正式页面不创建） ---------------- */
 

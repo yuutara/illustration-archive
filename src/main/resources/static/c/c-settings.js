@@ -359,6 +359,28 @@
         glass.value = String(window.CTheme.glass());
     });
 
+    // R4.2 原型：临时开关，定稿后去掉。新玻璃下，Windows 关掉透明效果时滑块变灰并说明原因
+    const noTransparency = matchMedia('(prefers-reduced-transparency: reduce)');
+    const oldNote = $('glass-note').textContent;
+    const newNote = '调整应用里所有的玻璃，以及看图器背后作品墙的模糊和浓淡。对话框、编辑面板和信息栏里的字始终看得清：'
+        + '背后越透，这些面板会按背景自动加厚一点。只保存在这台电脑上。';
+    function syncGlassAvailability() {
+        const on = window.CTheme.proto().glass;
+        const off = on && noTransparency.matches;
+        $('glass-note').textContent = on ? newNote : oldNote;
+        glass.disabled = off;
+        $('glass-reset').disabled = off;
+        $('glass-off').hidden = !off;
+        $('glass-note').hidden = off;
+    }
+    ['glass', 'jelly', 'fps'].forEach((flag) => {
+        const box = $('proto-' + flag);
+        box.checked = window.CTheme.proto()[flag];
+        box.addEventListener('change', () => { window.CTheme.setProto(flag, box.checked); syncGlassAvailability(); });
+    });
+    noTransparency.addEventListener('change', syncGlassAvailability);
+    syncGlassAvailability();
+
     loadConnection();
     loadSettings();
 })();
