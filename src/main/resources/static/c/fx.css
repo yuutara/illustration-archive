@@ -101,16 +101,10 @@
     pointer-events: none;
 }
 
-/* ============ 浮层与提示：从触发点展开（origin-aware），亚克力材质，烟雾遮罩 ============ */
-.fx-popover :is(.pk, .suggest, .sv-menu) {
-    transform-origin: var(--fx-origin, top left);
-    transition: opacity .16s ease-out, transform .39s var(--fx-snappy);
-}
+/* ============ 浮层与提示：从触发点展开（origin-aware，回弹见 motion.css），亚克力材质，烟雾遮罩 ============ */
+.fx-popover :is(.pk, .suggest, .sv-menu) { transform-origin: var(--fx-origin, top left); }
 .fx-popover .suggest { --fx-origin: top center; }
 .fx-popover .sv-menu { --fx-origin: top right; }
-@starting-style {
-    .fx-popover :is(.pk, .suggest, .sv-menu) { opacity: 0; transform: translateY(var(--fx-dy, -4px)) scale(.96); }
-}
 .fx-popover :is(.pk, .suggest) {
     background-color: rgba(251, 250, 247, .8);
     background-image: var(--fx-noise);
@@ -249,9 +243,9 @@ body.fx-dragging .piece-open { transform: none !important; }
 .fx-viewer .sv-edge:active { transition-duration: .2s, .55s, .55s, .08s; }
 .fx-viewer .viewer:not(.chrome-on) .sv-top { transform: translateY(-8px); }
 .fx-viewer .viewer:not(.chrome-on) .sv-caption { transform: translateY(8px); }
-.fx-viewer .sv-info { transition: transform .55s var(--fx-gentle), opacity .2s; }
+.fx-viewer .sv-info { transition: transform .5s var(--fx-settle), opacity .2s; }
 @starting-style { .fx-viewer .sv-info { transform: translateX(48px); opacity: 0; } }
-.fx-viewer .sv-editor { transition: transform .55s var(--fx-gentle), opacity .2s; }
+.fx-viewer .sv-editor { transition: transform .5s var(--fx-settle), opacity .2s; }
 @starting-style { .fx-viewer .sv-editor { transform: translateX(48px); opacity: 0; } }
 
 /* 工具栏收成一枚胶囊，返回按钮和左右翻页也成为浮在作品上的圆形控件 */

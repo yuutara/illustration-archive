@@ -4,17 +4,19 @@
  * 层次（由后到前）：
  *   1 底      中性灰阶，不带色偏，作品的颜色不受影响；深色不是纯黑，浅色不是纯白
  *   2 作品    平放，一圈极细的内描边把白底作品和页面分开；悬停时投影取作品自己的颜色
- *   3 玻璃    只用于浮在内容之上的控件：滚动后的顶栏、图上按钮、浮层、操作条、看图器工具；
- *             中性底、几乎不提饱和（1.08），不放大作品颜色；折射保持关闭
- *   4 环境光  只在看图器里，取当前作品主色的一点点，铺在作品背后
+ *   3 玻璃    浮在另一层上的都是玻璃：滚动后的顶栏、图上按钮、浮层、操作条、看图器、信息栏、编辑面板、对话框；
+ *             中性底、几乎不提饱和（1.08），不放大作品颜色；折射保持关闭。最底层（作品墙、筛选条、设置页、X 页）是实色
+ *   4 环境光  只在看图器里，取当前作品主色的一点点，铺在作品背后（只铺在作品那一块）
  *
  * 颜色：界面只有黑白灰，唯一的色相是群青，只给焦点、选中、已选条件和链接；红色只给删除。
  * 字：只用无衬线，字号 12 / 13 / 14 / 16 / 20，字重 400 / 600，数字等宽。
  * 圆角：作品 8、控件 8、浮层 12、对话框 16；胶囊只给玻璃控件。
  *
- * 对话框和编辑面板是同一种玻璃（--sheet-bg + --gl-blur-l），浅色和深色的通透程度一致。设置里的玻璃透明度
- * 只能把它们调得更实：默认已是最坏背景下小字刚好清楚的通透程度，不能再透。可读性由玻璃里的
- * 小字颜色（--sheet-muted）保证，不靠把玻璃加厚；c-dialog-style.test.js 按最坏的背景核对对比度。遮罩不做模糊：外层一旦有 backdrop-filter 或 opacity，
+ * 看图器空白处是一层纱（.viewer::after）：背后的作品墙先模糊，再盖一层看图器同色的半透明底，浅色是浅色磨砂、深色是深色磨砂。
+ * 设置里的玻璃透明度一个滑块管全部：纱的模糊（--veil-blur）和浓淡（--veil-a）、所有玻璃的不透明度（--glass-k），
+ * 以及信息栏、编辑面板（--panel-bg）和对话框（--sheet-bg）的不透明度。这三种文字面板的不透明度由 theme-mode.js 按
+ * “模糊、盖纱之后最坏的背景”算出下限：小字（--sheet-muted）和链接（--sheet-accent）对比度不低于 4.5，c-theme.test.js 逐档核对。
+ * 系统关掉透明效果时，纱和所有玻璃退回实色。遮罩不做模糊：外层一旦有 backdrop-filter 或 opacity，
  * 里面的玻璃就取不到页面，所以遮罩的淡入淡出走背景色。对话框里的面只有一种：
  *   凹面（--well）  半透明，所以在浅色、深色、玻璃、页面上都自然。输入框、拖放区、作品摘要、状态说明都用它
  *   虚线（--dash）  表示“东西可以放到这里”：拖放区、添加标签
@@ -70,8 +72,12 @@ html[data-look="quiet"] {
     --well-edge: inset 0 0 0 1px rgba(0, 0, 0, .05);
     --dash: rgba(0, 0, 0, .2);
     --scrim: rgba(0, 0, 0, .3);
-    --sheet-bg: rgba(255, 255, 255, min(1, max(.78, calc(.78 * var(--glass-k, 1)))));
+    --panel-rgb: 255 255 255;
+    --veil-rgb: 239 239 237;
+    --panel-bg: rgb(var(--panel-rgb) / var(--glass-panel-a, .4));
+    --sheet-bg: rgb(var(--panel-rgb) / var(--glass-sheet-a, .82));
     --sheet-muted: #52524e;
+    --sheet-accent: #2b42bf;
     --hover-edge: #84847e;
     --sheet-shadow: var(--gl-inset), var(--gl-line), var(--gl-drop-panel);
     --focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
@@ -123,8 +129,12 @@ html[data-look="quiet"][data-mode="dark"] {
     --well-edge: inset 0 0 0 1px rgba(255, 255, 255, .06), inset 0 1px 0 rgba(255, 255, 255, .03);
     --dash: rgba(255, 255, 255, .2);
     --scrim: rgba(0, 0, 0, .42);
-    --sheet-bg: rgba(28, 28, 28, min(1, max(.82, calc(.82 * var(--glass-k, 1)))));
+    --panel-rgb: 28 28 28;
+    --veil-rgb: 12 12 12;
+    --panel-bg: rgb(var(--panel-rgb) / var(--glass-panel-a, .48));
+    --sheet-bg: rgb(var(--panel-rgb) / var(--glass-sheet-a, .78));
     --sheet-muted: #a8a8a1;
+    --sheet-accent: #a8b7ff;
     --hover-edge: #7f7f78;
     --sheet-shadow: var(--gl-inset), var(--gl-line), var(--gl-drop-panel);
     --focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
@@ -195,7 +205,6 @@ html[data-look="quiet"] :is(.viewer, .ctx-menu) {
     --amb: 24%;
     --gd-bg: rgba(255, 255, 255, min(1, calc(.64 * var(--glass-k, 1))));
     --gd-bg-panel: rgba(255, 255, 255, min(1, calc(.84 * var(--glass-k, 1))));
-    --gd-bg-info: rgba(255, 255, 255, min(1, max(.84, calc(.84 * var(--glass-k, 1)))));
     --gd-edge: inset 0 1px 0 rgba(255, 255, 255, .8), 0 0 0 1px rgba(0, 0, 0, .07);
     --gd-drop: 0 1px 2px rgba(0, 0, 0, .07), 0 12px 28px -12px rgba(0, 0, 0, .28);
     --gd-blur: blur(20px) saturate(1.08);
@@ -207,16 +216,38 @@ html[data-look="quiet"][data-mode="dark"] :is(.viewer, .ctx-menu) {
     --amb: 38%;
     --gd-bg: rgba(38, 38, 38, min(1, calc(.58 * var(--glass-k, 1))));
     --gd-bg-panel: rgba(28, 28, 28, min(1, calc(.72 * var(--glass-k, 1))));
-    --gd-bg-info: rgba(28, 28, 28, min(1, max(.72, calc(.72 * var(--glass-k, 1)))));
     --gd-edge: inset 0 1px 0 rgba(255, 255, 255, .09), 0 0 0 1px rgba(0, 0, 0, .5);
     --gd-drop: 0 12px 30px -10px rgba(0, 0, 0, .7);
 }
+/* 环境光只铺在作品那一块，不伸到信息栏、编辑面板底下（它们的对比度下限按“没有光晕”算）。--veil-o 是纱的进出动画 */
+@property --veil-o { syntax: "<number>"; inherits: true; initial-value: 1; }
 html[data-look="quiet"] .viewer::before {
     content: "";
     position: absolute;
-    inset: 0;
-    background: radial-gradient(58% 66% at calc(50% - max(var(--editor), var(--info)) / 2) 46%, color-mix(in srgb, var(--tone, transparent) var(--amb), transparent), transparent 78%);
+    inset: 0 max(var(--editor), var(--info)) 0 0;
+    background: radial-gradient(58% 66% at 50% 46%, color-mix(in srgb, var(--tone, transparent) calc(var(--amb) * var(--veil-o)), transparent), transparent 78%);
     pointer-events: none;
+}
+html[data-look="quiet"].fx-viewer .viewer::before { transition: right .55s var(--fx-gentle); }
+/* 纱：看图器本身透明，不能有 opacity / filter（否则里面的玻璃取不到作品墙）；关看图器时的替身底（.fx-veil）用同一层纱 */
+@media not (prefers-reduced-transparency: reduce) {
+    html[data-look="quiet"] .viewer { background-color: transparent; transition: none; }
+    html[data-look="quiet"] .viewer::after,
+    html[data-look="quiet"] .fx-veil {
+        content: "";
+        inset: 0;
+        background-color: rgb(var(--veil-rgb) / calc(var(--veil-a, .7) * var(--veil-o)));
+        -webkit-backdrop-filter: blur(calc(var(--veil-blur, 48px) * var(--veil-o))) saturate(1.08);
+        backdrop-filter: blur(calc(var(--veil-blur, 48px) * var(--veil-o))) saturate(1.08);
+        pointer-events: none;
+    }
+    html[data-look="quiet"] .viewer::after { position: absolute; z-index: -1; }
+}
+html[data-look="quiet"] .fx-flight-backdrop.fx-veil {
+    background-image: radial-gradient(58% 66% at 50% 46%, color-mix(in srgb, var(--tone, transparent) calc(var(--amb, 0%) * var(--veil-o)), transparent), transparent 78%);
+}
+@media (prefers-reduced-transparency: reduce) {
+    html[data-look="quiet"] .fx-flight-backdrop.fx-veil { background-color: rgb(var(--veil-rgb) / var(--veil-o)); }
 }
 html[data-look="quiet"] .sv-canvas img { box-shadow: 0 1px 2px rgba(0, 0, 0, .08), 0 30px 60px -28px rgba(0, 0, 0, .4); }
 html[data-look="quiet"][data-mode="dark"] .sv-canvas img { box-shadow: 0 0 0 1px rgba(255, 255, 255, .04), 0 30px 70px -20px rgba(0, 0, 0, .8); }
@@ -249,11 +280,11 @@ html[data-look="quiet"].fx-popover.fx-mat-glass .sv-menu a[aria-disabled="true"]
 html[data-look="quiet"].fx-popover.fx-mat-glass .sv-menu kbd { border-color: var(--gl-sep-strong); color: var(--muted); }
 
 /* ===================== 信息栏、编辑、对话框 ===================== */
-html[data-look="quiet"] :is(.sheet, .sv-editor) { --muted: var(--sheet-muted); --faint: var(--sheet-muted); }
-/* 信息栏是成段的文字，和对话框一样：玻璃透明度只能把它调得更实，不会比默认更透 */
-html[data-look="quiet"] .sv-info { color: var(--ink); background: var(--gd-bg-info); -webkit-backdrop-filter: var(--gd-blur); backdrop-filter: var(--gd-blur); box-shadow: -1px 0 0 var(--gl-sep); }
+/* 文字面板：小字和链接用在最坏背景上核对过对比度的颜色；不透明度见文件头 */
+html[data-look="quiet"] :is(.sheet, .sv-editor, .sv-info) { --muted: var(--sheet-muted); --faint: var(--sheet-muted); --accent-text: var(--sheet-accent); }
+html[data-look="quiet"] .sv-info { color: var(--ink); background: var(--panel-bg); -webkit-backdrop-filter: var(--gd-blur); backdrop-filter: var(--gd-blur); box-shadow: -1px 0 0 var(--gl-sep); }
 html[data-look="quiet"] .info-tags button { border: 0; border-radius: 8px; background: var(--gl-fill-hover); }
-html[data-look="quiet"] .sv-editor { background: var(--sheet-bg); -webkit-backdrop-filter: var(--gl-blur-l); backdrop-filter: var(--gl-blur-l); box-shadow: -1px 0 0 var(--line), -24px 0 48px -12px rgba(0, 0, 0, .16); }
+html[data-look="quiet"] .sv-editor { background: var(--panel-bg); -webkit-backdrop-filter: var(--gl-blur-l); backdrop-filter: var(--gl-blur-l); box-shadow: -1px 0 0 var(--line), -24px 0 48px -12px rgba(0, 0, 0, .16); }
 html[data-look="quiet"][data-mode="dark"] .sv-editor { box-shadow: -1px 0 0 var(--line), -24px 0 48px -12px rgba(0, 0, 0, .6); }
 html[data-look="quiet"] :is(.ed-field input, .ed-field textarea, .ed-picker, .set-field input) { border-color: transparent; border-radius: 8px; background: var(--well); box-shadow: var(--well-edge); }
 html[data-look="quiet"] .ed-picker:hover { border-color: transparent; background: var(--well-hover); }
@@ -261,6 +292,8 @@ html[data-look="quiet"] :is(.ed-field input, .ed-field textarea, .set-field inpu
 html[data-look="quiet"] :is(.ed-tag, .ed-tag-add) { border-radius: 8px; }
 html[data-look="quiet"] .ed-tag-add { border-color: var(--dash); }
 html[data-look="quiet"] .ed-dirty { border-radius: 8px; color: var(--ink-2); background: var(--well); }
+/* 看图器上的对话框背后多了一层纱，可以更透 */
+html[data-look="quiet"]:has(#viewer:not([hidden])) { --sheet-bg: rgb(var(--panel-rgb) / var(--glass-sheet-va, .7)); }
 html[data-look="quiet"] .sheet { border-radius: 16px; background: var(--sheet-bg); -webkit-backdrop-filter: var(--gl-blur-l); backdrop-filter: var(--gl-blur-l); box-shadow: var(--sheet-shadow); }
 html[data-look="quiet"] .sheet-backdrop { background: var(--scrim); transition: background-color .2s ease-out, display .2s allow-discrete; }
 @starting-style { html[data-look="quiet"] .sheet-backdrop { background-color: transparent; } }
@@ -271,7 +304,7 @@ html[data-look="quiet"] .dropzone { border-color: var(--dash); background: var(-
 html[data-look="quiet"] .dropzone:is(:hover, :has(:focus-visible)) { border-color: var(--hover-edge); }
 html[data-look="quiet"] :is(.dropzone.is-over, .drag-hint .dropzone) { border-style: solid; border-color: var(--accent); background: var(--accent-wash); box-shadow: var(--focus-ring); }
 @media (prefers-reduced-transparency: reduce) {
-    html[data-look="quiet"] :is(.sheet, .sv-editor) { background: var(--card); -webkit-backdrop-filter: none; backdrop-filter: none; }
+    html[data-look="quiet"] :is(.sheet, .sv-editor, .sv-info) { background: var(--card); -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
 
 /* 紧凑密度的悬停说明压在图片上：文字始终是白色，压过上面悬停与作者名的配色 */

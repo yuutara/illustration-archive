@@ -6,10 +6,14 @@
  *   snappy  k=420 c=38，约 390ms，几乎不回弹 —— 日常操作
  *   bouncy  k=300 c=21，约 650ms，回弹约 9% —— 只给勾选、操作条弹起等关键时刻
  *   gentle  k=170 c=24，约 570ms，无回弹    —— 大面积移动（作品重排、面板展开）
+ *   jelly   k=1400 c=36，回弹约 18%，用 0.5 秒 —— 菜单、选择器、对话框、提示条弹出（R4.2 果冻感，时长按用户手感定）
+ *   settle  k=450 c=30，回弹约 4%，约 400ms —— 信息栏、编辑面板滑入时轻轻回弹
  */
 :root {
     --fx-snappy: linear(0, 0.028, 0.088, 0.157, 0.242, 0.329, 0.414, 0.488, 0.562, 0.629, 0.688, 0.735, 0.781, 0.82, 0.853, 0.878, 0.901, 0.921, 0.937, 0.949, 0.96, 0.969, 0.976, 0.981, 0.985, 0.989, 0.992, 0.994, 0.996, 0.997, 0.998, 0.999, 0.999, 0.999, 1, 1, 1);
     --fx-bouncy: linear(0, 0.05, 0.161, 0.304, 0.459, 0.608, 0.741, 0.854, 0.942, 1.007, 1.051, 1.077, 1.088, 1.089, 1.082, 1.071, 1.057, 1.043, 1.03, 1.019, 1.01, 1.003, 0.998, 0.994, 0.993, 0.992, 0.992, 0.993, 0.994, 0.995, 0.997, 0.998, 0.999, 0.999, 1, 1, 1);
+    --fx-jelly: linear(0, 0.09, 0.296, 0.533, 0.759, 0.944, 1.079, 1.151, 1.176, 1.166, 1.133, 1.092, 1.051, 1.016, 0.99, 0.975, 0.969, 0.97, 0.975, 0.982, 0.99, 0.996, 1.001, 1.004, 1.005, 1.005, 1.005, 1.003, 1.002, 1.001, 1, 0.999, 0.999, 0.999, 0.999, 0.999, 1);
+    --fx-settle: linear(0, 0.028, 0.093, 0.186, 0.288, 0.394, 0.499, 0.601, 0.69, 0.768, 0.834, 0.89, 0.937, 0.972, 0.998, 1.017, 1.03, 1.038, 1.041, 1.042, 1.041, 1.038, 1.034, 1.029, 1.025, 1.02, 1.016, 1.013, 1.009, 1.007, 1.004, 1.002, 1.001, 1, 0.999, 0.999, 1);
     --fx-gentle: linear(0, 0.023, 0.074, 0.142, 0.219, 0.295, 0.376, 0.453, 0.525, 0.591, 0.651, 0.704, 0.751, 0.792, 0.825, 0.856, 0.882, 0.903, 0.922, 0.937, 0.95, 0.96, 0.969, 0.975, 0.981, 0.985, 0.989, 0.992, 0.994, 0.996, 0.997, 0.998, 0.999, 0.999, 1, 1, 1);
 }
 
@@ -24,13 +28,20 @@
 /* hidden 的 display: none 也能过渡（allow-discrete），所以退场不用改脚本；退场的时长写在 [hidden] 状态上 */
 .sheet-backdrop { transition: opacity .2s ease-out, display .2s allow-discrete; }
 @starting-style { .sheet-backdrop { opacity: 0; } }
-.sheet { transition: transform .45s var(--fx-snappy), opacity .18s ease-out; }
-@starting-style { .sheet { transform: translateY(12px) scale(.97); opacity: 0; } }
-.toast { transition: transform .65s var(--fx-bouncy), opacity .2s, bottom .39s var(--fx-snappy), display .2s allow-discrete; }
-@starting-style { .toast { transform: translate(-50%, 16px) scale(.94); opacity: 0; } }
+/*
+ * 果冻感：菜单、作者 / 标签选择器、对话框、提示条从略小、略扁的样子弹出，先放大过头一点再回到原位。
+ * 用独立的 scale 属性，不碰定位用的 transform（提示条靠 transform 居中）；纵向起点更小，回弹时竖向多弹一点，像果冻。
+ */
+:is(.pk, .suggest, .sv-menu, .sheet) { transition: opacity .12s ease-out, scale .5s var(--fx-jelly); }
+.toast { transition: transform .36s var(--fx-snappy), scale .5s var(--fx-jelly), opacity .12s, bottom .39s var(--fx-snappy), display .2s allow-discrete; }
+@starting-style {
+    :is(.pk, .suggest, .sv-menu) { opacity: 0; scale: .9 .8; }
+    .sheet { opacity: 0; scale: .93 .86; }
+    .toast { opacity: 0; transform: translate(-50%, 10px); scale: .86 .76; }
+}
 
 :is(.sheet-backdrop, .toast)[hidden] { opacity: 0; pointer-events: none; transition-duration: .14s; transition-timing-function: ease-out; }
-.sheet-backdrop[hidden] .sheet { transform: translateY(4px) scale(.99); opacity: 0; transition-duration: .14s; transition-timing-function: ease-out; }
+.sheet-backdrop[hidden] .sheet { scale: .98; opacity: 0; transition-duration: .14s; transition-timing-function: ease-out; }
 .toast[hidden] { transform: translate(-50%, 6px); }
 
 /* ============ 载入提示：本地接口通常几十毫秒就回来，慢的时候才出现 ============ */

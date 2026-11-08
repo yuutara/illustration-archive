@@ -386,7 +386,6 @@
             const above = p.bottom <= anchor.top + 1;
             const ox = Math.max(0, Math.min(p.width, anchor.left + anchor.width / 2 - p.left));
             node.style.setProperty('--fx-origin', `${ox}px ${above ? '100%' : '0'}`);
-            node.style.setProperty('--fx-dy', above ? '6px' : '-6px');
         }));
     }).observe(document.body, { childList: true });
 
@@ -438,11 +437,11 @@
     }
 
     /*
-     * R4.2 原型“新玻璃”：看图器背后是模糊的作品墙（r42.css 的纱）。看图器本身不能做 opacity 动画，
-     * 否则纱取不到作品墙；进出时改为让纱从清晰、透明过渡到模糊、着色（--veil-o）。
+     * 看图器背后是模糊的作品墙（theme-quiet.css 的纱）。看图器本身不能做 opacity 动画，否则纱取不到作品墙；
+     * 进出时改为让纱从清晰、透明过渡到模糊、着色（--veil-o）。系统关掉透明效果时看图器是实底，照旧淡入底色。
      */
     const noTransparency = matchMedia('(prefers-reduced-transparency: reduce)');
-    const veiled = () => root.classList.contains('ng-glass') && !noTransparency.matches;
+    const veiled = () => !noTransparency.matches;
     const veilIn = (v, duration) => v.animate([{ '--veil-o': 0 }, { '--veil-o': 1 }], { duration, easing: 'ease-out' });
 
     function viewerOpened(id) {
@@ -476,7 +475,8 @@
         const kx = from.width / to.width, ky = from.height / to.height;
         const tx = from.left - c.left - kx * (to.left - c.left);
         const ty = from.top - c.top - ky * (to.top - c.top);
-        if (t) t.thumb.style.visibility = 'hidden';
+        // 实底看图器下藏起缩略图，像是大图从墙上被取下；透过纱看得到作品墙，藏起来会露出一个空卡位、飞完又突然补回，所以留着让纱把它模糊掉
+        if (t && !veiled()) t.thumb.style.visibility = 'hidden';
         const tint = getComputedStyle(v).backgroundColor;   // 跟随配色方案：可能是作品色调，也可能是方案固定的展墙色
         v.classList.add('fx-entering', 'fx-chrome-wait');
         const anims = [
@@ -504,9 +504,8 @@
     function viewerClosing(id) {
         stopInertia();
         const v = api.viewer, img = api.img, vs = api.state.viewer;
-        // 先读“此刻”画面上大图的位置和底色（可能正处在进入动画中途），再结束进入动画
+        // 先读“此刻”画面上大图的位置（可能正处在进入动画中途），再结束进入动画
         const fr = img.getBoundingClientRect();
-        const bg = getComputedStyle(v).backgroundColor;
         const zoomedIn = vs && !vs.fit && !opening;
         const closingWork = window.Archive.get(id);
         if (has('stack') && vs && closingWork && closingWork.pages.length > 1) {
@@ -519,17 +518,11 @@
         if (!has('viewer')) return;
         const backdrop = document.createElement('div');
         backdrop.className = 'fx-flight-backdrop';
-        // 新玻璃：替身底也是纱（带主色光晕），淡出时模糊一起退掉，不用 opacity
-        const veil = root.classList.contains('ng-glass');
-        const fade = (duration) => backdrop.animate(veil ? [{ '--veil-o': 1 }, { '--veil-o': 0 }] : [{ opacity: 1 }, { opacity: 0 }],
-            { duration, easing: 'ease-out', fill: 'forwards' });
-        if (veil) {
-            backdrop.classList.add('ng-veil');
-            backdrop.style.setProperty('--tone', v.style.getPropertyValue('--tone') || 'transparent');
-            backdrop.style.setProperty('--amb', getComputedStyle(v).getPropertyValue('--amb').trim() || '0%');
-        } else {
-            backdrop.style.background = bg;
-        }
+        // 替身底也是纱（带主色光晕），淡出时模糊一起退掉，不用 opacity；关掉透明效果时它是实底
+        backdrop.classList.add('fx-veil');
+        backdrop.style.setProperty('--tone', v.style.getPropertyValue('--tone') || 'transparent');
+        backdrop.style.setProperty('--amb', getComputedStyle(v).getPropertyValue('--amb').trim() || '0%');
+        const fade = (duration) => backdrop.animate([{ '--veil-o': 1 }, { '--veil-o': 0 }], { duration, easing: 'ease-out', fill: 'forwards' });
         document.body.appendChild(backdrop);
         if (reduced() || zoomedIn || !fr.width) {
             const a = fade(reduced() ? 120 : 220);
@@ -1099,88 +1092,6 @@
         settle: () => { settleOpening(); stopInertia(); },
         navigate, pageShown, panStart, panMove, panEnd, startPage
     };
-
-    /*
-     * R4.2 原型工具：帧率读数（设置页“显示帧率”）。按 requestAnimationFrame 的间隔统计最近 1 秒的帧数、
-     * 最近 2 秒里最长的一帧和超过 25 ms 的帧数。关掉时不跑循环。定稿后删除。
-     */
-    (function fpsMeter() {
-        const meter = document.createElement('div');
-        meter.className = 'ng-fps-meter';
-        meter.setAttribute('aria-hidden', 'true');
-        document.body.appendChild(meter);
-        let frames = [], last = 0, raf = 0;
-        function tick(now) {
-            if (last) frames.push([now, now - last]);
-            last = now;
-            frames = frames.filter(([t]) => now - t <= 2000);
-            const lastSecond = frames.filter(([t]) => now - t <= 1000).length;
-            const worst = frames.reduce((m, [, d]) => Math.max(m, d), 0);
-            const slow = frames.filter(([, d]) => d > 25).length;
-            meter.textContent = `${lastSecond} fps · 最长 ${worst.toFixed(0)} ms · 慢帧 ${slow}`;
-            raf = requestAnimationFrame(tick);
-        }
-        let benching = false;
-        function sync() {
-            const on = root.classList.contains('ng-fps') && !benching;
-            if (on && !raf) { last = 0; frames = []; raf = requestAnimationFrame(tick); }
-            if (!on && raf) { cancelAnimationFrame(raf); raf = 0; }
-        }
-        new MutationObserver(sync).observe(root, { attributes: true, attributeFilter: ['class'] });
-        sync();
-
-        /*
-         * F9：在当前窗口里跑一遍固定的看图操作（打开、连翻 12 次、开关信息栏、滚轮缩放、关闭），
-         * 现状、新玻璃默认档、新玻璃最透档各一遍，结果留在右下角，点一下页面收起。用来量 WebView2 的真实帧率。
-         */
-        const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-        async function runOnce() {
-            const deltas = [];
-            let prev = 0, going = true;
-            const step = (t) => { if (prev) deltas.push(t - prev); prev = t; if (going) requestAnimationFrame(step); };
-            requestAnimationFrame(step);
-            document.querySelectorAll('.piece-open')[4].click();
-            await wait(700);
-            for (let i = 0; i < 8; i++) { $('sv-next').click(); await wait(260); }
-            $('sv-info-toggle').click(); await wait(700);
-            for (let i = 0; i < 4; i++) { $('sv-prev').click(); await wait(260); }
-            $('sv-info-toggle').click(); await wait(700);
-            const r = api.canvas.getBoundingClientRect();
-            for (let i = 0; i < 10; i++) {
-                api.canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: i < 5 ? -120 : 120, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, bubbles: true, cancelable: true }));
-                await wait(120);
-            }
-            $('sv-back').click(); await wait(800);
-            going = false;
-            deltas.sort((a, b) => a - b);
-            const n = deltas.length, total = deltas.reduce((s, d) => s + d, 0);
-            return `${(n / total * 1000).toFixed(1)} fps · 中位 ${deltas[n >> 1].toFixed(1)} · p95 ${deltas[Math.floor(n * 0.95)].toFixed(1)} · 最长 ${deltas[n - 1].toFixed(0)} ms · 慢帧 ${deltas.filter((d) => d > 25).length}/${n}`;
-        }
-        async function bench() {
-            if (benching || api.state.viewer || document.querySelectorAll('.piece-open').length < 13) return;
-            benching = true;
-            const hadGlass = root.classList.contains('ng-glass');
-            const level = window.CTheme.glass();
-            if (raf) { cancelAnimationFrame(raf); raf = 0; }
-            meter.style.cssText = 'display: block; white-space: pre';
-            const lines = [`${innerWidth}×${innerHeight} @${devicePixelRatio} · ${window.CTheme.get()}`];
-            for (const [name, glassOn, lv] of [['现状', false, 50], ['新玻璃 默认', true, 50], ['新玻璃 最透', true, 100], ['现状 复测', false, 50]]) {
-                meter.textContent = lines.concat(`测量中：${name}…`).join('\n');
-                root.classList.toggle('ng-glass', glassOn);
-                window.CTheme.setGlass(lv, false);
-                await wait(400);
-                lines.push(`${name}：${await runOnce()}`);
-            }
-            root.classList.toggle('ng-glass', hadGlass);
-            window.CTheme.setGlass(level, false);
-            meter.textContent = lines.join('\n');
-            console.log('[r42 bench]\n' + lines.join('\n'));
-            document.addEventListener('pointerdown', () => { benching = false; meter.style.cssText = ''; sync(); }, { once: true });
-        }
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'F9' && !e.altKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); bench(); }
-        });
-    })();
 
     /* ---------------- 实验面板（正式页面不创建） ---------------- */
 

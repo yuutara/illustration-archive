@@ -60,8 +60,7 @@ async function setup({ host = true, saved = "TRAY", accept = true, connection = 
     };
     const glass = [];
     const window = { CTheme: { get: () => "light", set() { }, glass: () => 50, GLASS_DEFAULT: 50,
-        setGlass: (level, save = true) => glass.push([String(level), save]),
-        proto: () => ({ glass: false, jelly: false, fps: false }), setProto() { } } };
+        setGlass: (level, save = true) => glass.push([String(level), save]) } };
     app.glass = glass;
     if (host) window.iaDesktop = () => { };
     const context = {

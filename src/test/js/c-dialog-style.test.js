@@ -50,55 +50,32 @@ test("a dialog is glass, and nothing around it stops the glass from reaching the
 });
 
 const value = (css, token) => css.match(new RegExp(`^\\s*${token}: (.+);$`, "m"))[1];
-const rgba = (text) => {
-    const hex = text.match(/^#(..)(..)(..)$/);
-    if (hex) return [...hex.slice(1).map((part) => parseInt(part, 16)), 1];
-    return text.match(/[\d.]+/g).map(Number);
-};
-const over = ([r, g, b, a], back) => [r, g, b].map((channel, i) => channel * a + back[i] * (1 - a));
-const luminance = (color) => {
-    const [r, g, b] = color.map((channel) => {
-        const c = channel / 255;
-        return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-    });
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-};
-const contrast = (a, b) => {
-    const [high, low] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-    return (high + 0.05) / (low + 0.05);
-};
 
-test("small text stays readable on the glass over the worst artwork behind it", () => {
-    const worst = [["light", 'html[data-look="quiet"]', [0, 0, 0]], ["dark", 'html[data-look="quiet"][data-mode="dark"]', [255, 255, 255]]];
-    for (const [name, selector, art] of worst) {
+// 文字面板的对比度按滑块每一档在 c-theme.test.js 里核对（最坏背景 = 模糊、盖纱之后的纯黑 / 纯白）；这里只核对样式确实用了那几个算好的值
+test("text panels take the opacity the theme computes, and use the colours that contrast check was made with", () => {
+    assert.match(theme, /:is\(\.sheet, \.sv-editor, \.sv-info\) \{ --muted: var\(--sheet-muted\); --faint: var\(--sheet-muted\); --accent-text: var\(--sheet-accent\); \}/);
+    assert.match(theme, /\.sv-info \{[^}]*background: var\(--panel-bg\)/);
+    assert.match(theme, /\.sv-editor \{[^}]*background: var\(--panel-bg\)/);
+    for (const selector of ['html[data-look="quiet"]', 'html[data-look="quiet"][data-mode="dark"]']) {
         const css = block(selector);
-        const scrimmed = over(rgba(value(css, "--scrim")), art);
-        const glass = over(rgba(value(css, "--sheet-bg")), scrimmed);
-        const muted = rgba(value(css, "--sheet-muted"));
-        assert.ok(contrast(muted.slice(0, 3), glass) >= 4.5, `${name}: ${contrast(muted.slice(0, 3), glass).toFixed(2)}`);
+        assert.match(value(css, "--panel-bg"), /var\(--glass-panel-a, [\d.]+\)/, `--panel-bg in ${selector}`);
+        assert.match(value(css, "--sheet-bg"), /var\(--glass-sheet-a, [\d.]+\)/, `--sheet-bg in ${selector}`);
     }
-    assert.match(theme, /:is\(\.sheet, \.sv-editor\) \{ --muted: var\(--sheet-muted\); --faint: var\(--sheet-muted\); \}/);
 });
 
-test("light and dark glass let the same amount of the page through", () => {
-    const alpha = (selector) => rgba(value(block(selector), "--sheet-bg"))[3];
-    const light = alpha('html[data-look="quiet"]');
-    const dark = alpha('html[data-look="quiet"][data-mode="dark"]');
-    assert.ok(Math.abs(light - dark) <= 0.05, `light ${light}, dark ${dark}`);
-});
-
-test("the glass slider reaches all glass, and text panels only ever get more solid than the contrast checked above", () => {
+test("the glass slider reaches all glass", () => {
     for (const selector of ['html[data-look="quiet"]', 'html[data-look="quiet"][data-mode="dark"]']) {
         const css = block(selector);
         for (const token of ["--gl-bg", "--gl-bg-hover", "--gl-bg-panel", "--gl-bg-bar", "--masthead-glass"]) {
             assert.match(value(css, token), /var\(--glass-k, 1\)/, `${token} in ${selector}`);
         }
-        assert.match(value(css, "--sheet-bg"), /max\(([\d.]+), calc\(\1 \* var\(--glass-k, 1\)\)\)/, `--sheet-bg in ${selector} never below its checked alpha`);
     }
     for (const selector of ['html[data-look="quiet"] :is(.viewer, .ctx-menu)', 'html[data-look="quiet"][data-mode="dark"] :is(.viewer, .ctx-menu)']) {
         const css = block(selector);
         for (const token of ["--gd-bg", "--gd-bg-panel"]) assert.match(value(css, token), /var\(--glass-k, 1\)/, `${token} in ${selector}`);
-        assert.match(value(css, "--gd-bg-info"), /max\(([\d.]+), calc\(\1 \* var\(--glass-k, 1\)\)\)/, "the viewer's info text never gets thinner glass");
     }
-    assert.match(theme, /\.sv-info \{[^}]*background: var\(--gd-bg-info\)/);
+    // 看图器背后的纱：模糊和浓淡也由滑块给出；关掉透明效果时不画
+    assert.match(theme, /background-color: rgb\(var\(--veil-rgb\) \/ calc\(var\(--veil-a, [\d.]+\) \* var\(--veil-o\)\)\)/);
+    assert.match(theme, /backdrop-filter: blur\(calc\(var\(--veil-blur, \d+px\) \* var\(--veil-o\)\)\)/);
+    assert.match(theme, /@media not \(prefers-reduced-transparency: reduce\) \{\n    html\[data-look="quiet"\] \.viewer \{ background-color: transparent;/);
 });

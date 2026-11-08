@@ -1,8 +1,8 @@
 /*
  * C 图库 · 浅色 / 深色与玻璃透明度：在 <head> 里同步执行，首屏就用对的配色，避免闪一下。
  * 主题固定为静展；选择只保存在本机浏览器，首次使用跟随系统设置。
- * 玻璃透明度（设置页“外观”）调整全部玻璃。顶栏、图上按钮、浮层、操作条和看图器工具两个方向都跟着变；
- * 对话框、编辑面板和看图器信息栏是成段的文字，只会变得更实，不会比默认更透（主题按最坏的背景保证可读）。
+ * 玻璃透明度（设置页“外观”）一个滑块管全部：所有玻璃的不透明度、看图器背后作品墙的模糊和纱的浓淡，
+ * 以及信息栏、编辑面板、对话框的不透明度（按最坏的背景算出下限，保证字看得清）。
  */
 (function () {
     'use strict';
@@ -41,7 +41,7 @@
     }
 
     /*
-     * R4.2 原型（定稿后去掉开关）：“新玻璃”下看图器空白处是一层纱——背后的作品墙先模糊，再盖一层与看图器同色的半透明底。
+     * 看图器空白处是一层纱：背后的作品墙先模糊，再盖一层与看图器同色的半透明底。
      * 滑块同时管纱的模糊、纱的浓淡和所有玻璃的不透明度：0 是实底，50（默认）重度模糊、纱较浓，100 轻度模糊、纱很淡。
      */
     function veilOf(level) {
@@ -54,14 +54,14 @@
      * 文字面板的不透明度下限，按“模糊、盖纱之后最坏的背景”计算：作品墙模糊后最暗不过纯黑（浅色）、最亮不过纯白（深色），
      * 再依次盖上纱、作品主色光晕（只在对话框背后；信息栏和编辑面板背后没有光晕）和对话框遮罩。
      * 面板里的小字（--sheet-muted）和链接（--sheet-accent）都要不低于 4.5，留一点余量按 4.6 算。
-     * 颜色与 theme-quiet.css / r42.css 的同名变量一致，c-theme.test.js 核对两边没有走样。
+     * 颜色与 theme-quiet.css 的同名变量一致，c-theme.test.js 核对两边没有走样。
      */
-    const NG = {
+    const PANELS = {
         light: { veil: [239, 239, 237], panel: [255, 255, 255], scrim: [0, 0, 0, 0.3], amb: 0.24, wall: [0, 0, 0], texts: [[0x52, 0x52, 0x4e], [0x2b, 0x42, 0xbf]] },
         dark: { veil: [12, 12, 12], panel: [28, 28, 28], scrim: [0, 0, 0, 0.42], amb: 0.38, wall: [255, 255, 255], texts: [[0xa8, 0xa8, 0xa1], [0xa8, 0xb7, 0xff]] }
     };
-    const NG_CONTRAST = 4.6;
-    const NG_MARGIN = 0.04;
+    const MIN_CONTRAST = 4.6;
+    const MARGIN = 0.04;
     const mix = (top, a, back) => top.map((c, i) => c * a + back[i] * (1 - a));
     function luminance(rgb) {
         const [r, g, b] = rgb.map((v) => {
@@ -77,12 +77,12 @@
     function floorAlpha(c, back) {
         for (let i = 0; i <= 100; i++) {
             const bg = mix(c.panel, i / 100, back);
-            if (c.texts.every((t) => contrast(t, bg) >= NG_CONTRAST)) return i / 100;
+            if (c.texts.every((t) => contrast(t, bg) >= MIN_CONTRAST)) return i / 100;
         }
         return 1;
     }
-    function ngLevels(level, mode) {
-        const c = NG[mode];
+    function glassLevels(level, mode) {
+        const c = PANELS[mode];
         const v = veilOf(level);
         const k = glassScale(level);
         const veiled = (alpha) => mix(c.veil, alpha, c.wall);
@@ -99,7 +99,7 @@
         for (const [name, back] of Object.entries(backs)) {
             // 默认档：刚好看得清再留一点余量；其余档跟着滑块的倍数变，但不低于这一档自己的下限
             const floor = floorAlpha(c, back(v.alpha));
-            const base = Math.min(1, floorAlpha(c, back(dflt)) + NG_MARGIN);
+            const base = Math.min(1, floorAlpha(c, back(dflt)) + MARGIN);
             out[name] = Math.round(Math.min(1, Math.max(floor, base * k)) * 100) / 100;
         }
         return out;
@@ -107,24 +107,12 @@
 
     function applyGlass(level) {
         root.style.setProperty('--glass-k', String(glassScale(level)));
-        const ng = ngLevels(level, current);
-        root.style.setProperty('--veil-blur', ng.blur + 'px');
-        root.style.setProperty('--veil-a', String(ng.veil));
-        root.style.setProperty('--ng-panel-a', String(ng.panel));
-        root.style.setProperty('--ng-sheet-va', String(ng.sheetV));
-        root.style.setProperty('--ng-sheet-a', String(ng.sheet));
-    }
-
-    // R4.2 原型的临时开关：新玻璃、果冻感、帧率读数，只保存在这台电脑
-    const PROTO_KEY = 'ia-c-r42-proto';
-    const PROTO_FLAGS = ['glass', 'jelly', 'fps'];
-    function readProto() {
-        let saved = {};
-        try { saved = JSON.parse(localStorage.getItem(PROTO_KEY) || '{}') || {}; } catch (e) { /* 同上 */ }
-        return Object.fromEntries(PROTO_FLAGS.map((f) => [f, saved[f] === true]));
-    }
-    function applyProto(p) {
-        PROTO_FLAGS.forEach((f) => root.classList.toggle('ng-' + f, p[f]));
+        const g = glassLevels(level, current);
+        root.style.setProperty('--veil-blur', g.blur + 'px');
+        root.style.setProperty('--veil-a', String(g.veil));
+        root.style.setProperty('--glass-panel-a', String(g.panel));
+        root.style.setProperty('--glass-sheet-va', String(g.sheetV));
+        root.style.setProperty('--glass-sheet-a', String(g.sheet));
     }
 
     // startViewTransition 的回调要到下一帧才执行，所以当前模式单独记着：切换后立刻读取也要拿到新值
@@ -132,8 +120,6 @@
     apply(current);
     let glass = readGlass();
     applyGlass(glass);
-    let proto = readProto();
-    applyProto(proto);
 
     window.CTheme = {
         get: () => current,
@@ -158,13 +144,6 @@
                 try { localStorage.setItem(GLASS_KEY, String(glass)); } catch (e) { /* 同上 */ }
             }
         },
-        proto: () => ({ ...proto }),
-        setProto(flag, on) {
-            if (!PROTO_FLAGS.includes(flag)) return;
-            proto = { ...proto, [flag]: !!on };
-            applyProto(proto);
-            try { localStorage.setItem(PROTO_KEY, JSON.stringify(proto)); } catch (e) { /* 同上 */ }
-        },
-        _internal: { glassScale, glassLevel, veilOf, ngLevels, contrast, NG, NG_CONTRAST }
+        _internal: { glassScale, glassLevel, veilOf, glassLevels, contrast, PANELS, MIN_CONTRAST }
     };
 })();
