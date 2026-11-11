@@ -152,6 +152,8 @@ public final class DesktopServer {
 
 		properties.put("server.address", "127.0.0.1");
 		properties.put("server.port", Integer.toString(port));
+		// The phone connector is added only while the user has phone access on; 0 lets Tomcat pick a free port.
+		properties.put(MobileAccess.LAN_PORT_PROPERTY, "47393");
 		properties.put("server.shutdown", "graceful");
 		properties.put("spring.lifecycle.timeout-per-shutdown-phase", "15s");
 		// The window's profile outlives each update: without this, a new EXE can run the previous version's pages.

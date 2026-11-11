@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN" data-look="quiet" data-mode="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="darkreader-lock">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#f6f6f5">
+    <title>作品 · 插画档案</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231b1b1a'/%3E%3Cpath d='M17 43 27 21h6l10 22h-5l-2.4-5.6H24.4L22 43Zm9-10h6.6L29.3 25Z' fill='%23f6f6f5'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="/c/gallery.css">
+    <link rel="stylesheet" href="/c/theme-quiet.css">
+    <link rel="stylesheet" href="/c/motion.css">
+    <link rel="stylesheet" href="app.css">
+    <script src="/c/theme-mode.js"></script>
+    <script src="item.js" defer></script>
+</head>
+<body>
+<div class="m-top">
+    <header class="m-detail-head">
+        <a class="m-back" id="m-back" href="/m/">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M14.5 6 8.5 12l6 6"></path>
+            </svg>
+            图库
+        </a>
+        <span class="m-count" id="m-pos"></span>
+    </header>
+</div>
+
+<main class="m-detail" id="m-detail">
+    <div class="m-loading" id="m-loading">正在载入作品…</div>
+    <div class="m-error" id="m-error" hidden></div>
+    <div class="m-save-hint" id="m-save-hint" hidden>
+        <span>长按图片，可以保存到相册或发送给朋友。</span>
+        <button type="button" id="m-hint-ok">知道了</button>
+    </div>
+    <div class="m-pages" id="m-pages"></div>
+    <section class="m-info" id="m-info" hidden>
+        <h1 id="m-title"></h1>
+        <p class="m-by" id="m-by"></p>
+        <div class="m-tags" id="m-tags"></div>
+        <p class="m-note" id="m-note"></p>
+        <p class="m-source" id="m-source" hidden><a id="m-source-link" href="#" target="_blank" rel="noreferrer">打开原帖</a></p>
+    </section>
+</main>
+</body>
+</html>

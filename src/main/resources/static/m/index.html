@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-CN" data-look="quiet" data-mode="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="darkreader-lock">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#f6f6f5">
+    <title>插画档案 · 手机版</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231b1b1a'/%3E%3Cpath d='M17 43 27 21h6l10 22h-5l-2.4-5.6H24.4L22 43Zm9-10h6.6L29.3 25Z' fill='%23f6f6f5'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="/c/gallery.css">
+    <link rel="stylesheet" href="/c/theme-quiet.css">
+    <link rel="stylesheet" href="/c/motion.css">
+    <link rel="stylesheet" href="app.css">
+    <script src="/c/theme-mode.js"></script>
+    <script src="app.js" defer></script>
+</head>
+<body>
+<div class="m-top">
+    <header class="m-head">
+        <a class="m-wordmark" href="/m/">插画档案</a>
+        <span class="m-count" id="m-count"></span>
+    </header>
+    <div class="m-search" role="search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="6.5"></circle>
+            <path d="m16 16 4.5 4.5"></path>
+        </svg>
+        <label class="visually-hidden" for="m-q">搜索作品</label>
+        <input id="m-q" type="search" placeholder="搜索标题、备注、作者或标签" autocomplete="off" spellcheck="false" maxlength="200" enterkeyhint="search">
+        <button class="m-clear" id="m-clear" type="button" aria-label="清除搜索" hidden>×</button>
+    </div>
+</div>
+
+<main class="m-main">
+    <h1 class="visually-hidden">插画图库</h1>
+    <div class="m-grid" id="m-grid" aria-live="polite"></div>
+    <div class="m-empty" id="m-empty" hidden>
+        <p class="m-empty-title" id="m-empty-title">图库里还没有作品</p>
+        <p id="m-empty-text">在电脑上收几张作品，再回到这里刷新。</p>
+        <button class="m-btn" id="m-empty-clear" type="button" hidden>清除搜索</button>
+    </div>
+    <div class="m-status" id="m-status" hidden>
+        <p id="m-status-text">读取失败</p>
+        <button class="m-btn" id="m-retry" type="button">重试</button>
+    </div>
+    <button class="m-btn m-more" id="m-more" type="button" hidden>载入更多</button>
+</main>
+</body>
+</html>

@@ -105,6 +105,50 @@
         <p class="set-note">连接 X 和 Gemini 时使用。留空时跟随 Windows 代理设置，应用不会更改系统代理。修改后，X 收藏里的图片需要重新打开应用才会走新的代理。</p>
     </section>
 
+    <section class="set-section" id="mobile">
+        <h2>手机访问</h2>
+        <p>在同一个 Wi-Fi 下，用手机扫码就能浏览、搜索图库，长按图片保存到相册或发给朋友。默认关闭，只有配对过的手机能看。</p>
+        <p class="set-error" id="mobile-error" role="alert" hidden></p>
+        <div id="mobile-off">
+            <div class="set-actions">
+                <button class="btn btn-ink" id="mobile-enable" type="button">打开手机访问</button>
+            </div>
+            <p class="set-note">打开后，应用会临时监听局域网。只在家里或自己信任的 Wi-Fi 使用，不要在公共 Wi-Fi 打开。手机配对后可以随时在下面撤销。</p>
+        </div>
+        <div id="mobile-on" hidden>
+            <dl class="set-steps" id="mobile-steps"></dl>
+            <label class="set-field" id="mobile-address-field" hidden>
+                <span>电脑在局域网中的地址</span>
+                <select id="mobile-address"></select>
+            </label>
+            <div class="set-actions">
+                <button class="btn" id="mobile-disable" type="button">关闭手机访问</button>
+                <button class="btn" id="mobile-retry" type="button" hidden>重试</button>
+            </div>
+            <div class="mobile-pair" id="mobile-pair" hidden>
+                <div class="mobile-qr" id="mobile-qr-box">
+                    <img id="mobile-qr" alt="手机配对二维码">
+                    <p class="mobile-expired" id="mobile-expired" hidden>二维码已过期</p>
+                </div>
+                <div class="mobile-pair-side">
+                    <p class="mobile-pair-title">用手机扫描二维码</p>
+                    <p class="mobile-pair-hint">微信扫一扫，或手机相机扫码。二维码 5 分钟内有效，只能使用一次。</p>
+                    <p class="mobile-code">配对码 <code id="mobile-code"></code></p>
+                    <p class="set-hint" id="mobile-expiry"></p>
+                    <button class="link" id="mobile-refresh" type="button">换一个二维码</button>
+                </div>
+            </div>
+            <p class="set-error" id="mobile-pair-error" role="alert" hidden></p>
+            <div class="set-actions" id="mobile-pair-actions">
+                <button class="btn" id="mobile-new-pairing" type="button">配一台新手机</button>
+            </div>
+            <h3 class="set-subhead">已配对的手机</h3>
+            <ul class="mobile-devices" id="mobile-devices"></ul>
+            <p class="set-hint" id="mobile-devices-empty">还没有手机配对。</p>
+            <p class="set-note">手机只保存一个 HttpOnly 的配对凭证，应用不保存手机号或账号。撤销后，这台手机下一次打开或刷新就会失效。关闭手机访问会立即断开局域网；配对记录保留，下次打开不用重扫。</p>
+        </div>
+    </section>
+
     <section class="set-section" id="look">
         <h2>外观</h2>
         <div class="set-glass">

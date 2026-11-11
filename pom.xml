@@ -52,6 +52,12 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-webmvc</artifactId>
 		</dependency>
+		<!-- Mobile pairing QR only; rendered locally, never sent anywhere. -->
+		<dependency>
+			<groupId>com.google.zxing</groupId>
+			<artifactId>core</artifactId>
+			<version>3.5.4</version>
+		</dependency>
 
 		<dependency>
 			<groupId>com.mysql</groupId>

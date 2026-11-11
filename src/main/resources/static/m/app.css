@@ -1,0 +1,350 @@
+/*
+ * 手机版：沿用 C 图库的静展令牌（theme-quiet.css）和动效曲线（motion.css），只做手机上的排版。
+ * 作品墙是两列封面；详情页按原图比例竖排，长按能拿到 /api/assets/<id>/content 的原图。
+ */
+html {
+    scrollbar-gutter: auto;
+    -webkit-text-size-adjust: 100%;
+}
+
+body {
+    margin: 0;
+    min-height: 100dvh;
+    background: var(--paper);
+    color: var(--ink);
+    font: 15px/1.55 var(--sans);
+    -webkit-font-smoothing: antialiased;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+a { color: inherit; text-decoration: none; }
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* 顶栏和搜索一起吸顶：滚作品时随时能搜 */
+.m-top {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    padding-top: env(safe-area-inset-top, 0px);
+    background: var(--paper);
+    background: color-mix(in srgb, var(--paper) 88%, transparent);
+    -webkit-backdrop-filter: blur(20px) saturate(1.08);
+    backdrop-filter: blur(20px) saturate(1.08);
+    box-shadow: 0 1px 0 var(--gl-sep);
+}
+
+.m-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 54px;
+    padding: 0 16px;
+}
+
+.m-wordmark {
+    color: var(--ink);
+    font: 600 17px/1.3 var(--sans);
+    letter-spacing: .01em;
+}
+
+.m-count {
+    color: var(--muted);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+}
+
+.m-search {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 42px;
+    margin: 0 12px 12px;
+    padding: 0 6px 0 12px;
+    border-radius: 12px;
+    background: var(--well);
+    box-shadow: var(--well-edge);
+    transition: background-color .12s, box-shadow .12s;
+}
+
+.m-search:focus-within {
+    background: var(--card);
+    box-shadow: 0 0 0 1px var(--accent), var(--focus-ring);
+}
+
+.m-search svg { flex: none; width: 17px; height: 17px; color: var(--muted); }
+
+.m-search input {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    border: 0;
+    outline: none;
+    background: none;
+    color: var(--ink);
+    font-size: 16px;
+}
+
+.m-search input::placeholder { color: var(--faint); }
+/* 搜索框自己有一个清除按钮；藏掉浏览器自带的那一个，避免并排两个 × */
+.m-search input::-webkit-search-cancel-button,
+.m-search input::-webkit-search-decoration {
+    -webkit-appearance: none;
+    appearance: none;
+    display: none;
+}
+
+.m-clear {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 34px;
+    height: 34px;
+    border: 0;
+    border-radius: 10px;
+    background: none;
+    color: var(--muted);
+    font-size: 20px;
+    line-height: 1;
+}
+
+.m-clear:active { background: var(--gl-fill-hover); }
+
+.m-main { padding: 14px 12px calc(32px + env(safe-area-inset-bottom, 0px)); }
+
+.m-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px 10px;
+}
+
+.m-card { min-width: 0; -webkit-tap-highlight-color: transparent; }
+
+.m-card-media {
+    position: relative;
+    display: block;
+    overflow: hidden;
+    border-radius: 12px;
+    background: var(--paper-2);
+    box-shadow: var(--art-edge);
+    transition: transform .39s var(--fx-snappy), box-shadow .2s ease;
+}
+
+.m-card:active .m-card-media { transform: scale(.985); transition-duration: .08s; transition-timing-function: ease-out; }
+
+.m-card-media img {
+    display: block;
+    width: 100%;
+    aspect-ratio: 4 / 5;
+    object-fit: cover;
+    background: var(--paper-2);
+    opacity: 0;
+    transition: opacity .25s ease-out;
+    /* 封面是缩略图，长按保存会拿到缩略图；引导到详情页再长按原图 */
+    -webkit-touch-callout: none;
+}
+
+.m-card-media img.is-loaded { opacity: 1; }
+
+.m-card-media video {
+    display: block;
+    width: 100%;
+    aspect-ratio: 4 / 5;
+    object-fit: cover;
+    background: var(--paper-2);
+}
+
+.m-video-placeholder {
+    display: grid;
+    place-items: center;
+    gap: 4px;
+    width: 100%;
+    aspect-ratio: 4 / 5;
+    color: var(--muted);
+    background: var(--paper-2);
+    font-size: 12px;
+}
+
+.m-video-placeholder b { color: var(--ink-2); font: 600 20px/1 var(--sans); }
+
+.m-badge {
+    position: absolute;
+    right: 7px;
+    bottom: 7px;
+    padding: 3px 7px;
+    border-radius: 999px;
+    color: #fff;
+    background: rgba(0, 0, 0, .55);
+    font-size: 11px;
+    line-height: 1.4;
+    pointer-events: none;
+}
+
+.m-card-meta { display: block; padding: 7px 3px 0; }
+
+.m-card-title {
+    display: block;
+    overflow: hidden;
+    color: var(--ink);
+    font-size: 13px;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.m-card-author {
+    display: block;
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.m-empty,
+.m-status {
+    display: grid;
+    justify-items: center;
+    gap: 10px;
+    padding: 56px 18px;
+    color: var(--muted);
+    text-align: center;
+}
+
+.m-empty-title { margin: 0; color: var(--ink); font: 600 16px var(--sans); }
+.m-empty p, .m-status p { margin: 0; }
+
+.m-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 42px;
+    padding: 0 18px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--card);
+    color: var(--ink);
+    font-size: 14px;
+    transition: transform .39s var(--fx-snappy);
+}
+
+.m-btn:active { transform: scale(.97); transition-duration: .08s; }
+.m-more { width: 100%; margin-top: 18px; }
+
+/* ---------------- 详情 ---------------- */
+
+.m-detail { padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px)); }
+
+.m-detail-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: calc(54px + env(safe-area-inset-top, 0px));
+    padding: env(safe-area-inset-top, 0px) 12px 0;
+}
+
+.m-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 1px;
+    min-height: 40px;
+    padding: 0 8px 0 0;
+    color: var(--ink);
+    font-size: 14px;
+}
+
+.m-back svg { width: 20px; height: 20px; }
+.m-detail-head .m-count { margin-left: auto; }
+
+.m-save-hint {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin: 0 12px 10px;
+    padding: 9px 12px;
+    border-radius: 10px;
+    color: var(--ink-2);
+    background: var(--accent-soft);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.m-save-hint button {
+    flex: none;
+    border: 0;
+    background: none;
+    color: var(--accent-text);
+    font-size: 13px;
+}
+
+.m-pages { display: grid; gap: 8px; background: var(--paper-2); }
+.m-page { margin: 0; }
+
+.m-page img,
+.m-page video {
+    display: block;
+    width: 100%;
+    height: auto;
+    background: var(--paper-2);
+}
+
+.m-page figcaption {
+    padding: 6px 12px;
+    color: var(--muted);
+    font-size: 12px;
+    text-align: center;
+}
+
+.m-info {
+    margin: 12px 12px 0;
+    padding: 16px;
+    border-radius: 12px;
+    background: var(--card);
+    box-shadow: var(--art-edge);
+}
+
+.m-info h1 { margin: 0 0 6px; font: 600 20px/1.35 var(--sans); }
+.m-by { margin: 0 0 8px; color: var(--muted); font-size: 13px; }
+.m-author { color: var(--accent-text); font-weight: 600; }
+
+.m-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+
+.m-tag {
+    padding: 3px 9px;
+    border-radius: 8px;
+    background: var(--paper-2);
+    color: var(--ink-2);
+    font-size: 12px;
+}
+
+.m-note {
+    margin: 0 0 10px;
+    color: var(--ink-2);
+    font-size: 14px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.m-source { margin: 0; font-size: 13px; }
+.m-source a { color: var(--accent-text); }
+.m-loading { padding: 64px 20px; color: var(--muted); text-align: center; }
+.m-error { padding: 40px 20px; color: var(--danger); text-align: center; }
+
+@media (prefers-reduced-transparency: reduce) {
+    .m-top {
+        background: var(--paper);
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+    }
+}
+
+@media (min-width: 720px) {
+    .m-main { max-width: 720px; margin: 0 auto; padding-left: 20px; padding-right: 20px; }
+    .m-grid { gap: 18px 14px; }
+    .m-detail { max-width: 860px; margin: 0 auto; }
+}

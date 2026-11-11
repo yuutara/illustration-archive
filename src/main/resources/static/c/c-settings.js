@@ -226,6 +226,236 @@
         });
     }
 
+    /* ---------------- 手机访问 ---------------- */
+
+    let mobileStatus = null;
+    let mobileBusy = false;
+    let mobilePoll = 0;
+    let mobilePairingTimer = 0;
+    let mobilePairingCode = '';
+    let mobileAutoPairTried = false;
+    let mobileSeenDevices = 0;
+
+    const mobileDate = (iso) => {
+        const date = new Date(iso);
+        if (Number.isNaN(date.getTime())) return '';
+        return date.toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    };
+
+    function mobileStep(box, label, value, tone) {
+        const row = el('div', 'set-step');
+        if (tone) row.dataset.tone = tone;
+        row.appendChild(el('dt', null, label));
+        row.appendChild(el('dd', null, value));
+        box.appendChild(row);
+    }
+
+    function renderMobileDevices(devices) {
+        const list = $('mobile-devices');
+        list.replaceChildren(...devices.map((device) => {
+            const item = el('li', 'mobile-device');
+            const text = el('div', 'mobile-device-text');
+            text.appendChild(el('span', 'mobile-device-label', device.label || '手机'));
+            const paired = mobileDate(device.pairedAt);
+            text.appendChild(el('span', 'mobile-device-meta', paired ? '配对于 ' + paired : '已配对'));
+            item.appendChild(text);
+            item.appendChild(button('撤销', 'link', () => revokeMobileDevice(device.id)));
+            return item;
+        }));
+        $('mobile-devices-empty').hidden = devices.length > 0;
+    }
+
+    function clearMobileCountdown() {
+        if (mobilePairingTimer) {
+            clearInterval(mobilePairingTimer);
+            mobilePairingTimer = 0;
+        }
+    }
+
+    function startMobileCountdown(expiresAt) {
+        clearMobileCountdown();
+        const deadline = Date.parse(expiresAt);
+        if (Number.isNaN(deadline)) {
+            $('mobile-expiry').textContent = '';
+            return;
+        }
+        const tick = () => {
+            const left = deadline - Date.now();
+            if (left <= 0) {
+                $('mobile-expiry').textContent = '二维码已过期，请换一个';
+                $('mobile-qr').hidden = true;
+                $('mobile-expired').hidden = false;
+                clearMobileCountdown();
+                return;
+            }
+            const seconds = Math.ceil(left / 1000);
+            $('mobile-expiry').textContent = '还剩 ' + Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0');
+        };
+        tick();
+        mobilePairingTimer = setInterval(tick, 1000);
+    }
+
+    function applyMobilePairing(pairing) {
+        if (!pairing) {
+            $('mobile-pair').hidden = true;
+            $('mobile-pair-actions').hidden = false;
+            clearMobileCountdown();
+            return;
+        }
+        $('mobile-pair').hidden = false;
+        $('mobile-pair-actions').hidden = true;
+        $('mobile-pair-error').hidden = true;
+        $('mobile-qr').hidden = false;
+        $('mobile-expired').hidden = true;
+        if (mobilePairingCode !== pairing.code) {
+            mobilePairingCode = pairing.code;
+            $('mobile-qr').src = pairing.qr;
+            $('mobile-code').textContent = pairing.code;
+        }
+        startMobileCountdown(pairing.expiresAt);
+    }
+
+    function renderMobile(status) {
+        mobileStatus = status;
+        const enabled = !!status.enabled;
+        const active = !!status.active;
+        const devices = Array.isArray(status.devices) ? status.devices : [];
+        const addresses = Array.isArray(status.addresses) ? status.addresses : [];
+        $('mobile-off').hidden = enabled;
+        $('mobile-on').hidden = !enabled;
+        $('mobile-retry').hidden = !(enabled && !active);
+        if (status.error && enabled) {
+            showError('mobile-error', status.error);
+        } else if (!enabled) {
+            showError('mobile-error', '');
+        }
+        if (!enabled) {
+            applyMobilePairing(null);
+            mobileStatus = status;
+            scheduleMobilePoll();
+            return;
+        }
+
+        const steps = $('mobile-steps');
+        steps.replaceChildren();
+        mobileStep(steps, '局域网', active ? '已打开，端口 ' + status.port : '已开启，但这次没有打开', active ? 'ok' : 'bad');
+        mobileStep(steps, '地址', status.address || '没有找到局域网地址，请确认电脑连在 Wi-Fi 上', status.address ? '' : 'bad');
+        mobileStep(steps, '配对', devices.length ? '已配对 ' + devices.length + ' 台手机' : '等待手机扫码',
+            devices.length ? 'ok' : '');
+
+        const select = $('mobile-address');
+        $('mobile-address-field').hidden = addresses.length <= 1;
+        if (addresses.length > 1) {
+            const current = status.address || addresses[0];
+            select.replaceChildren(...addresses.map((address) => {
+                const option = document.createElement('option');
+                option.value = address;
+                option.textContent = address;
+                option.selected = address === current;
+                return option;
+            }));
+        }
+
+        renderMobileDevices(devices);
+        if (devices.length > 0 && mobileSeenDevices === 0) {
+            toast('手机已配对。现在可以在手机上浏览图库了');
+            mobileAutoPairTried = true;
+        }
+        mobileSeenDevices = devices.length;
+        applyMobilePairing(status.pairing || null);
+        $('mobile-new-pairing').hidden = !active || !!status.pairing;
+        if (active && !status.pairing && devices.length === 0 && !mobileAutoPairTried) {
+            mobileAutoPairTried = true;
+            setTimeout(newMobilePairing, 0);
+        }
+        scheduleMobilePoll();
+    }
+
+    function scheduleMobilePoll() {
+        clearTimeout(mobilePoll);
+        mobilePoll = 0;
+        if (!mobileStatus || !mobileStatus.enabled || document.hidden) return;
+        mobilePoll = setTimeout(loadMobile, 2500);
+    }
+
+    async function loadMobile() {
+        try {
+            const status = await send('/api/desktop/mobile', 'GET');
+            if (status) renderMobile(status);
+        } catch (e) {
+            showError('mobile-error', '读取手机访问状态失败：' + e.message);
+        }
+    }
+
+    async function setMobile(enabled) {
+        if (mobileBusy) return;
+        mobileBusy = true;
+        showError('mobile-error', '');
+        $('mobile-enable').disabled = true;
+        $('mobile-disable').disabled = true;
+        $('mobile-retry').disabled = true;
+        try {
+            const status = await send('/api/desktop/mobile/access', 'PUT', { enabled });
+            mobileAutoPairTried = !enabled;
+            mobileSeenDevices = 0;
+            mobilePairingCode = '';
+            renderMobile(status);
+            toast(enabled ? '手机访问已打开，用手机扫描下面的二维码' : '手机访问已关闭，局域网已经断开');
+        } catch (e) {
+            showError('mobile-error', (enabled ? '没有打开' : '没有关闭') + '：' + e.message);
+            await loadMobile();
+        } finally {
+            mobileBusy = false;
+            $('mobile-enable').disabled = false;
+            $('mobile-disable').disabled = false;
+            $('mobile-retry').disabled = false;
+        }
+    }
+
+    async function newMobilePairing() {
+        if (mobileBusy) return;
+        mobileBusy = true;
+        showError('mobile-pair-error', '');
+        try {
+            const address = $('mobile-address').value || null;
+            const pairing = await send('/api/desktop/mobile/pairing', 'POST', { address });
+            mobilePairingCode = '';
+            applyMobilePairing(pairing);
+        } catch (e) {
+            showError('mobile-pair-error', '没有生成二维码：' + e.message);
+        } finally {
+            mobileBusy = false;
+        }
+    }
+
+    async function revokeMobileDevice(id) {
+        if (mobileBusy) return;
+        mobileBusy = true;
+        try {
+            await send('/api/desktop/mobile/devices/' + id, 'DELETE');
+            toast('已撤销，这台手机下次打开或刷新就需要重新扫码');
+            await loadMobile();
+        } catch (e) {
+            showError('mobile-error', '没有撤销：' + e.message);
+        } finally {
+            mobileBusy = false;
+        }
+    }
+
+    $('mobile-enable').addEventListener('click', () => setMobile(true));
+    $('mobile-disable').addEventListener('click', () => setMobile(false));
+    $('mobile-retry').addEventListener('click', () => setMobile(true));
+    $('mobile-refresh').addEventListener('click', newMobilePairing);
+    $('mobile-new-pairing').addEventListener('click', newMobilePairing);
+    $('mobile-address').addEventListener('change', () => {
+        if (mobileStatus && mobileStatus.pairing) newMobilePairing();
+    });
+    if (document.addEventListener) {
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && mobileStatus && mobileStatus.enabled) loadMobile();
+        });
+    }
+
     /* ---------------- 其余设置 ---------------- */
 
     function renderKey(saved, verifiedAt = null) {
@@ -373,4 +603,5 @@
 
     loadConnection();
     loadSettings();
+    loadMobile();
 })();

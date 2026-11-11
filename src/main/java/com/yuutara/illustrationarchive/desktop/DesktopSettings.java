@@ -39,6 +39,7 @@ public class DesktopSettings implements XLikeSyncReadLimit {
 	private static final String X_VERIFIED_ACCOUNT = "x.verified-account";
 	private static final String AI_VERIFIED_KEY = "ai.verified-key";
 	private static final String AI_VERIFIED_AT = "ai.verified-at";
+	private static final String MOBILE_ENABLED = "mobile.enabled";
 
 	private final Path file;
 	private final Properties values = new Properties();
@@ -156,6 +157,15 @@ public class DesktopSettings implements XLikeSyncReadLimit {
 		InetSocketAddress parsed = proxyAddress(address);
 		change(() -> values.setProperty(PROXY_ADDRESS, address));
 		proxySelector.useManual(parsed);
+	}
+
+	/** Off unless the user turned it on: the app is loopback-only by default. */
+	public synchronized boolean mobileEnabled() {
+		return Boolean.parseBoolean(values.getProperty(MOBILE_ENABLED, "false").trim());
+	}
+
+	public synchronized void saveMobileEnabled(boolean enabled) {
+		change(() -> values.setProperty(MOBILE_ENABLED, Boolean.toString(enabled)));
 	}
 
 	public synchronized CloseAction closeAction() {

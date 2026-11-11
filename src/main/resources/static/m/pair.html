@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="color-scheme" content="light dark">
+    <meta name="darkreader-lock">
+    <title>配对 · 插画档案</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --paper: #f6f6f5;
+            --card: #ffffff;
+            --ink: #1b1b1a;
+            --ink-2: #474745;
+            --muted: #6a6a65;
+            --line: #e2e2df;
+            --accent: #3550d4;
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                color-scheme: dark;
+                --paper: #111111;
+                --card: #1a1a1a;
+                --ink: #ededeb;
+                --ink-2: #c6c6c2;
+                --muted: #9c9c95;
+                --line: #2c2c2b;
+                --accent: #a8b7ff;
+            }
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100dvh;
+            display: grid;
+            place-items: center;
+            padding: 24px;
+            background: var(--paper);
+            color: var(--ink);
+            font: 15px/1.6 "Segoe UI", "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+        main {
+            width: min(420px, 100%);
+            padding: 24px;
+            border-radius: 16px;
+            background: var(--card);
+            box-shadow: 0 0 0 1px var(--line), 0 18px 40px -24px rgba(0, 0, 0, .35);
+        }
+        h1 { margin: 0 0 10px; font-size: 20px; line-height: 1.35; }
+        p { margin: 0 0 10px; color: var(--ink-2); }
+        .hint { color: var(--muted); font-size: 13px; }
+        b { color: var(--ink); }
+        .brand { margin-top: 18px; color: var(--muted); font-size: 12px; }
+    </style>
+</head>
+<body>
+<main>
+    <h1 id="title">配对没有完成</h1>
+    <p id="text">这个二维码已经过期，或者已经被使用过了。</p>
+    <p class="hint">请在电脑上打开 <b>设置 → 手机访问</b>，换一个二维码，再用手机扫描。</p>
+    <p class="brand">插画档案 · 手机版</p>
+</main>
+<script>
+    (function () {
+        var reason = new URLSearchParams(location.search).get('e');
+        if (reason === '2' || reason === '3') {
+            document.getElementById('title').textContent = '这台手机还没有配对';
+            document.getElementById('text').textContent = '配对已经被撤销，或者这台手机还没有和电脑配对。';
+        }
+    })();
+</script>
+</body>
+</html>

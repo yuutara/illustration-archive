@@ -41,19 +41,23 @@ const connectionOf = (state, savedLogin = "NONE", { status, ...rest } = {}) => (
     clientId: "", callbackUrl: "http://127.0.0.1:47392/x/callback", scanBudget: 100, verifiedAt: null, verifiedAccount: null, ...rest
 });
 
+const mobileOff = () => ({ enabled: false, active: false, port: -1, addresses: [], address: null, error: null,
+    devices: [], pairing: null });
+
 async function setup({ host = true, saved = "TRAY", accept = true, connection = connectionOf("DISCONNECTED"), keySaved = false,
-    verifiedAt = null, search = "", answer } = {}) {
+    verifiedAt = null, search = "", answer, mobile = mobileOff() } = {}) {
     const nodes = new Map();
     const element = (id) => { if (!nodes.has(id)) nodes.set(id, new Node()); return nodes.get(id); };
     element("window").hidden = true;
     const choices = ["ASK", "TRAY", "EXIT"].map((value) => Object.assign(new Node(), { value }));
     const sent = [];
-    const app = { nodes, choices, sent, element, connection, timers: [], location: { search, href: "" }, reads: [] };
+    const app = { nodes, choices, sent, element, connection, mobile, timers: [], location: { search, href: "" }, reads: [] };
     const reply = (status, body) => ({ ok: status < 400, status, json: async () => body });
     const fetch = async (url, options = {}) => {
         app.reads.push(url);
         if (url === "/api/x-auth/status") return reply(200, app.connection);
         if (url === "/api/desktop/settings") return reply(200, { dataDirectory: "D:\\data", version: "1", proxy: "", geminiKeySaved: keySaved, geminiVerifiedAt: verifiedAt, closeAction: saved });
+        if (url === "/api/desktop/mobile") return reply(200, app.mobile);
         sent.push([url, options]);
         if (answer) return reply(...await answer(url, options));
         return accept ? reply(204) : reply(500, { message: "disk full" });
@@ -64,15 +68,19 @@ async function setup({ host = true, saved = "TRAY", accept = true, connection = 
     app.glass = glass;
     if (host) window.iaDesktop = () => { };
     const context = {
-        window, fetch, clearTimeout, URLSearchParams, Promise, Date, String,
+        window, fetch, clearTimeout, URLSearchParams, Promise, Date, String, Number,
         matchMedia: () => ({ matches: false, addEventListener() { } }),
         setTimeout: (fn, millis) => { if (millis === 1500) app.timers.push(fn); return 0; },
+        setInterval: () => 0,
+        clearInterval: () => { },
         location: app.location,
         navigator: { clipboard: { writeText: async () => { } } },
         document: {
+            hidden: false,
             getElementById: element,
             createElement: (tag) => new Node(tag),
-            querySelectorAll: () => choices
+            querySelectorAll: () => choices,
+            addEventListener() { }
         }
     };
     vm.createContext(context);
@@ -143,7 +151,7 @@ test("the page asks for no Client Secret and promises neither free use nor a con
 
 test("nothing is read from X or Gemini by opening the page", async () => {
     const { reads, sent } = await setup({ connection: connectionOf("CONNECTED", "USABLE", { clientId: "client-id-123" }) });
-    assert.deepEqual([...new Set(reads)].sort(), ["/api/desktop/settings", "/api/x-auth/status"]);
+    assert.deepEqual([...new Set(reads)].sort(), ["/api/desktop/mobile", "/api/desktop/settings", "/api/x-auth/status"]);
     assert.equal(sent.length, 0);
 });
 
@@ -328,4 +336,73 @@ test("the read limit offers the server's choices with their cost, saves a pick, 
 test("without choices from the server the read limit is not shown", async () => {
     const app = await setup({ connection: connectionOf("CONNECTED", "USABLE") });
     assert.equal(app.element("x-read-limit").hidden, true);
+});
+
+test("phone access is off by default, and the section says what turning it on exposes", async () => {
+    const app = await setup();
+    assert.equal(app.element("mobile-off").hidden, false);
+    assert.equal(app.element("mobile-on").hidden, true);
+    assert.match(html, /默认关闭/);
+    assert.match(html, /公共 Wi-Fi/);
+    assert.match(html, /id="mobile-qr"/);
+});
+
+test("turning phone access on asks the server and shows the QR the server made", async () => {
+    const on = { enabled: true, active: true, port: 47393, addresses: ["192.168.1.5"], address: "192.168.1.5",
+        error: null, devices: [], pairing: null };
+    const pairing = { code: "ABCD2345", url: "http://192.168.1.5:47393/m/pair?code=ABCD2345",
+        qr: "data:image/svg+xml;base64,xyz", address: "192.168.1.5",
+        expiresAt: new Date(Date.now() + 300000).toISOString() };
+    const app = await setup({ mobile: on, answer: (url) => url === "/api/desktop/mobile/access" ? [200, on]
+        : url === "/api/desktop/mobile/pairing" ? [200, pairing] : [204] });
+    app.element("mobile-enable").listeners.get("click")();
+    await settle();
+    assert.equal(app.sent[0][0], "/api/desktop/mobile/access");
+    assert.deepEqual(JSON.parse(app.sent[0][1].body), { enabled: true });
+    assert.equal(app.element("mobile-on").hidden, false);
+    assert.equal(app.element("mobile-off").hidden, true);
+
+    app.element("mobile-new-pairing").listeners.get("click")();
+    await settle();
+    assert.equal(app.sent.at(-1)[0], "/api/desktop/mobile/pairing");
+    assert.equal(app.element("mobile-pair").hidden, false);
+    assert.equal(app.element("mobile-qr").src, pairing.qr);
+    assert.equal(app.element("mobile-code").textContent, "ABCD2345");
+    assert.match(app.element("mobile-expiry").textContent, /还剩 4:5|还剩 5:00/);
+});
+
+test("a paired phone is listed and can be revoked from the desktop", async () => {
+    const device = { id: "abc123def456", label: "微信 · Android", pairedAt: "2026-11-12T00:00:00Z" };
+    const on = { enabled: true, active: true, port: 47393, addresses: ["192.168.1.5"], address: "192.168.1.5",
+        error: null, devices: [device], pairing: null };
+    const app = await setup({ mobile: on, answer: () => [204] });
+    assert.equal(app.element("mobile-devices-empty").hidden, true);
+    assert.equal(app.element("mobile-devices").children[0].children[0].children[0].textContent, "微信 · Android");
+    app.mobile = { ...on, devices: [] };
+    app.element("mobile-devices").children[0].children[1].listeners.get("click")();
+    await settle();
+    assert.equal(app.sent.at(-1)[0], "/api/desktop/mobile/devices/abc123def456");
+    assert.equal(app.sent.at(-1)[1].method, "DELETE");
+    assert.equal(app.element("mobile-devices-empty").hidden, false);
+});
+
+test("turning phone access off asks the server and hides the QR", async () => {
+    const on = { enabled: true, active: true, port: 47393, addresses: ["192.168.1.5"], address: "192.168.1.5",
+        error: null, devices: [], pairing: null };
+    const app = await setup({ mobile: on, answer: () => [200, mobileOff()] });
+    app.element("mobile-disable").listeners.get("click")();
+    await settle();
+    assert.deepEqual(JSON.parse(app.sent[0][1].body), { enabled: false });
+    assert.equal(app.element("mobile-on").hidden, true);
+    assert.equal(app.element("mobile-pair").hidden, true);
+});
+
+test("a refused pairing is explained and leaves the switch alone", async () => {
+    const on = { enabled: true, active: true, port: 47393, addresses: [], address: null,
+        error: null, devices: [], pairing: null };
+    const app = await setup({ mobile: on, answer: () => [409, { message: "没有找到可用的局域网地址，请确认电脑和手机连在同一个 Wi-Fi。" }] });
+    app.element("mobile-new-pairing").listeners.get("click")();
+    await settle();
+    assert.match(app.element("mobile-pair-error").textContent, /没有生成二维码.*没有找到可用的局域网地址/);
+    assert.equal(app.element("mobile-on").hidden, false);
 });
