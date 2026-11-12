@@ -1,5 +1,6 @@
 package com.yuutara.illustrationarchive.desktop;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -75,7 +76,13 @@ public class MobileAccessController {
 	@GetMapping("/m/pair")
 	public void pair(@RequestParam(required = false) String code,
 			@RequestHeader(value = HttpHeaders.USER_AGENT, required = false) String userAgent,
-			HttpServletResponse response) throws IOException {
+			HttpServletRequest request, HttpServletResponse response) throws IOException {
+		// Spring maps HEAD onto GET; the phone filter already refuses it, and this keeps a direct call safe too.
+		if (!"GET".equals(request.getMethod())) {
+			response.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+			response.setHeader(HttpHeaders.ALLOW, "GET");
+			return;
+		}
 		String token = mobile.pair(code, userAgent);
 		if (token == null) {
 			response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");

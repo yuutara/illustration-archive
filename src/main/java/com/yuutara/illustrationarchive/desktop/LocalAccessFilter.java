@@ -104,12 +104,20 @@ public class LocalAccessFilter extends OncePerRequestFilter {
 
 	private void phoneRequest(HttpServletRequest request, HttpServletResponse response, FilterChain chain, String host)
 			throws ServletException, IOException {
-		if (!isPhoneHost(host, request.getLocalPort())) {
+		if (!isPhoneHost(host, request.getLocalPort(), mobile.boundAddress())) {
 			rejectMobile(response, request, false);
 			return;
 		}
 		String path = request.getRequestURI();
-		if (SAFE_METHODS.contains(request.getMethod()) && (path.equals("/m/pair") || path.equals("/m/pair.html"))) {
+		if (path.equals("/m/pair")) {
+			if (!"GET".equals(request.getMethod())) {
+				rejectMethod(response, "GET");
+				return;
+			}
+			chain.doFilter(request, response);
+			return;
+		}
+		if (path.equals("/m/pair.html") && SAFE_METHODS.contains(request.getMethod())) {
 			chain.doFilter(request, response);
 			return;
 		}
@@ -124,20 +132,13 @@ public class LocalAccessFilter extends OncePerRequestFilter {
 		chain.doFilter(request, response);
 	}
 
-	/** Accepts localhost and IPv4 literals with the phone port; a rebinding page's own hostname never matches. */
-	private static boolean isPhoneHost(String host, int port) {
-		if (host == null) {
-			return false;
-		}
-		String normalized = host.toLowerCase(Locale.ROOT);
-		String suffix = ":" + port;
-		if (normalized.equals("localhost" + suffix) || normalized.equals("127.0.0.1" + suffix)) {
-			return true;
-		}
-		if (!normalized.endsWith(suffix)) {
-			return false;
-		}
-		return normalized.substring(0, normalized.length() - suffix.length()).matches("\\d{1,3}(\\.\\d{1,3}){3}");
+	/**
+	 * Only the exact address the connector is bound to is accepted. Binding already keeps other local interfaces
+	 * unreachable; this also stops a valid cookie from being replayed through another name for the same port.
+	 */
+	private static boolean isPhoneHost(String host, int port, String boundAddress) {
+		return host != null && boundAddress != null
+				&& host.equalsIgnoreCase(boundAddress + ":" + port);
 	}
 
 	private static boolean phonePathAllowed(String path) {
@@ -192,6 +193,15 @@ public class LocalAccessFilter extends OncePerRequestFilter {
 		response.setContentType("application/json;charset=UTF-8");
 		response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
 		response.getWriter().write("{\"code\":\"MOBILE_FORBIDDEN\",\"message\":\"" + message + "\"}");
+	}
+
+	/** HEAD / OPTIONS of the one-time entry must not read or consume the code. */
+	private static void rejectMethod(HttpServletResponse response, String allowed) throws IOException {
+		response.setStatus(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
+		response.setHeader(HttpHeaders.ALLOW, allowed);
+		response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
+		response.setContentType("text/plain;charset=UTF-8");
+		response.getWriter().write("配对入口只接受 GET。");
 	}
 
 	private static boolean isLocalHost(String host, int port) {

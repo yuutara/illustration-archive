@@ -406,3 +406,21 @@ test("a refused pairing is explained and leaves the switch alone", async () => {
     assert.match(app.element("mobile-pair-error").textContent, /没有生成二维码.*没有找到可用的局域网地址/);
     assert.equal(app.element("mobile-on").hidden, false);
 });
+
+test("a close that could not be saved stays off, explains it, and can be saved again", async () => {
+    const failed = { ...mobileOff(), error: "手机访问已关闭，但开关没能写入设置；下次启动会保持关闭。可以再试一次保存。" };
+    const app = await setup({ mobile: failed, answer: () => [200, mobileOff()] });
+    assert.equal(app.element("mobile-save-off").hidden, false);
+    assert.match(app.element("mobile-error").textContent, /下次启动会保持关闭/);
+    assert.equal(app.element("mobile-on").hidden, true);
+    app.element("mobile-save-off").listeners.get("click")();
+    await settle();
+    assert.deepEqual(JSON.parse(app.sent[0][1].body), { enabled: false });
+    assert.equal(app.element("mobile-save-off").hidden, true);
+    assert.equal(app.element("mobile-error").hidden, true);
+});
+
+test("a normal close does not offer the retry-save button", async () => {
+    const app = await setup({ mobile: mobileOff() });
+    assert.equal(app.element("mobile-save-off").hidden, true);
+});

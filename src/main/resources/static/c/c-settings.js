@@ -324,11 +324,8 @@
         $('mobile-off').hidden = enabled;
         $('mobile-on').hidden = !enabled;
         $('mobile-retry').hidden = !(enabled && !active);
-        if (status.error && enabled) {
-            showError('mobile-error', status.error);
-        } else if (!enabled) {
-            showError('mobile-error', '');
-        }
+        $('mobile-save-off').hidden = enabled || !status.error;
+        showError('mobile-error', status.error || '');
         if (!enabled) {
             applyMobilePairing(null);
             mobileStatus = status;
@@ -400,7 +397,11 @@
             mobileSeenDevices = 0;
             mobilePairingCode = '';
             renderMobile(status);
-            toast(enabled ? '手机访问已打开，用手机扫描下面的二维码' : '手机访问已关闭，局域网已经断开');
+            if (!enabled && status.error) {
+                toast('本次已关闭，但设置没能保存；请看下面的提示');
+            } else {
+                toast(enabled ? '手机访问已打开，用手机扫描下面的二维码' : '手机访问已关闭，局域网已经断开');
+            }
         } catch (e) {
             showError('mobile-error', (enabled ? '没有打开' : '没有关闭') + '：' + e.message);
             await loadMobile();
@@ -420,7 +421,13 @@
             const address = $('mobile-address').value || null;
             const pairing = await send('/api/desktop/mobile/pairing', 'POST', { address });
             mobilePairingCode = '';
-            applyMobilePairing(pairing);
+            if (mobileStatus) {
+                // 换地址时服务端已经重新绑定；把新地址和二维码一起显示，不等下一次轮询。
+                mobileStatus = { ...mobileStatus, pairing, address: pairing.address, error: null };
+                renderMobile(mobileStatus);
+            } else {
+                applyMobilePairing(pairing);
+            }
         } catch (e) {
             showError('mobile-pair-error', '没有生成二维码：' + e.message);
         } finally {
@@ -444,11 +451,13 @@
 
     $('mobile-enable').addEventListener('click', () => setMobile(true));
     $('mobile-disable').addEventListener('click', () => setMobile(false));
+    $('mobile-save-off').addEventListener('click', () => setMobile(false));
     $('mobile-retry').addEventListener('click', () => setMobile(true));
     $('mobile-refresh').addEventListener('click', newMobilePairing);
     $('mobile-new-pairing').addEventListener('click', newMobilePairing);
     $('mobile-address').addEventListener('change', () => {
-        if (mobileStatus && mobileStatus.pairing) newMobilePairing();
+        // 换地址必须真的把连接器移过去，不能只换二维码；顺带生成新的配对码。
+        if (mobileStatus && mobileStatus.active) newMobilePairing();
     });
     if (document.addEventListener) {
         document.addEventListener('visibilitychange', () => {

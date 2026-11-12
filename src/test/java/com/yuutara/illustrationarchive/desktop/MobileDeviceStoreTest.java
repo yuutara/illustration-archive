@@ -3,12 +3,14 @@ package com.yuutara.illustrationarchive.desktop;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MobileDeviceStoreTest {
@@ -42,6 +44,41 @@ class MobileDeviceStoreTest {
 		assertFalse(store.revoke("11"), "a short prefix must not revoke a batch of phones");
 		assertEquals("手机", store.add(" \u0000 ").device().label());
 		assertEquals(60, store.add("x".repeat(80)).device().label().length());
+	}
+
+	@Test
+	void aFailedRevokeKeepsTheDeviceVisibleAndAccessibleUntilItIsRetried(@TempDir Path home) throws Exception {
+		MobileDeviceStore store = new MobileDeviceStore(home.toString());
+		MobileDeviceStore.Issued issued = store.add("微信 · Android");
+		Path file = home.resolve("config").resolve("mobile-devices.properties");
+		Files.delete(file);
+		// A non-empty directory where the file belongs makes the atomic move fail on every OS.
+		Files.createDirectories(file);
+		Files.writeString(file.resolve("blocker"), "x", StandardCharsets.UTF_8);
+		try {
+			assertThrows(UncheckedIOException.class, () -> store.revoke(issued.device().id()));
+			assertTrue(store.accepts(issued.token()), "the failed revoke must not log the phone out");
+			assertEquals(1, store.devices().size(), "the list and the file still agree");
+		} finally {
+			Files.delete(file.resolve("blocker"));
+			Files.delete(file);
+		}
+		assertTrue(store.revoke(issued.device().id()), "the retry succeeds once the file is writable");
+		assertFalse(store.accepts(issued.token()));
+		assertFalse(new MobileDeviceStore(home.toString()).accepts(issued.token()), "and survives a restart");
+	}
+
+	@Test
+	void aFailedAddLeavesNoDeviceThatOnlyLivesInMemory(@TempDir Path home) throws Exception {
+		Path file = home.resolve("config").resolve("mobile-devices.properties");
+		Files.createDirectories(file);
+		Files.writeString(file.resolve("blocker"), "x", StandardCharsets.UTF_8);
+		MobileDeviceStore store = new MobileDeviceStore(home.toString());
+		assertThrows(UncheckedIOException.class, () -> store.add("微信 · Android"));
+		assertTrue(store.devices().isEmpty(), "a token that was not written must not work in this run");
+		Files.delete(file.resolve("blocker"));
+		Files.delete(file);
+		assertEquals("微信 · Android", store.add("微信 · Android").device().label());
 	}
 
 	@Test

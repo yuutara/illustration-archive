@@ -57,7 +57,7 @@ class MobileDeviceStore {
 		return List.copyOf(devices.values());
 	}
 
-	/** Creates a token the phone keeps; only its hash is written. */
+	/** Creates a token the phone keeps; only its hash is written, and a failed write leaves no usable device behind. */
 	synchronized Issued add(String label) {
 		byte[] bytes = new byte[32];
 		random.nextBytes(bytes);
@@ -65,7 +65,12 @@ class MobileDeviceStore {
 		String hash = hash(token);
 		Device device = new Device(hash.substring(0, 12), safeLabel(label), Instant.now());
 		devices.put(hash, device);
-		save();
+		try {
+			save();
+		} catch (RuntimeException failed) {
+			devices.remove(hash);
+			throw failed;
+		}
 		return new Issued(token, device);
 	}
 
@@ -84,11 +89,21 @@ class MobileDeviceStore {
 		if (!wanted.matches("[0-9a-f]{12,64}")) {
 			return false;
 		}
+		Map<String, Device> before = new LinkedHashMap<>(devices);
 		boolean removed = devices.keySet().removeIf(hash -> hash.startsWith(wanted));
-		if (removed) {
-			save();
+		if (!removed) {
+			return false;
 		}
-		return removed;
+		try {
+			save();
+		} catch (RuntimeException failed) {
+			// The file still lists the phone, so the running process must keep it too: the list, the next request and a
+			// restart then all say the same thing, and the revoke can simply be retried.
+			devices.clear();
+			devices.putAll(before);
+			throw failed;
+		}
+		return true;
 	}
 
 	private void load() {
