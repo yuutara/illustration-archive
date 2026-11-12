@@ -37,7 +37,7 @@ public class MobileAccessController {
 		this.mobile = mobile;
 	}
 
-	public record AccessRequest(Boolean enabled) {
+	public record AccessRequest(Boolean enabled, String address) {
 	}
 
 	public record PairingRequest(String address) {
@@ -56,7 +56,7 @@ public class MobileAccessController {
 		if (request.enabled() == null) {
 			throw new IllegalArgumentException("请说明是打开还是关闭手机访问。");
 		}
-		return mobile.setEnabled(request.enabled());
+		return mobile.setEnabled(request.enabled(), request.address());
 	}
 
 	@PostMapping("/api/desktop/mobile/pairing")

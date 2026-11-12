@@ -36,6 +36,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -238,6 +239,79 @@ class MobileAccessIntegrationTest {
 	}
 
 	@Test
+	void theAddressChosenInSettingsIsTheOnlyOneRestoredAfterARestart() throws Exception {
+		assumeLan();
+		List<String> addresses = LanAddresses.siteLocal();
+		String authorized = addresses.get(addresses.size() - 1);
+		DesktopServer.Running running = start(true, 0);
+		MobileAccess mobile = mobile(running);
+		MobileAccess.PairingView pairing = mobile.startPairing(authorized);
+		assertEquals(authorized, pairing.address(), "the picked address is the one that gets bound");
+		assertEquals(authorized, mobile.status().address());
+
+		URI phone = phoneBase(running);
+		String setCookie = send(phone.resolve("/m/pair?code=" + pairing.code()), null)
+				.headers().firstValue("Set-Cookie").orElseThrow();
+		String cookie = setCookie.substring(0, setCookie.indexOf(';'));
+		int oldPort = phone.getPort();
+
+		running.context().close();
+		started.remove(running);
+
+		DesktopServer.Running restarted = startExisting(0);
+		MobileAccess.Status status = mobile(restarted).status();
+		assertTrue(status.active(), status.error());
+		assertEquals(authorized, status.address(), "a restart must restore the authorized address, not the first one");
+		assertEquals(200, send(URI.create("http://" + authorized + ":" + status.port() + "/api/illustrations"), cookie)
+				.statusCode(), "the phone paired on that address is still recognized");
+		for (String other : addresses) {
+			if (!other.equals(authorized)) {
+				assertThrows(IOException.class, () -> connect(other, status.port()),
+						"the old or any other address must stay closed: " + other);
+			}
+		}
+		assertThrows(IOException.class, () -> connect(authorized, oldPort));
+		assertTrue(Files.readString(home.resolve("config").resolve("settings.properties"), StandardCharsets.UTF_8)
+				.contains("mobile.address=" + authorized), "the address is the durable authorization");
+	}
+
+	@Test
+	void anEnabledSettingWithoutAnAddressWaitsForTheUserInsteadOfPickingTheFirstAdapter() throws Exception {
+		assumeLan();
+		writeSettings("mobile.enabled=true\n");
+		DesktopServer.Running running = startExisting(0);
+		MobileAccess mobile = mobile(running);
+		MobileAccess.Status waiting = mobile.status();
+		assertTrue(waiting.enabled(), "the old switch value is still reported");
+		assertFalse(waiting.active(), "nothing may listen until an address is chosen");
+		assertEquals(-1, waiting.port());
+		assertNull(waiting.address());
+		assertTrue(waiting.error().contains("还没有记住"), waiting.error());
+		assertEquals(1, lanConnectors(running), "no default adapter was opened automatically");
+
+		String chosen = LanAddresses.siteLocal().get(LanAddresses.siteLocal().size() - 1);
+		MobileAccess.Status opened = mobile.setEnabled(true, chosen);
+		assertTrue(opened.active(), opened.error());
+		assertEquals(chosen, opened.address());
+		assertTrue(Files.readString(home.resolve("config").resolve("settings.properties"), StandardCharsets.UTF_8)
+				.contains("mobile.address=" + chosen), "the explicit choice is remembered for the next start");
+	}
+
+	@Test
+	void aMissingSavedAddressKeepsThePortClosedInsteadOfUsingAnotherAdapter() throws Exception {
+		assumeLan();
+		writeSettings("mobile.enabled=true\nmobile.address=203.0.113.7\n");
+		DesktopServer.Running running = startExisting(0);
+		MobileAccess.Status status = mobile(running).status();
+		assertTrue(status.enabled());
+		assertFalse(status.active(), "a missing saved address must not fall back to the first adapter");
+		assertEquals(-1, status.port());
+		assertNull(status.address());
+		assertTrue(status.error().contains("203.0.113.7"), status.error());
+		assertEquals(1, lanConnectors(running));
+	}
+
+	@Test
 	void aBusyPreferredPortFallsBackToAFreePortAndLeavesNoFailedConnector() throws Exception {
 		assumeLan();
 		String address = LanAddresses.siteLocal().get(0);
@@ -374,14 +448,24 @@ class MobileAccessIntegrationTest {
 	}
 
 	private DesktopServer.Running start(boolean mobileEnabled, int preferredPort) {
+		String address = mobileEnabled ? LanAddresses.siteLocal().stream().findFirst().orElse("") : "";
+		return start(mobileEnabled, preferredPort, address);
+	}
+
+	private DesktopServer.Running start(boolean mobileEnabled, int preferredPort, String address) {
+		String settings = "mobile.enabled=" + mobileEnabled + "\n"
+				+ (address == null || address.isBlank() ? "" : "mobile.address=" + address + "\n");
+		writeSettings(settings);
+		return startExisting(preferredPort);
+	}
+
+	private void writeSettings(String content) {
 		try {
 			Files.createDirectories(home.resolve("config"));
-			Files.writeString(home.resolve("config").resolve("settings.properties"),
-					"mobile.enabled=" + mobileEnabled + "\n", StandardCharsets.UTF_8);
+			Files.writeString(home.resolve("config").resolve("settings.properties"), content, StandardCharsets.UTF_8);
 		} catch (IOException failure) {
 			throw new java.io.UncheckedIOException(failure);
 		}
-		return startExisting(preferredPort);
 	}
 
 	/** Starts without rewriting settings.properties, so a restart observes exactly what the previous run left behind. */

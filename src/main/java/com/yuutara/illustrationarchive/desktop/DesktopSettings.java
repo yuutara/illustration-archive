@@ -40,6 +40,7 @@ public class DesktopSettings implements XLikeSyncReadLimit {
 	private static final String AI_VERIFIED_KEY = "ai.verified-key";
 	private static final String AI_VERIFIED_AT = "ai.verified-at";
 	private static final String MOBILE_ENABLED = "mobile.enabled";
+	private static final String MOBILE_ADDRESS = "mobile.address";
 
 	private final Path file;
 	private final Properties values = new Properties();
@@ -166,6 +167,22 @@ public class DesktopSettings implements XLikeSyncReadLimit {
 
 	public synchronized void saveMobileEnabled(boolean enabled) {
 		change(() -> values.setProperty(MOBILE_ENABLED, Boolean.toString(enabled)));
+	}
+
+	/** The one LAN address the user authorized, so a restart restores exactly that address instead of the first. */
+	public synchronized String mobileAddress() {
+		return values.getProperty(MOBILE_ADDRESS, "").trim();
+	}
+
+	public synchronized void saveMobileAddress(String address) {
+		String normalized = address == null ? "" : address.trim();
+		change(() -> {
+			if (normalized.isEmpty()) {
+				values.remove(MOBILE_ADDRESS);
+			} else {
+				values.setProperty(MOBILE_ADDRESS, normalized);
+			}
+		});
 	}
 
 	public synchronized CloseAction closeAction() {

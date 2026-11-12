@@ -118,13 +118,31 @@ public class MobileAccess {
 			if (!desiredEnabled) {
 				return;
 			}
-			try {
-				startConnector();
-				lastError = null;
-			} catch (RuntimeException failed) {
-				lastError = message(failed);
-				log.warn("手机访问没能打开，应用继续只在本机提供图库。", failed);
-			}
+			restoreSavedConnector();
+		}
+	}
+
+	/**
+	 * A restart may only restore the address the user actually authorized. Never pick the first adapter when that
+	 * address is missing: it might be the very interface an earlier paired phone used.
+	 */
+	private void restoreSavedConnector() {
+		String saved = settings.mobileAddress();
+		if (saved.isEmpty()) {
+			lastError = "手机访问上次是打开的，但还没有记住要监听的局域网地址。请重新选择地址后再打开。";
+			return;
+		}
+		selectedAddress = saved;
+		if (!LanAddresses.siteLocal().contains(saved)) {
+			lastError = "上次使用的局域网地址 " + saved + " 已不在线，手机访问保持关闭。请重新选择地址。";
+			return;
+		}
+		try {
+			startConnector(saved, preferredPort == 0 ? 0 : preferredPort);
+			lastError = null;
+		} catch (RuntimeException failed) {
+			lastError = message(failed);
+			log.warn("手机访问没能打开，应用继续只在本机提供图库。", failed);
 		}
 	}
 
@@ -178,10 +196,7 @@ public class MobileAccess {
 		reconcile(addresses);
 		Connector current = connector;
 		boolean active = usable(current);
-		String address = active ? boundAddress : chooseAddress(addresses, selectedAddress);
-		if (address != null) {
-			selectedAddress = address;
-		}
+		String address = active ? boundAddress : availableAddress(addresses, selectedAddress);
 		Pairing activePairing = pairing;
 		PairingView view = activePairing == null || !activePairing.expiresAt().isAfter(Instant.now())
 				? null
@@ -215,14 +230,38 @@ public class MobileAccess {
 	}
 
 	public synchronized Status setEnabled(boolean enabled) {
+		return setEnabled(enabled, null);
+	}
+
+	/** {@code requestedAddress} lets the retry button use the address currently picked in Settings. */
+	public synchronized Status setEnabled(boolean enabled, String requestedAddress) {
 		if (enabled) {
+			String saved = settings.mobileAddress();
+			if (usable(connector)) {
+				if (boundAddress != null && !boundAddress.equals(saved)) {
+					settings.saveMobileAddress(boundAddress);
+				}
+				settings.saveMobileEnabled(true);
+				desiredEnabled = true;
+				clearOffMarker();
+				lastError = null;
+				return status();
+			}
+
+			String wanted = requestedAddress == null || requestedAddress.isBlank() ? saved : requestedAddress;
+			String chosen = chooseAddress(LanAddresses.siteLocal(), wanted);
+			if (chosen == null) {
+				throw new MobileAccessException("没有找到可用的局域网地址，请确认电脑和手机连在同一个 Wi-Fi。");
+			}
+			// Record the address before listening: a restart must never fall back to a different adapter.
+			if (!chosen.equals(saved)) {
+				settings.saveMobileAddress(chosen);
+			}
 			settings.saveMobileEnabled(true);
 			desiredEnabled = true;
 			clearOffMarker();
 			try {
-				if (!usable(connector)) {
-					startConnector();
-				}
+				startConnector(chosen, preferredPort == 0 ? 0 : preferredPort);
 				lastError = null;
 			} catch (RuntimeException failed) {
 				lastError = message(failed);
@@ -261,12 +300,17 @@ public class MobileAccess {
 			throw new MobileAccessException("手机访问还没有打开。");
 		}
 		List<String> addresses = LanAddresses.siteLocal();
-		String chosen = chooseAddress(addresses, address);
+		String wanted = address == null || address.isBlank()
+				? (boundAddress != null ? boundAddress : settings.mobileAddress())
+				: address;
+		String chosen = chooseAddress(addresses, wanted);
 		if (chosen == null) {
 			throw new MobileAccessException("没有找到可用的局域网地址，请确认电脑和手机连在同一个 Wi-Fi。");
 		}
 		if (!usable(connector) || !chosen.equals(boundAddress)) {
 			rebind(chosen);
+		} else if (!chosen.equals(settings.mobileAddress())) {
+			settings.saveMobileAddress(chosen);
 		}
 		Connector current = connector;
 		if (!usable(current)) {
@@ -280,11 +324,16 @@ public class MobileAccess {
 		return new PairingView(created.code(), created.url(), created.qr(), created.address(), created.expiresAt().toString());
 	}
 
-	/** A different address is authorized by rebinding the connector, not by only changing the QR. */
+	/** A different address is authorized only after it is durable and the connector has really moved there. */
 	private void rebind(String address) {
 		Connector previous = connector;
 		String previousAddress = boundAddress;
 		int previousPort = previous == null ? 0 : previous.getLocalPort();
+		String previousSaved = settings.mobileAddress();
+		boolean addressChanged = !address.equals(previousSaved);
+		if (addressChanged) {
+			settings.saveMobileAddress(address);
+		}
 		stopConnector();
 		try {
 			startConnector(address, previousPort > 0 ? previousPort : preferredPort);
@@ -300,6 +349,13 @@ public class MobileAccess {
 			}
 			if (!restored) {
 				lastError = message(failed);
+			}
+			if (addressChanged) {
+				try {
+					settings.saveMobileAddress(previousSaved);
+				} catch (RuntimeException restoreSettingFailed) {
+					failed.addSuppressed(restoreSettingFailed);
+				}
 			}
 			throw failed instanceof MobileAccessException access ? access : new MobileAccessException(message(failed), failed);
 		}
@@ -322,15 +378,6 @@ public class MobileAccess {
 
 	public boolean revoke(String id) {
 		return devices.revoke(id);
-	}
-
-	private void startConnector() {
-		List<String> addresses = LanAddresses.siteLocal();
-		String address = chooseAddress(addresses, selectedAddress);
-		if (address == null) {
-			throw new MobileAccessException("没有找到可用的局域网地址，请确认电脑和手机连在同一个 Wi-Fi。");
-		}
-		startConnector(address, preferredPort == 0 ? 0 : preferredPort);
 	}
 
 	private void startConnector(String address, int port) {
@@ -474,6 +521,11 @@ public class MobileAccess {
 			return wanted;
 		}
 		return addresses.isEmpty() ? null : addresses.get(0);
+	}
+
+	/** Only an address that still exists is reported, so a missing saved address never looks like a new default. */
+	private static String availableAddress(List<String> addresses, String wanted) {
+		return wanted != null && addresses.contains(wanted) ? wanted : null;
 	}
 
 	private static boolean sameCode(String expected, String candidate) {

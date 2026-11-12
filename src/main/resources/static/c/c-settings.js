@@ -336,7 +336,9 @@
         const steps = $('mobile-steps');
         steps.replaceChildren();
         mobileStep(steps, '局域网', active ? '已打开，端口 ' + status.port : '已开启，但这次没有打开', active ? 'ok' : 'bad');
-        mobileStep(steps, '地址', status.address || '没有找到局域网地址，请确认电脑连在 Wi-Fi 上', status.address ? '' : 'bad');
+        const addressText = status.address
+            || (addresses.length ? '还没有选择要监听的地址' : '没有找到局域网地址，请确认电脑连在 Wi-Fi 上');
+        mobileStep(steps, '地址', addressText, status.address ? '' : 'bad');
         mobileStep(steps, '配对', devices.length ? '已配对 ' + devices.length + ' 台手机' : '等待手机扫码',
             devices.length ? 'ok' : '');
 
@@ -392,7 +394,9 @@
         $('mobile-disable').disabled = true;
         $('mobile-retry').disabled = true;
         try {
-            const status = await send('/api/desktop/mobile/access', 'PUT', { enabled });
+            const body = { enabled };
+            if (enabled && $('mobile-address').value) body.address = $('mobile-address').value;
+            const status = await send('/api/desktop/mobile/access', 'PUT', body);
             mobileAutoPairTried = !enabled;
             mobileSeenDevices = 0;
             mobilePairingCode = '';

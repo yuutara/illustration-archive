@@ -371,6 +371,19 @@ test("turning phone access on asks the server and shows the QR the server made",
     assert.match(app.element("mobile-expiry").textContent, /还剩 4:5|还剩 5:00/);
 });
 
+test("retrying uses the LAN address currently picked in the dropdown", async () => {
+    const waiting = { enabled: true, active: false, port: -1, addresses: ["192.168.1.5", "192.168.1.6"],
+        address: null, error: "上次使用的局域网地址 192.168.1.9 已不在线，手机访问保持关闭。请重新选择地址。",
+        devices: [], pairing: null };
+    const opened = { ...waiting, active: true, port: 47393, address: "192.168.1.6", error: null };
+    const app = await setup({ mobile: waiting, answer: () => [200, opened] });
+    app.element("mobile-address").value = "192.168.1.6";
+    app.element("mobile-retry").listeners.get("click")();
+    await settle();
+    assert.deepEqual(JSON.parse(app.sent[0][1].body), { enabled: true, address: "192.168.1.6" });
+    assert.equal(app.element("mobile-on").hidden, false);
+});
+
 test("a paired phone is listed and can be revoked from the desktop", async () => {
     const device = { id: "abc123def456", label: "微信 · Android", pairedAt: "2026-11-12T00:00:00Z" };
     const on = { enabled: true, active: true, port: 47393, addresses: ["192.168.1.5"], address: "192.168.1.5",
