@@ -312,6 +312,92 @@ class MobileAccessIntegrationTest {
 	}
 
 	@Test
+	void retryingWithAnOfflineAddressKeepsThePortClosedAndDoesNotSaveAnotherOne() throws Exception {
+		assumeLan();
+		String offline = "203.0.113.7";
+		writeSettings("mobile.enabled=true\nmobile.address=" + offline + "\n");
+		DesktopServer.Running running = startExisting(0);
+		MobileAccess mobile = mobile(running);
+		String desktopCookie = openSession(running);
+		assertFalse(mobile.status().active());
+
+		HttpResponse<String> explicit = send(running.baseUri().resolve("/api/desktop/mobile/access"), desktopCookie,
+				"PUT", "{\"enabled\":true,\"address\":\"" + offline + "\"}");
+		assertEquals(409, explicit.statusCode(), explicit.body());
+		assertTrue(explicit.body().contains("已不在线"), explicit.body());
+		HttpResponse<String> remembered = send(running.baseUri().resolve("/api/desktop/mobile/access"), desktopCookie,
+				"PUT", "{\"enabled\":true}");
+		assertEquals(409, remembered.statusCode(), remembered.body());
+		assertTrue(remembered.body().contains("已不在线"), remembered.body());
+		MobileAccess.Status waiting = mobile.status();
+		assertFalse(waiting.active());
+		assertEquals(-1, waiting.port());
+		assertNull(waiting.address());
+		assertEquals(1, lanConnectors(running), "a refused retry must not add a listener");
+		String settings = Files.readString(home.resolve("config").resolve("settings.properties"), StandardCharsets.UTF_8);
+		assertTrue(settings.contains("mobile.address=" + offline), settings);
+		String first = LanAddresses.siteLocal().get(0);
+		assertFalse(settings.contains("mobile.address=" + first), "the first adapter must not replace the saved one");
+
+		running.context().close();
+		started.remove(running);
+		DesktopServer.Running restarted = startExisting(0);
+		MobileAccess.Status afterRestart = mobile(restarted).status();
+		assertFalse(afterRestart.active(), "the refused fallback must not become a durable authorization");
+		assertEquals(1, lanConnectors(restarted));
+	}
+
+	@Test
+	void generatingAPairingForAnOfflineAddressKeepsTheCurrentListenerAndAuthorization() throws Exception {
+		assumeLan();
+		List<String> addresses = LanAddresses.siteLocal();
+		String authorized = addresses.get(addresses.size() - 1);
+		DesktopServer.Running running = start(true, 0);
+		MobileAccess mobile = mobile(running);
+		String desktopCookie = openSession(running);
+		if (!authorized.equals(mobile.status().address())) {
+			mobile.startPairing(authorized);
+		}
+		MobileAccess.Status before = mobile.status();
+		assertTrue(before.active(), before.error());
+		assertEquals(authorized, before.address());
+		int port = before.port();
+
+		MobileAccess.PairingView pairing = mobile.startPairing(authorized);
+		URI phone = phoneBase(running);
+		String setCookie = send(phone.resolve("/m/pair?code=" + pairing.code()), null)
+				.headers().firstValue("Set-Cookie").orElseThrow();
+		String cookie = setCookie.substring(0, setCookie.indexOf(';'));
+		String settingsBefore = Files.readString(home.resolve("config").resolve("settings.properties"), StandardCharsets.UTF_8);
+
+		HttpResponse<String> pairingRefused = send(running.baseUri().resolve("/api/desktop/mobile/pairing"),
+				desktopCookie, "POST", "{\"address\":\"203.0.113.7\"}");
+		assertEquals(409, pairingRefused.statusCode(), pairingRefused.body());
+		assertTrue(pairingRefused.body().contains("已不在线"), pairingRefused.body());
+		HttpResponse<String> accessRefused = send(running.baseUri().resolve("/api/desktop/mobile/access"),
+				desktopCookie, "PUT", "{\"enabled\":true,\"address\":\"203.0.113.7\"}");
+		assertEquals(409, accessRefused.statusCode(), accessRefused.body());
+		assertTrue(accessRefused.body().contains("已不在线"), accessRefused.body());
+		MobileAccess.Status after = mobile.status();
+		assertTrue(after.active(), after.error());
+		assertEquals(authorized, after.address(), "an offline request must not move the listener");
+		assertEquals(port, after.port(), "the current connector keeps its port");
+		assertEquals(settingsBefore, Files.readString(home.resolve("config").resolve("settings.properties"),
+				StandardCharsets.UTF_8), "a refused request must not change the saved address");
+		assertEquals(200, send(URI.create("http://" + authorized + ":" + port + "/api/illustrations"), cookie)
+				.statusCode(), "the phone paired on the current address still works");
+
+		running.context().close();
+		started.remove(running);
+		DesktopServer.Running restarted = startExisting(0);
+		MobileAccess.Status restartedStatus = mobile(restarted).status();
+		assertTrue(restartedStatus.active(), restartedStatus.error());
+		assertEquals(authorized, restartedStatus.address(), "a restart cannot restore a refused fallback");
+		assertEquals(200, send(URI.create("http://" + authorized + ":" + restartedStatus.port() + "/api/illustrations"),
+				cookie).statusCode());
+	}
+
+	@Test
 	void aBusyPreferredPortFallsBackToAFreePortAndLeavesNoFailedConnector() throws Exception {
 		assumeLan();
 		String address = LanAddresses.siteLocal().get(0);

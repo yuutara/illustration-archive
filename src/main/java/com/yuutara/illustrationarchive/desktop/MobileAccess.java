@@ -236,7 +236,12 @@ public class MobileAccess {
 	/** {@code requestedAddress} lets the retry button use the address currently picked in Settings. */
 	public synchronized Status setEnabled(boolean enabled, String requestedAddress) {
 		if (enabled) {
+			List<String> addresses = LanAddresses.siteLocal();
 			String saved = settings.mobileAddress();
+			String requested = requestedAddress == null ? "" : requestedAddress.trim();
+			String wanted = requested.isEmpty() ? saved : requested;
+			// An explicit or remembered offline address is not permission to use whichever adapter is first.
+			requireAvailable(addresses, wanted);
 			if (usable(connector)) {
 				if (boundAddress != null && !boundAddress.equals(saved)) {
 					settings.saveMobileAddress(boundAddress);
@@ -248,8 +253,7 @@ public class MobileAccess {
 				return status();
 			}
 
-			String wanted = requestedAddress == null || requestedAddress.isBlank() ? saved : requestedAddress;
-			String chosen = chooseAddress(LanAddresses.siteLocal(), wanted);
+			String chosen = wanted.isEmpty() ? (addresses.isEmpty() ? null : addresses.get(0)) : wanted;
 			if (chosen == null) {
 				throw new MobileAccessException("没有找到可用的局域网地址，请确认电脑和手机连在同一个 Wi-Fi。");
 			}
@@ -300,13 +304,15 @@ public class MobileAccess {
 			throw new MobileAccessException("手机访问还没有打开。");
 		}
 		List<String> addresses = LanAddresses.siteLocal();
-		String wanted = address == null || address.isBlank()
+		String requested = address == null ? "" : address.trim();
+		String wanted = requested.isEmpty()
 				? (boundAddress != null ? boundAddress : settings.mobileAddress())
-				: address;
-		String chosen = chooseAddress(addresses, wanted);
-		if (chosen == null) {
-			throw new MobileAccessException("没有找到可用的局域网地址，请确认电脑和手机连在同一个 Wi-Fi。");
+				: requested;
+		if (wanted.isEmpty()) {
+			throw new MobileAccessException("还没有选择局域网地址，请先选择一个地址。");
 		}
+		requireAvailable(addresses, wanted);
+		String chosen = wanted;
 		if (!usable(connector) || !chosen.equals(boundAddress)) {
 			rebind(chosen);
 		} else if (!chosen.equals(settings.mobileAddress())) {
@@ -516,11 +522,11 @@ public class MobileAccess {
 		}
 	}
 
-	private String chooseAddress(List<String> addresses, String wanted) {
-		if (wanted != null && addresses.contains(wanted)) {
-			return wanted;
+	/** A named address that is no longer local is refused, so no entry point can silently widen the listener. */
+	private static void requireAvailable(List<String> addresses, String wanted) {
+		if (wanted != null && !wanted.isBlank() && !addresses.contains(wanted)) {
+			throw new MobileAccessException("局域网地址 " + wanted + " 已不在线，手机访问保持原来的状态。请重新选择地址。");
 		}
-		return addresses.isEmpty() ? null : addresses.get(0);
 	}
 
 	/** Only an address that still exists is reported, so a missing saved address never looks like a new default. */
