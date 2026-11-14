@@ -3,6 +3,7 @@ package com.yuutara.illustrationarchive.desktop;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -94,16 +95,21 @@ class LibraryBackupTest {
 				() -> LibraryBackup.create(home, home.resolve("logs").resolve("b.zip"), "1", QUIET));
 		assertTrue(inside.getMessage().contains("数据文件夹"), inside.getMessage());
 
-		Path junction = workspace.resolve("looks-outside");
-		Process mklink = new ProcessBuilder("cmd", "/c", "mklink", "/J", junction.toString(), home.toString())
-				.redirectErrorStream(true).start();
-		assertEquals(0, mklink.waitFor(), new String(mklink.getInputStream().readAllBytes()));
+		Path link = workspace.resolve("looks-outside");
+		if (OS.WINDOWS.isCurrentOs()) {
+			// A directory junction can be created without the privilege required for Windows symbolic links.
+			Process mklink = new ProcessBuilder("cmd", "/c", "mklink", "/J", link.toString(), home.toString())
+					.redirectErrorStream(true).start();
+			assertEquals(0, mklink.waitFor(), new String(mklink.getInputStream().readAllBytes()));
+		} else {
+			Files.createSymbolicLink(link, home);
+		}
 		try {
-			assertThrows(MaintenanceException.class, () -> LibraryBackup.create(home, junction.resolve("b.zip"), "1", QUIET),
-					"a junction into the library is still inside it");
+			MaintenanceException linked = assertThrows(MaintenanceException.class,
+					() -> LibraryBackup.create(home, link.resolve("b.zip"), "1", QUIET));
+			assertTrue(linked.getMessage().contains("数据文件夹"), linked.getMessage());
 		} finally {
-			// rmdir removes the junction itself; @TempDir's clean-up cannot.
-			new ProcessBuilder("cmd", "/c", "rmdir", junction.toString()).start().waitFor();
+			Files.delete(link);
 		}
 
 		Path taken = write(outside.resolve("taken.zip"), "keep me");
