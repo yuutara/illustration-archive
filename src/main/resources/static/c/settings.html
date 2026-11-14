@@ -126,14 +126,27 @@
                 <button class="btn" id="mobile-disable" type="button">关闭手机访问</button>
                 <button class="btn" id="mobile-retry" type="button" hidden>重试</button>
             </div>
+            <div class="mobile-pair" id="mobile-gallery" hidden>
+                <div class="mobile-qr" id="mobile-gallery-qr-box">
+                    <img id="mobile-gallery-qr" alt="打开手机图库二维码">
+                </div>
+                <div class="mobile-pair-side">
+                    <p class="mobile-pair-title">打开手机图库</p>
+                    <p class="mobile-pair-hint">已配对的手机可直接微信扫码或复制下面的地址打开；地址中不含配对码，未配对的手机打不开。</p>
+                    <p class="mobile-gallery-url"><code class="set-path" id="mobile-gallery-url"></code></p>
+                    <div class="set-actions">
+                        <button class="btn" id="mobile-gallery-copy" type="button">复制链接</button>
+                    </div>
+                </div>
+            </div>
             <div class="mobile-pair" id="mobile-pair" hidden>
                 <div class="mobile-qr" id="mobile-qr-box">
                     <img id="mobile-qr" alt="手机配对二维码">
                     <p class="mobile-expired" id="mobile-expired" hidden>二维码已过期</p>
                 </div>
                 <div class="mobile-pair-side">
-                    <p class="mobile-pair-title">用手机扫描二维码</p>
-                    <p class="mobile-pair-hint">微信扫一扫，或手机相机扫码。二维码 5 分钟内有效，只能使用一次。</p>
+                    <p class="mobile-pair-title">配对新手机（一次性二维码）</p>
+                    <p class="mobile-pair-hint">仅在需要添加新手机时扫码。二维码 5 分钟内有效，只能使用一次。</p>
                     <p class="mobile-code">配对码 <code id="mobile-code"></code></p>
                     <p class="set-hint" id="mobile-expiry"></p>
                     <button class="link" id="mobile-refresh" type="button">换一个二维码</button>

@@ -51,7 +51,8 @@ async function setup({ host = true, saved = "TRAY", accept = true, connection = 
     element("window").hidden = true;
     const choices = ["ASK", "TRAY", "EXIT"].map((value) => Object.assign(new Node(), { value }));
     const sent = [];
-    const app = { nodes, choices, sent, element, connection, mobile, timers: [], location: { search, href: "" }, reads: [] };
+    const copied = [];
+    const app = { nodes, choices, sent, copied, element, connection, mobile, timers: [], location: { search, href: "" }, reads: [] };
     const reply = (status, body) => ({ ok: status < 400, status, json: async () => body });
     const fetch = async (url, options = {}) => {
         app.reads.push(url);
@@ -74,7 +75,7 @@ async function setup({ host = true, saved = "TRAY", accept = true, connection = 
         setInterval: () => 0,
         clearInterval: () => { },
         location: app.location,
-        navigator: { clipboard: { writeText: async () => { } } },
+        navigator: { clipboard: { writeText: async (text) => { copied.push(text); } } },
         document: {
             hidden: false,
             getElementById: element,
@@ -492,4 +493,73 @@ test("mobile X inbox permission defaults off, toggles explicitly, rolls back on 
     assert.equal(retryApp.element("mobile-x-error").hidden, true);
     assert.equal(retryApp.element("mobile-x-actions").hidden, true);
     assert.equal(retryApp.element("mobile-x-save-off").hidden, true);
+});
+
+test("paired phone gallery reconnect card shows live url/qr, copies link, refreshes on rebind, and hides when disabled or revoked", async () => {
+    const gallery1 = { url: "http://192.168.1.10:8765/m/", qr: "data:image/svg+xml;base64,qr1" };
+    const pairedStatus = {
+        enabled: true, active: true, port: 8765,
+        addresses: ["192.168.1.10", "192.168.1.20"], address: "192.168.1.10", error: null,
+        devices: [{ id: "d1", name: "手机" }],
+        pairing: null,
+        gallery: gallery1
+    };
+    const app = await setup({ mobile: { ...pairedStatus, devices: [], gallery: null }, answer: (url, options) => {
+        if (url === "/api/desktop/mobile/access") {
+            const body = JSON.parse(options.body);
+            app.mobile = { ...app.mobile, enabled: body.enabled, active: body.enabled,
+                gallery: body.enabled && app.mobile.devices.length ? gallery1 : null };
+            return [200, app.mobile];
+        }
+        if (url === "/api/desktop/mobile/pairing") {
+            const body = JSON.parse(options.body);
+            const addr = body.address || "192.168.1.10";
+            const gallery2 = { url: `http://${addr}:8766/m/`, qr: "data:image/svg+xml;base64,qr2" };
+            app.mobile = { ...app.mobile, address: addr, port: 8766, gallery: app.mobile.devices.length ? gallery2 : null };
+            return [200, { code: "ABCDEFGH", url: `http://${addr}:8766/m/pair?code=ABCDEFGH`,
+                qr: "data:image/svg+xml;base64,pair", address: addr, expiresAt: Date.now() + 60000 }];
+        }
+        if (url.startsWith("/api/desktop/mobile/devices/")) {
+            app.mobile = { ...app.mobile, devices: [], gallery: null };
+            return [204];
+        }
+        return [200, app.mobile];
+    } });
+
+    assert.equal(app.element("mobile-gallery").hidden, true);
+    assert.equal(app.element("mobile-gallery-copy").disabled, true);
+
+    app.mobile = pairedStatus;
+    await app.element("mobile-new-pairing").listeners.get("click")();
+    await settle();
+    assert.equal(app.reads.includes("/api/desktop/mobile"), true);
+    assert.equal(app.element("mobile-gallery").hidden, false);
+    assert.equal(app.element("mobile-gallery-url").textContent, "http://192.168.1.10:8766/m/");
+    assert.equal(app.element("mobile-gallery-qr").src, "data:image/svg+xml;base64,qr2");
+    assert.equal(app.element("mobile-gallery-copy").disabled, false);
+
+    app.element("mobile-gallery-copy").listeners.get("click")();
+    await settle();
+    assert.deepEqual(app.copied, ["http://192.168.1.10:8766/m/"]);
+    assert.equal(app.element("toast").textContent, "已复制手机图库地址");
+
+    app.element("mobile-address").value = "192.168.1.20";
+    await app.element("mobile-refresh").listeners.get("click")();
+    await settle();
+    assert.equal(app.element("mobile-gallery-url").textContent, "http://192.168.1.20:8766/m/");
+
+    await app.element("mobile-disable").listeners.get("click")();
+    await settle();
+    assert.equal(app.element("mobile-gallery").hidden, true);
+    assert.equal(app.element("mobile-gallery-url").textContent, "");
+
+    await app.element("mobile-enable").listeners.get("click")();
+    await settle();
+    assert.equal(app.element("mobile-gallery").hidden, false);
+    assert.equal(app.element("mobile-gallery-url").textContent, gallery1.url);
+
+    await app.element("mobile-devices").children[0].click("撤销");
+    await settle();
+    assert.equal(app.element("mobile-gallery").hidden, true);
+    assert.equal(app.element("mobile-gallery-copy").disabled, true);
 });

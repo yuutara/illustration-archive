@@ -235,6 +235,8 @@
     let mobilePairingCode = '';
     let mobileAutoPairTried = false;
     let mobileSeenDevices = 0;
+    let mobileGalleryUrl = '';
+    let mobileGalleryQr = '';
 
     const mobileDate = (iso) => {
         const date = new Date(iso);
@@ -315,6 +317,38 @@
         startMobileCountdown(pairing.expiresAt);
     }
 
+    function applyMobileGallery(gallery, enabled, active) {
+        const card = $('mobile-gallery');
+        const qr = $('mobile-gallery-qr');
+        const urlEl = $('mobile-gallery-url');
+        const copyBtn = $('mobile-gallery-copy');
+        const url = enabled && active && gallery && gallery.url ? gallery.url : '';
+        const qrSrc = url && gallery.qr ? gallery.qr : '';
+        if (!url || !qrSrc) {
+            mobileGalleryUrl = '';
+            mobileGalleryQr = '';
+            card.hidden = true;
+            if (typeof qr.removeAttribute === 'function') {
+                qr.removeAttribute('src');
+            } else {
+                qr.src = '';
+            }
+            urlEl.textContent = '';
+            copyBtn.disabled = true;
+            return;
+        }
+        card.hidden = false;
+        if (mobileGalleryUrl !== url) {
+            urlEl.textContent = url;
+            mobileGalleryUrl = url;
+        }
+        if (mobileGalleryQr !== qrSrc) {
+            qr.src = qrSrc;
+            mobileGalleryQr = qrSrc;
+        }
+        copyBtn.disabled = false;
+    }
+
     function renderMobile(status) {
         mobileStatus = status;
         const enabled = !!status.enabled;
@@ -333,6 +367,7 @@
         $('mobile-x-actions').hidden = hideXRetry;
         $('mobile-x-save-off').hidden = hideXRetry;
         if (!enabled) {
+            applyMobileGallery(null, false, false);
             applyMobilePairing(null);
             mobileStatus = status;
             scheduleMobilePoll();
@@ -367,6 +402,7 @@
             mobileAutoPairTried = true;
         }
         mobileSeenDevices = devices.length;
+        applyMobileGallery(status.gallery || null, enabled, active && devices.length > 0);
         applyMobilePairing(status.pairing || null);
         $('mobile-new-pairing').hidden = !active || !!status.pairing;
         if (active && !status.pairing && devices.length === 0 && !mobileAutoPairTried) {
@@ -431,8 +467,11 @@
             const address = $('mobile-address').value || null;
             const pairing = await send('/api/desktop/mobile/pairing', 'POST', { address });
             mobilePairingCode = '';
-            if (mobileStatus) {
-                // 换地址时服务端已经重新绑定；把新地址和二维码一起显示，不等下一次轮询。
+            const refreshed = await send('/api/desktop/mobile', 'GET');
+            if (refreshed) {
+                // 换地址时服务端已经重新绑定；立即刷新状态，把新图库入口和二维码一起显示。
+                renderMobile({ ...refreshed, pairing: refreshed.pairing || pairing });
+            } else if (mobileStatus) {
                 mobileStatus = { ...mobileStatus, pairing, address: pairing.address, error: null };
                 renderMobile(mobileStatus);
             } else {
@@ -495,6 +534,11 @@
     $('mobile-x-enabled').addEventListener('change', () => setMobileXInbox(!!$('mobile-x-enabled').checked));
     $('mobile-refresh').addEventListener('click', newMobilePairing);
     $('mobile-new-pairing').addEventListener('click', newMobilePairing);
+    $('mobile-gallery-copy').addEventListener('click', () => {
+        if (mobileGalleryUrl) {
+            copy(mobileGalleryUrl, '已复制手机图库地址');
+        }
+    });
     $('mobile-address').addEventListener('change', () => {
         // 换地址必须真的把连接器移过去，不能只换二维码；顺带生成新的配对码。
         if (mobileStatus && mobileStatus.active) newMobilePairing();

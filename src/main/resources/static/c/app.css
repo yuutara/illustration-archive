@@ -137,6 +137,8 @@
 .mobile-pair-side { flex: 1 1 230px; min-width: 0; }
 .set-section .mobile-pair-title { margin: 0 0 4px; color: var(--ink); font-weight: 600; }
 .set-section .mobile-pair-hint { margin: 0 0 8px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.mobile-gallery-url { margin: 8px 0 10px; }
+.mobile-gallery-url code { display: inline-block; max-width: 100%; padding: 4px 8px; border-radius: 6px; background: var(--card); color: var(--ink); user-select: all; overflow-wrap: anywhere; }
 .set-section .mobile-code { margin: 8px 0 2px; color: var(--muted); font-size: 13px; }
 .mobile-code code { padding: 2px 6px; border-radius: 6px; color: var(--ink); background: var(--card); font: 600 18px/1.4 Consolas, monospace; letter-spacing: .12em; }
 .mobile-devices { margin: 4px 0 8px; padding: 0; list-style: none; }

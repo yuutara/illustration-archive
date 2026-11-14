@@ -533,6 +533,83 @@ class MobileAccessIntegrationTest {
 				"the revoked-by-close phone still has its device record");
 	}
 
+	@Test
+	void galleryReconnectEntryTracksPairedDevicesAccessAndPortChangesWithoutSecrets() throws Exception {
+		assumeLan();
+		DesktopServer.Running running = start(true, 0);
+		String desktopCookie = openSession(running);
+		MobileAccess mobile = mobile(running);
+
+		assertNull(mobile.status().gallery(), "gallery reconnect entry stays hidden before any device is paired");
+		HttpResponse<String> initialHttp = send(running.baseUri().resolve("/api/desktop/mobile"), desktopCookie);
+		assertEquals(200, initialHttp.statusCode());
+		assertTrue(initialHttp.body().contains("\"gallery\":null"), initialHttp.body());
+
+		MobileAccess.PairingView pairing = mobile.startPairing(null);
+		URI phone = phoneBase(running);
+		String setCookie = send(phone.resolve("/m/pair?code=" + pairing.code()), null)
+				.headers().firstValue("Set-Cookie").orElseThrow();
+		String cookie = setCookie.substring(0, setCookie.indexOf(';'));
+
+		MobileAccess.Status pairedStatus = mobile.status();
+		MobileAccess.GalleryView gallery = pairedStatus.gallery();
+		assertNotNull(gallery, "gallery reconnect entry appears once listening with a paired device");
+		assertEquals("http://" + pairedStatus.address() + ":" + pairedStatus.port() + "/m/", gallery.url());
+		assertFalse(gallery.url().contains("code="));
+		assertFalse(gallery.url().contains("token"));
+		assertEquals(MobileQr.svgDataUri(gallery.url()), gallery.qr());
+
+		HttpResponse<String> pairedPage = send(URI.create(gallery.url()), cookie);
+		assertEquals(200, pairedPage.statusCode(), pairedPage.body());
+		assertTrue(pairedPage.body().contains("id=\"m-grid\""), pairedPage.body());
+
+		HttpResponse<String> unpairedPage = send(URI.create(gallery.url()), null);
+		assertEquals(302, unpairedPage.statusCode());
+		String unpairedLocation = unpairedPage.headers().firstValue("Location").orElseThrow();
+		assertTrue(unpairedLocation.endsWith("/m/pair.html?e=2"), unpairedLocation);
+		assertTrue(unpairedPage.headers().firstValue("Set-Cookie").isEmpty());
+
+		assertEquals(200, send(running.baseUri().resolve("/api/desktop/mobile/access"), desktopCookie, "PUT",
+				"{\"enabled\":false}").statusCode());
+		assertNull(mobile.status().gallery(), "turning mobile access off hides the reconnect card");
+
+		assertEquals(200, send(running.baseUri().resolve("/api/desktop/mobile/access"), desktopCookie, "PUT",
+				"{\"enabled\":true}").statusCode());
+		MobileAccess.Status resumedStatus = mobile.status();
+		MobileAccess.GalleryView resumedGallery = resumedStatus.gallery();
+		assertNotNull(resumedGallery);
+		assertEquals("http://" + resumedStatus.address() + ":" + resumedStatus.port() + "/m/", resumedGallery.url());
+		assertEquals(200, send(URI.create(resumedGallery.url()), cookie).statusCode());
+
+		int firstPort = resumedStatus.port();
+		running.context().close();
+		started.remove(running);
+
+		int nextPort;
+		try (ServerSocket free = new ServerSocket(0, 1, InetAddress.getByName(resumedStatus.address()))) {
+			nextPort = free.getLocalPort();
+		}
+		if (nextPort == firstPort) {
+			nextPort = 0;
+		}
+		DesktopServer.Running moved = startExisting(nextPort);
+		MobileAccess movedMobile = mobile(moved);
+		String movedDesktopCookie = openSession(moved);
+		MobileAccess.Status movedStatus = movedMobile.status();
+		MobileAccess.GalleryView movedGallery = movedStatus.gallery();
+		assertNotNull(movedGallery);
+		assertNotEquals(firstPort, movedStatus.port());
+		assertEquals("http://" + movedStatus.address() + ":" + movedStatus.port() + "/m/", movedGallery.url());
+		assertEquals(MobileQr.svgDataUri(movedGallery.url()), movedGallery.qr());
+		assertEquals(200, send(URI.create(movedGallery.url()), cookie).statusCode(),
+				"existing device cookie opens the gallery URL on the new port");
+
+		String deviceId = movedStatus.devices().get(0).id();
+		assertEquals(204, send(moved.baseUri().resolve("/api/desktop/mobile/devices/" + deviceId), movedDesktopCookie,
+				"DELETE", null).statusCode());
+		assertNull(movedMobile.status().gallery(), "revoking the last paired device hides the reconnect card");
+	}
+
 	private DesktopServer.Running start(boolean mobileEnabled, int preferredPort) {
 		String address = mobileEnabled ? LanAddresses.siteLocal().stream().findFirst().orElse("") : "";
 		return start(mobileEnabled, preferredPort, address);

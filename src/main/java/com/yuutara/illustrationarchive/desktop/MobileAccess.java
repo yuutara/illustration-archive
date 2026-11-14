@@ -73,6 +73,7 @@ public class MobileAccess {
 	private volatile boolean desiredEnabled;
 	private volatile boolean xInboxEnabled;
 	private volatile Pairing pairing;
+	private volatile GalleryView cachedGallery;
 	private volatile String lastError;
 	private volatile String xInboxError;
 
@@ -82,9 +83,13 @@ public class MobileAccess {
 	public record PairingView(String code, String url, String qr, String address, String expiresAt) {
 	}
 
+	public record GalleryView(String url, String qr) {
+	}
+
 	/** {@code enabled} is the current intent; {@code active} is whether the selected address is listening right now. */
 	public record Status(boolean enabled, boolean active, int port, List<String> addresses, String address,
-			String error, List<DeviceView> devices, PairingView pairing, boolean xInboxEnabled, String xInboxError) {
+			String error, List<DeviceView> devices, PairingView pairing, boolean xInboxEnabled, String xInboxError,
+			GalleryView gallery) {
 	}
 
 	private record Pairing(String code, String url, String qr, String address, Instant expiresAt) {
@@ -228,16 +233,34 @@ public class MobileAccess {
 		reconcile(addresses);
 		Connector current = connector;
 		boolean active = usable(current);
+		int port = active ? current.getLocalPort() : -1;
 		String address = active ? boundAddress : availableAddress(addresses, selectedAddress);
+		List<DeviceView> deviceViews = devices.devices().stream()
+				.map(device -> new DeviceView(device.id(), device.label(), device.pairedAt().toString()))
+				.toList();
 		Pairing activePairing = pairing;
 		PairingView view = activePairing == null || !activePairing.expiresAt().isAfter(Instant.now())
 				? null
 				: new PairingView(activePairing.code(), activePairing.url(), activePairing.qr(), activePairing.address(),
 						activePairing.expiresAt().toString());
-		return new Status(desiredEnabled, active, active ? current.getLocalPort() : -1, addresses, address, lastError,
-				devices.devices().stream()
-						.map(device -> new DeviceView(device.id(), device.label(), device.pairedAt().toString()))
-						.toList(), view, xInboxEnabled, xInboxError);
+		GalleryView galleryView = galleryEntry(active, boundAddress, port, deviceViews);
+		return new Status(desiredEnabled, active, port, addresses, address, lastError, deviceViews, view,
+				xInboxEnabled, xInboxError, galleryView);
+	}
+
+	private GalleryView galleryEntry(boolean active, String address, int port, List<DeviceView> deviceViews) {
+		if (!active || address == null || address.isBlank() || port <= 0 || deviceViews.isEmpty()) {
+			cachedGallery = null;
+			return null;
+		}
+		String url = "http://" + address + ":" + port + "/m/";
+		GalleryView existing = cachedGallery;
+		if (existing != null && existing.url().equals(url)) {
+			return existing;
+		}
+		GalleryView created = new GalleryView(url, MobileQr.svgDataUri(url));
+		cachedGallery = created;
+		return created;
 	}
 
 	/**
@@ -377,6 +400,7 @@ public class MobileAccess {
 		if (!usable(current)) {
 			throw new MobileAccessException("手机访问的连接没有启动，请重试。");
 		}
+		lastError = null;
 		String code = newCode();
 		String url = "http://" + chosen + ":" + current.getLocalPort() + "/m/pair?code=" + code;
 		Pairing created = new Pairing(code, url, MobileQr.svgDataUri(url), chosen, Instant.now().plus(PAIRING_LIFETIME));
