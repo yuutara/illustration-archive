@@ -323,6 +323,7 @@
         const addresses = Array.isArray(status.addresses) ? status.addresses : [];
         $('mobile-off').hidden = enabled;
         $('mobile-on').hidden = !enabled;
+        $('mobile-x-enabled').checked = !!status.xInboxEnabled;
         $('mobile-retry').hidden = !(enabled && !active);
         $('mobile-save-off').hidden = enabled || !status.error;
         showError('mobile-error', status.error || '');
@@ -453,10 +454,37 @@
         }
     }
 
+    async function setMobileXInbox(enabled) {
+        if (mobileBusy) {
+            $('mobile-x-enabled').checked = !!(mobileStatus && mobileStatus.xInboxEnabled);
+            return;
+        }
+        mobileBusy = true;
+        showError('mobile-x-error', '');
+        $('mobile-x-enabled').disabled = true;
+        try {
+            const status = await send('/api/desktop/mobile/x-inbox', 'PUT', { enabled });
+            renderMobile(status);
+            if (!enabled && status.error) {
+                toast('已关闭手机整理 X 收藏权限，但设置未能保存');
+            } else {
+                toast(enabled ? '已允许已配对手机整理 X 收藏' : '已关闭手机整理 X 收藏权限');
+            }
+        } catch (e) {
+            showError('mobile-x-error', (enabled ? '没有打开' : '没有关闭') + '：' + e.message);
+            $('mobile-x-enabled').checked = !!(mobileStatus && mobileStatus.xInboxEnabled);
+            await loadMobile();
+        } finally {
+            mobileBusy = false;
+            $('mobile-x-enabled').disabled = false;
+        }
+    }
+
     $('mobile-enable').addEventListener('click', () => setMobile(true));
     $('mobile-disable').addEventListener('click', () => setMobile(false));
     $('mobile-save-off').addEventListener('click', () => setMobile(false));
     $('mobile-retry').addEventListener('click', () => setMobile(true));
+    $('mobile-x-enabled').addEventListener('change', () => setMobileXInbox(!!$('mobile-x-enabled').checked));
     $('mobile-refresh').addEventListener('click', newMobilePairing);
     $('mobile-new-pairing').addEventListener('click', newMobilePairing);
     $('mobile-address').addEventListener('change', () => {

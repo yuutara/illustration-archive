@@ -52,6 +52,7 @@ public class MobileAccess {
 	public static final String DEVICE_COOKIE = "ia_mobile_device";
 	static final Duration PAIRING_LIFETIME = Duration.ofMinutes(5);
 	static final String OFF_MARKER = "mobile-access.off";
+	static final String X_INBOX_OFF_MARKER = "mobile-x-inbox.off";
 
 	private static final Logger log = LoggerFactory.getLogger(MobileAccess.class);
 	private static final String CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -63,12 +64,14 @@ public class MobileAccess {
 	private final MobileDeviceStore devices;
 	private final int preferredPort;
 	private final Path offMarker;
+	private final Path xInboxOffMarker;
 
 	private final Object lock = new Object();
 	private volatile Connector connector;
 	private volatile String boundAddress;
 	private volatile String selectedAddress;
 	private volatile boolean desiredEnabled;
+	private volatile boolean xInboxEnabled;
 	private volatile Pairing pairing;
 	private volatile String lastError;
 
@@ -80,7 +83,7 @@ public class MobileAccess {
 
 	/** {@code enabled} is the current intent; {@code active} is whether the selected address is listening right now. */
 	public record Status(boolean enabled, boolean active, int port, List<String> addresses, String address,
-			String error, List<DeviceView> devices, PairingView pairing) {
+			String error, List<DeviceView> devices, PairingView pairing, boolean xInboxEnabled) {
 	}
 
 	private record Pairing(String code, String url, String qr, String address, Instant expiresAt) {
@@ -103,12 +106,20 @@ public class MobileAccess {
 		this.spring = spring;
 		this.devices = devices;
 		this.preferredPort = preferredPort < 0 || preferredPort > 65535 ? 47393 : preferredPort;
-		this.offMarker = Path.of(home).toAbsolutePath().normalize().resolve(OFF_MARKER);
+		Path homeDir = Path.of(home).toAbsolutePath().normalize();
+		this.offMarker = homeDir.resolve(OFF_MARKER);
+		this.xInboxOffMarker = homeDir.resolve(X_INBOX_OFF_MARKER);
 	}
 
 	@EventListener(ApplicationReadyEvent.class)
 	void onReady() {
 		synchronized (lock) {
+			if (Files.exists(xInboxOffMarker)) {
+				xInboxEnabled = false;
+				recoverFromFailedXInboxClose();
+			} else {
+				xInboxEnabled = settings.mobileXInboxEnabled();
+			}
 			if (Files.exists(offMarker)) {
 				desiredEnabled = false;
 				recoverFromFailedClose();
@@ -152,16 +163,32 @@ public class MobileAccess {
 	 */
 	private void recoverFromFailedClose() {
 		if (!settings.mobileEnabled()) {
-			clearOffMarker();
+			clearMarker(offMarker, "手机关闭标记");
 			return;
 		}
 		try {
 			settings.saveMobileEnabled(false);
-			clearOffMarker();
+			clearMarker(offMarker, "手机关闭标记");
 			lastError = null;
 		} catch (RuntimeException failed) {
 			lastError = "上次关闭没能写入设置，本次保持关闭。修复存储后再试一次关闭。";
 			log.warn("手机访问保持关闭：上次的关闭状态仍没能写入设置。", failed);
+		}
+	}
+
+	private void recoverFromFailedXInboxClose() {
+		if (!settings.mobileXInboxEnabled()) {
+			clearMarker(xInboxOffMarker, "手机 X 收藏关闭标记");
+			return;
+		}
+		try {
+			settings.saveMobileXInboxEnabled(false);
+			clearMarker(xInboxOffMarker, "手机 X 收藏关闭标记");
+		} catch (RuntimeException failed) {
+			if (lastError == null || lastError.isBlank()) {
+				lastError = "上次关闭手机整理 X 收藏权限没能写入设置，本次保持关闭。修复存储后再试一次关闭。";
+			}
+			log.warn("手机 X 收藏权限保持关闭：上次的关闭状态仍没能写入设置。", failed);
 		}
 	}
 
@@ -187,6 +214,10 @@ public class MobileAccess {
 		return devices.accepts(token);
 	}
 
+	public boolean isXInboxEnabled() {
+		return xInboxEnabled;
+	}
+
 	public synchronized Status status() {
 		return statusForAddresses(LanAddresses.siteLocal());
 	}
@@ -205,7 +236,7 @@ public class MobileAccess {
 		return new Status(desiredEnabled, active, active ? current.getLocalPort() : -1, addresses, address, lastError,
 				devices.devices().stream()
 						.map(device -> new DeviceView(device.id(), device.label(), device.pairedAt().toString()))
-						.toList(), view);
+						.toList(), view, xInboxEnabled);
 	}
 
 	/**
@@ -248,7 +279,7 @@ public class MobileAccess {
 				}
 				settings.saveMobileEnabled(true);
 				desiredEnabled = true;
-				clearOffMarker();
+				clearMarker(offMarker, "手机关闭标记");
 				lastError = null;
 				return status();
 			}
@@ -263,7 +294,7 @@ public class MobileAccess {
 			}
 			settings.saveMobileEnabled(true);
 			desiredEnabled = true;
-			clearOffMarker();
+			clearMarker(offMarker, "手机关闭标记");
 			try {
 				startConnector(chosen, preferredPort == 0 ? 0 : preferredPort);
 				lastError = null;
@@ -285,16 +316,39 @@ public class MobileAccess {
 		// Stop first: "关闭" means the port is gone, not merely that the page hides a button.
 		stopConnector();
 		desiredEnabled = false;
-		boolean markerWritten = writeOffMarker();
+		boolean markerWritten = writeMarker(offMarker, "手机关闭标记");
 		try {
 			settings.saveMobileEnabled(false);
-			clearOffMarker();
+			clearMarker(offMarker, "手机关闭标记");
 			lastError = null;
 		} catch (RuntimeException failed) {
 			lastError = markerWritten
 					? "手机访问已关闭，但开关没能写入设置；下次启动会保持关闭。可以再试一次保存。"
 					: "手机访问已关闭，但关闭状态没能保存；下次启动可能仍会自动打开。请修复存储后重试。";
 			log.warn("手机访问已关闭，但设置没有保存。", failed);
+		}
+		return status();
+	}
+
+	public synchronized Status setXInboxEnabled(boolean enabled) {
+		if (enabled) {
+			settings.saveMobileXInboxEnabled(true);
+			xInboxEnabled = true;
+			clearMarker(xInboxOffMarker, "手机 X 收藏关闭标记");
+			lastError = null;
+			return status();
+		}
+		xInboxEnabled = false;
+		boolean markerWritten = writeMarker(xInboxOffMarker, "手机 X 收藏关闭标记");
+		try {
+			settings.saveMobileXInboxEnabled(false);
+			clearMarker(xInboxOffMarker, "手机 X 收藏关闭标记");
+			lastError = null;
+		} catch (RuntimeException failed) {
+			lastError = markerWritten
+					? "手机整理 X 收藏权限已关闭，但设置未能写入磁盘；下次启动会保持关闭。可再试一次保存。"
+					: "手机整理 X 收藏权限已关闭，但关闭状态没能保存；下次启动可能仍会自动打开。请修复存储后重试。";
+			log.warn("手机 X 收藏权限已关闭，但设置没有保存。", failed);
 		}
 		return status();
 	}
@@ -502,23 +556,23 @@ public class MobileAccess {
 		return openConnector(tomcat(), address, port);
 	}
 
-	private boolean writeOffMarker() {
+	private boolean writeMarker(Path marker, String label) {
 		try {
-			Files.createDirectories(offMarker.getParent());
-			Files.writeString(offMarker, Instant.now().toString(), StandardCharsets.UTF_8,
+			Files.createDirectories(marker.getParent());
+			Files.writeString(marker, Instant.now().toString(), StandardCharsets.UTF_8,
 					StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
 			return true;
 		} catch (IOException failed) {
-			log.warn("没能写下手机关闭标记。", failed);
+			log.warn("没能写下" + label + "。", failed);
 			return false;
 		}
 	}
 
-	private void clearOffMarker() {
+	private void clearMarker(Path marker, String label) {
 		try {
-			Files.deleteIfExists(offMarker);
+			Files.deleteIfExists(marker);
 		} catch (IOException failed) {
-			log.warn("没能移除手机关闭标记。", failed);
+			log.warn("没能移除" + label + "。", failed);
 		}
 	}
 

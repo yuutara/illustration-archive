@@ -40,6 +40,12 @@ public class MobileAccessController {
 	public record AccessRequest(Boolean enabled, String address) {
 	}
 
+	public record XInboxAccessRequest(Boolean enabled) {
+	}
+
+	public record CapabilitiesResponse(boolean xInboxEnabled) {
+	}
+
 	public record PairingRequest(String address) {
 	}
 
@@ -57,6 +63,21 @@ public class MobileAccessController {
 			throw new IllegalArgumentException("请说明是打开还是关闭手机访问。");
 		}
 		return mobile.setEnabled(request.enabled(), request.address());
+	}
+
+	@PutMapping("/api/desktop/mobile/x-inbox")
+	public MobileAccess.Status xInbox(@RequestBody XInboxAccessRequest request) {
+		if (request.enabled() == null) {
+			throw new IllegalArgumentException("请说明是打开还是关闭手机整理 X 收藏权限。");
+		}
+		return mobile.setXInboxEnabled(request.enabled());
+	}
+
+	@GetMapping("/api/m/capabilities")
+	public ResponseEntity<CapabilitiesResponse> capabilities() {
+		return ResponseEntity.ok()
+				.header(HttpHeaders.CACHE_CONTROL, "no-store")
+				.body(new CapabilitiesResponse(mobile.isXInboxEnabled()));
 	}
 
 	@PostMapping("/api/desktop/mobile/pairing")

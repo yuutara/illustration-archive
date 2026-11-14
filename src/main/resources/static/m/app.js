@@ -181,5 +181,35 @@
         }, { rootMargin: '600px' }).observe($('m-more'));
     }
 
+    async function loadCapabilities() {
+        const nav = $('m-nav');
+        if (!nav) return;
+        try {
+            const response = await fetch('/api/m/capabilities', {
+                headers: { Accept: 'application/json' },
+                cache: 'no-store'
+            });
+            if (response.status === 403) {
+                toPairing();
+                return;
+            }
+            if (!response.ok) return;
+            const caps = await response.json();
+            nav.hidden = !(caps && caps.xInboxEnabled);
+        } catch (ignored) {
+            // Keep navigation hidden if capabilities cannot be reached.
+        }
+    }
+
+    if (typeof window !== 'undefined' && window.addEventListener) {
+        window.addEventListener('pageshow', () => loadCapabilities());
+    }
+    if (document.addEventListener) {
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) loadCapabilities();
+        });
+    }
+
+    loadCapabilities();
     load(true);
 })();

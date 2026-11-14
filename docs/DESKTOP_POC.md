@@ -877,6 +877,13 @@ Codex 在工作区预审中复现五项，第一批提交 `76bbad0` 后修复：
 
 验证：定向 Java 18/18；全量 Java 627 项（606 通过、21 跳过、0 失败），JS 439/439；新增/扩展测试覆盖多本地接口、地址消失、首选端口占用后的随机回退、HEAD 不消耗、设备撤销写盘失败回滚与重试、关闭失败后的重试和重启，以及记住的地址跨重启只恢复该地址、地址缺失和旧设置只有开启标记时不回退到默认网卡。另经真实 HTTP 覆盖两个入口提交离线地址：返回 409，原监听、端口、配对 Cookie 和 `mobile.address` 均不变，重启也不恢复代选地址。隔离浏览器实测换地址立即重绑并换二维码；把设置文件设为只读后关闭，端口立即拒连、页面显示保存失败并可重试，恢复可写后标记删除、设置写回关闭。真机微信仍属用户 B 级。
 
+### 手机端 X 收藏整理与图片代取（R4.3 剩余功能，2026-11-14）
+
+- **默认关闭与桌面显式开关**：`mobile.x-inbox.enabled` 默认 `false`（与 `mobile.enabled` 独立）。桌面「设置 → 手机访问」通过 `PUT /api/desktop/mobile/x-inbox` 切换；设置写盘失败时写入 `<home>\mobile-x-inbox.off` 保守关闭并在下次启动优先遵守，界面提示并支持重试。关闭权限或撤销已配对设备后，手机端后续请求立即返回 `403`。
+- **手机通道与写操作同源校验**：手机通道仅保留整理所需接口（`/m/x.html`、`/api/m/capabilities`、`/api/x-import/inbox*`、预览与代取端点），不开放同步、登录、设置、备份或删除。写操作（`POST /api/x-import/inbox/import`、`PATCH /api/x-import/inbox/skip`、`PATCH /api/x-import/inbox/unskip`）同时校验已配对 Cookie、`xInboxEnabled` 与同源请求头（`Sec-Fetch-Site`、`Origin` / `Referer` 至少其一且同源，缺失均拒 `403`）。
+- **受限 X CDN 代取与微信长按大图**：列表小图（`size=small`）、看图器大图（`size=large`）与 GIF MP4 统一经 `/api/x-import/inbox/{itemId}/media/{mediaKey}/content` 由桌面端从受限 CDN 代取后同源转发（响应带 `Cache-Control: no-store`、`X-Content-Type-Options: nosniff`；上游非 200、跳转或非白名单类型返回 `502`）。看图器静态大图保留裸 `<img>`（不套 `<a>`，`-webkit-touch-callout: default`），以支持安卓微信长按保存或发送；沿用 R4.1 的待整理/最近跳过、归档重试、本页“归档选中并跳过其余”和 10 秒跳过撤销。
+- **已知范围**：R4.4 留到下一包；安卓微信真机长按体验及真实 X CDN 真机联调待 B/D 级验收。
+
 ## 已知问题与后续候选
 
 - Flyway 12.4 提示 H2 2.4.240 高于其验证版本，当前功能未受影响。

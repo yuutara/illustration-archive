@@ -1,15 +1,27 @@
 package com.yuutara.illustrationarchive.desktop;
 
+import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import javax.imageio.ImageIO;
 import javax.sql.DataSource;
+import java.awt.Color;
+import java.awt.Font;
+import java.awt.GradientPaint;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
@@ -42,7 +54,15 @@ class CGalleryAcceptanceServer {
 		Path stop = home.resolve("acceptance-stop");
 		Files.deleteIfExists(stop);
 		FakeIntegrations fakes = Boolean.getBoolean("c.acceptance.fakeIntegrations") ? new FakeIntegrations() : null;
-		DesktopServer.Running running = DesktopServer.start(home, 0, true, fakes == null ? Map.of() : fakes.overrides());
+		HttpServer mockCdn = Boolean.getBoolean("c.acceptance.mockCdn") ? startMockCdn() : null;
+		Map<String, String> overrides = new HashMap<>();
+		if (fakes != null) overrides.putAll(fakes.overrides());
+		if (mockCdn != null) {
+			String base = "http://127.0.0.1:" + mockCdn.getAddress().getPort();
+			overrides.put("x.media.photo-cdn-base-url", base);
+			overrides.put("x.media.video-cdn-base-url", base);
+		}
+		DesktopServer.Running running = DesktopServer.start(home, 0, true, overrides);
 		try {
 			if (fakes != null) {
 				Files.writeString(home.resolve("acceptance-fakes.txt"), "base=" + fakes.baseUrl() + "\nanyClientId=fake-client-id"
@@ -64,7 +84,7 @@ class CGalleryAcceptanceServer {
 						+ "\ngifAssetId=" + built.gifAssetId() + "\nauthorsPast30=" + authorsPast30 + "\ntagsPast30=" + tagsPast30
 						+ "\n", StandardCharsets.UTF_8);
 			}
-			seedInbox(jdbc, Integer.getInteger("c.acceptance.inbox", 0));
+			seedInbox(jdbc, Integer.getInteger("c.acceptance.inbox", 0), mockCdn != null);
 			seedSyncState(jdbc, System.getProperty("c.acceptance.syncState"));
 			Files.writeString(home.resolve("acceptance-session.txt"), running.sessionUri() + "\n", StandardCharsets.UTF_8);
 			Instant deadline = Instant.now().plus(Duration.ofHours(2));
@@ -73,6 +93,7 @@ class CGalleryAcceptanceServer {
 			}
 		} finally {
 			running.context().close();
+			if (mockCdn != null) mockCdn.stop(0);
 			if (fakes != null) fakes.close();
 			Files.deleteIfExists(home.resolve("acceptance-session.txt"));
 			((ch.qos.logback.classic.LoggerContext) org.slf4j.LoggerFactory.getILoggerFactory()).reset();
@@ -97,7 +118,7 @@ class CGalleryAcceptanceServer {
 		}
 	}
 
-	private static void seedInbox(JdbcTemplate jdbc, int posts) {
+	private static void seedInbox(JdbcTemplate jdbc, int posts, boolean mockCdn) {
 		if (posts == 0 || jdbc.queryForObject("SELECT COUNT(*) FROM x_like_item", Integer.class) > 0) {
 			return;
 		}
@@ -111,10 +132,48 @@ class CGalleryAcceptanceServer {
 			long itemId = jdbc.queryForObject("SELECT id FROM x_like_item WHERE x_post_id = ?", Long.class, id);
 			int pictures = post % 4 == 1 ? 3 : 1;
 			for (int page = 0; page < pictures; page++) {
+				String sourceUrl = mockCdn
+						? "https://pbs.twimg.com/media/Mock" + post + "_" + page + ".png"
+						: "/api/assets/" + assets.get((post * 3 + page) % assets.size()) + "/content";
 				jdbc.update("INSERT INTO x_like_media (x_like_item_id, media_key, sort_order, media_type, source_url, width, height)"
-						+ " VALUES (?, ?, ?, 'photo', ?, 900, 1200)", itemId, id + "-" + page, page,
-						"/api/assets/" + assets.get((post * 3 + page) % assets.size()) + "/content");
+						+ " VALUES (?, ?, ?, 'photo', ?, 900, 1200)", itemId, id + "-" + page, page, sourceUrl);
 			}
 		}
+	}
+
+	private static HttpServer startMockCdn() throws IOException {
+		HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+		server.createContext("/media/", exchange -> {
+			String path = exchange.getRequestURI().getPath();
+			String query = exchange.getRequestURI().getRawQuery();
+			boolean small = query != null && query.contains("name=small");
+			int w = small ? 450 : 900;
+			int h = small ? 600 : 1200;
+			int seed = Math.abs(path.hashCode());
+			byte[] body = renderMockPng(w, h, seed, path.substring(path.lastIndexOf('/') + 1));
+			exchange.getResponseHeaders().set("Content-Type", "image/png");
+			exchange.sendResponseHeaders(200, body.length);
+			try (OutputStream out = exchange.getResponseBody()) {
+				out.write(body);
+			}
+		});
+		server.start();
+		return server;
+	}
+
+	private static byte[] renderMockPng(int w, int h, int seed, String label) throws IOException {
+		BufferedImage image = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+		Graphics2D g = image.createGraphics();
+		Color c1 = Color.getHSBColor((seed % 360) / 360f, 0.35f, 0.92f);
+		Color c2 = Color.getHSBColor(((seed + 70) % 360) / 360f, 0.45f, 0.72f);
+		g.setPaint(new GradientPaint(0, 0, c1, w, h, c2));
+		g.fillRect(0, 0, w, h);
+		g.setColor(new Color(255, 255, 255, 210));
+		g.setFont(new Font("SansSerif", Font.BOLD, w / 10));
+		g.drawString(label, w / 12, h / 2);
+		g.dispose();
+		ByteArrayOutputStream out = new ByteArrayOutputStream();
+		ImageIO.write(image, "png", out);
+		return out.toByteArray();
 	}
 }

@@ -4,6 +4,7 @@ import com.yuutara.illustrationarchive.dto.XLikeMedia;
 import com.yuutara.illustrationarchive.storage.FileStorage;
 import com.yuutara.illustrationarchive.storage.StoredFile;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.io.FilterInputStream;
@@ -21,26 +22,33 @@ import java.util.function.Supplier;
 public class XAnimatedDownloadService {
 	private final Supplier<HttpClient> client;
 	private final FileStorage storage;
+	private final String videoCdnBaseUrl;
 
 	@Autowired
-	public XAnimatedDownloadService(FileStorage storage) {
-		this(new LazyHttpClient(), storage); // default NEVER redirects
+	public XAnimatedDownloadService(FileStorage storage,
+			@Value("${x.media.video-cdn-base-url:https://video.twimg.com}") String videoCdnBaseUrl) {
+		this(new LazyHttpClient(), storage, videoCdnBaseUrl); // default NEVER redirects
 	}
 
 	XAnimatedDownloadService(HttpClient client, FileStorage storage) {
-		this(() -> client, storage);
+		this(client, storage, XAnimatedMediaUrl.DEFAULT_BASE_URL);
 	}
 
-	private XAnimatedDownloadService(Supplier<HttpClient> client, FileStorage storage) {
+	XAnimatedDownloadService(HttpClient client, FileStorage storage, String videoCdnBaseUrl) {
+		this(() -> client, storage, videoCdnBaseUrl);
+	}
+
+	private XAnimatedDownloadService(Supplier<HttpClient> client, FileStorage storage, String videoCdnBaseUrl) {
 		this.client = client;
 		this.storage = storage;
+		this.videoCdnBaseUrl = videoCdnBaseUrl;
 	}
 
 	public StoredFile download(XLikeMedia media) {
 		if (media == null || !"animated_gif".equals(media.mediaType())) {
 			throw new IllegalArgumentException("Only X animated_gif media can use the MP4 downloader.");
 		}
-		URI uri = XAnimatedMediaUrl.parse(media.sourceUrl());
+		URI uri = XAnimatedMediaUrl.resolve(media.sourceUrl(), videoCdnBaseUrl);
 		HttpRequest request = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(60))
 				.header("Accept", "video/mp4").GET().build();
 		StoredFile stored = null;

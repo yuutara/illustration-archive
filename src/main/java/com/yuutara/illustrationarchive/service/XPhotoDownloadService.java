@@ -6,6 +6,7 @@ import com.yuutara.illustrationarchive.storage.StoredFile;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import javax.imageio.ImageIO;
@@ -14,36 +15,39 @@ import javax.imageio.stream.ImageInputStream;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.URI;
-import java.net.URISyntaxException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Iterator;
-import java.util.Locale;
 import java.util.function.Supplier;
 
 @Service
 public class XPhotoDownloadService {
 	private static final Logger log = LoggerFactory.getLogger(XPhotoDownloadService.class);
-	private static final String CDN_HOST = "pbs.twimg.com";
 
 	private final Supplier<HttpClient> httpClient;
 	private final FileStorage fileStorageService;
+	private final String photoCdnBaseUrl;
 
 	@Autowired
-	public XPhotoDownloadService(FileStorage fileStorageService) {
-		this(new LazyHttpClient(), fileStorageService);
+	public XPhotoDownloadService(FileStorage fileStorageService,
+			@Value("${x.media.photo-cdn-base-url:https://pbs.twimg.com}") String photoCdnBaseUrl) {
+		this(new LazyHttpClient(), fileStorageService, photoCdnBaseUrl);
 	}
 
 	XPhotoDownloadService(HttpClient httpClient, FileStorage fileStorageService) {
-		this(() -> httpClient, fileStorageService);
+		this(httpClient, fileStorageService, XPhotoMediaUrl.DEFAULT_BASE_URL);
 	}
 
-	private XPhotoDownloadService(Supplier<HttpClient> httpClient, FileStorage fileStorageService) {
+	XPhotoDownloadService(HttpClient httpClient, FileStorage fileStorageService, String photoCdnBaseUrl) {
+		this(() -> httpClient, fileStorageService, photoCdnBaseUrl);
+	}
+
+	private XPhotoDownloadService(Supplier<HttpClient> httpClient, FileStorage fileStorageService, String photoCdnBaseUrl) {
 		this.httpClient = httpClient;
 		this.fileStorageService = fileStorageService;
+		this.photoCdnBaseUrl = photoCdnBaseUrl;
 	}
 
 	public StoredFile download(XLikeMedia media) {
@@ -56,7 +60,7 @@ public class XPhotoDownloadService {
 			throw new XPhotoDownloadException("X photo requires a media key and positive expected dimensions.");
 		}
 
-		PhotoRequest photoRequest = photoRequest(media.sourceUrl());
+		XPhotoMediaUrl.PhotoVariant photoRequest = XPhotoMediaUrl.resolve(media.sourceUrl(), "4096x4096", photoCdnBaseUrl);
 		HttpRequest request = HttpRequest.newBuilder(photoRequest.uri())
 				.timeout(Duration.ofSeconds(60))
 				.header("Accept", "image/jpeg, image/png")
@@ -100,43 +104,6 @@ public class XPhotoDownloadService {
 		}
 	}
 
-	private PhotoRequest photoRequest(String sourceUrl) {
-		URI source;
-		try {
-			source = new URI(sourceUrl);
-		} catch (URISyntaxException | NullPointerException exception) {
-			throw new XPhotoDownloadException("X photo source URL is invalid.", exception);
-		}
-		if (!"https".equalsIgnoreCase(source.getScheme()) || !CDN_HOST.equalsIgnoreCase(source.getHost())
-				|| source.getPort() != -1 || source.getUserInfo() != null || source.getFragment() != null) {
-			throw new XPhotoDownloadException("X photo source URL must be an HTTPS X media CDN URL.");
-		}
-		String path = source.getPath();
-		int lastSlash = path == null ? -1 : path.lastIndexOf('/');
-		if (lastSlash != "/media/".length() - 1 || !path.startsWith("/media/")) {
-			throw new XPhotoDownloadException("X photo source URL has an unsupported media path.");
-		}
-		String name = path.substring(lastSlash + 1);
-		int dot = name.lastIndexOf('.');
-		if (dot <= 0 || dot == name.length() - 1) {
-			throw new XPhotoDownloadException("X photo source URL has no supported image extension.");
-		}
-		String extension = name.substring(dot + 1).toLowerCase(Locale.ROOT);
-		String format = switch (extension) {
-			case "jpg", "jpeg" -> "jpg";
-			case "png" -> "png";
-			default -> throw new XPhotoDownloadException("X photo source URL has an unsupported image extension.");
-		};
-		String baseName = name.substring(0, dot);
-		try {
-			URI uri = new URI("https", null, CDN_HOST, -1, "/media/" + baseName,
-					"format=" + format + "&name=4096x4096", null);
-			return new PhotoRequest(uri, name);
-		} catch (URISyntaxException exception) {
-			throw new XPhotoDownloadException("X photo CDN URL could not be constructed.", exception);
-		}
-	}
-
 	private ImageSize readSize(String storageKey) {
 		try (InputStream input = fileStorageService.load(storageKey).getInputStream();
 			 ImageInputStream imageInput = ImageIO.createImageInputStream(input)) {
@@ -167,9 +134,6 @@ public class XPhotoDownloadService {
 			log.error("Failed to delete X photo after validation failure. storageKey={}", storageKey,
 					cleanupException);
 		}
-	}
-
-	private record PhotoRequest(URI uri, String filename) {
 	}
 
 	private record ImageSize(int width, int height) {

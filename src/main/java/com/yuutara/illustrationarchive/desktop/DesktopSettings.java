@@ -41,6 +41,7 @@ public class DesktopSettings implements XLikeSyncReadLimit {
 	private static final String AI_VERIFIED_AT = "ai.verified-at";
 	private static final String MOBILE_ENABLED = "mobile.enabled";
 	private static final String MOBILE_ADDRESS = "mobile.address";
+	private static final String MOBILE_X_INBOX_ENABLED = "mobile.x-inbox.enabled";
 
 	private final Path file;
 	private final Properties values = new Properties();
@@ -167,6 +168,15 @@ public class DesktopSettings implements XLikeSyncReadLimit {
 
 	public synchronized void saveMobileEnabled(boolean enabled) {
 		change(() -> values.setProperty(MOBILE_ENABLED, Boolean.toString(enabled)));
+	}
+
+	/** Off unless the user explicitly enables X Likes inbox triage from Desktop Settings. */
+	public synchronized boolean mobileXInboxEnabled() {
+		return Boolean.parseBoolean(values.getProperty(MOBILE_X_INBOX_ENABLED, "false").trim());
+	}
+
+	public synchronized void saveMobileXInboxEnabled(boolean enabled) {
+		change(() -> values.setProperty(MOBILE_X_INBOX_ENABLED, Boolean.toString(enabled)));
 	}
 
 	/** The one LAN address the user authorized, so a restart restores exactly that address instead of the first. */

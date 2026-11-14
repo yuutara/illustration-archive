@@ -104,6 +104,44 @@ class XAnimatedPreviewServiceTest {
 		} finally { Thread.interrupted(); }
 	}
 
+	@Test
+	void proxiesPhotoWithNormalizedSizeAndBaseOverrideAndRejectsInvalidSizeOrType() throws Exception {
+		var custom = new XAnimatedPreviewService(media, http, "http://127.0.0.1:18080", "http://127.0.0.1:18080");
+		when(media.findByItemId(9)).thenReturn(List.of(attachment("photo", "https://pbs.twimg.com/media/Abc123.png")));
+		var smallBody = new Body();
+		var largeBody = new Body();
+		when(http.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
+				.thenAnswer(call -> {
+					HttpRequest req = call.getArgument(0);
+					assertEquals("http://127.0.0.1:18080/media/Abc123?format=png&name=small", req.uri().toString());
+					assertEquals("image/jpeg, image/png", req.headers().firstValue("Accept").orElseThrow());
+					return response(200, smallBody, Map.of("Content-Type", List.of("image/png; charset=binary"), "Content-Length", List.of("4")));
+				})
+				.thenAnswer(call -> {
+					HttpRequest req = call.getArgument(0);
+					assertEquals("http://127.0.0.1:18080/media/Abc123?format=png&name=large", req.uri().toString());
+					return response(200, largeBody, Map.of("Content-Type", List.of("image/jpeg"), "Content-Length", List.of("4")));
+				});
+		try (var preview = custom.openMedia(9, "g", "small")) {
+			assertEquals("image/png", preview.contentType());
+			assertEquals(4, preview.contentLength());
+			assertArrayEquals(new byte[]{1, 2, 3, 4}, preview.body().readAllBytes());
+		}
+		assertTrue(smallBody.closed);
+		try (var preview = custom.openMedia(9, "g", null)) {
+			assertEquals("image/jpeg", preview.contentType());
+		}
+		assertTrue(largeBody.closed);
+
+		assertStatus(400, () -> custom.openMedia(9, "g", "orig"));
+		assertStatus(400, () -> custom.openMedia(9, "g", "4096x4096"));
+		var badTypeBody = new Body();
+		var badResp = response(200, badTypeBody, Map.of("Content-Type", List.of("image/svg+xml")));
+		when(http.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(badResp);
+		assertStatus(502, () -> custom.openMedia(9, "g", "large"));
+		assertTrue(badTypeBody.closed);
+	}
+
 	private void assertStatus(int status, org.junit.jupiter.api.function.Executable action) {
 		assertEquals(status, assertThrows(ResponseStatusException.class, action).getStatusCode().value());
 	}

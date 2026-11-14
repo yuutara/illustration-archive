@@ -143,6 +143,12 @@
             <div class="set-actions" id="mobile-pair-actions">
                 <button class="btn" id="mobile-new-pairing" type="button">配一台新手机</button>
             </div>
+            <h3 class="set-subhead">手机端权限</h3>
+            <div class="set-choices">
+                <label class="set-choice"><input id="mobile-x-enabled" type="checkbox">允许已配对手机整理 X 收藏</label>
+            </div>
+            <p class="set-error" id="mobile-x-error" role="alert" hidden></p>
+            <p class="set-note">默认关闭。打开后，已配对手机可在局域网整理电脑上已同步的 X 收藏（预览大图、归档、跳过与放回，图片由电脑代取）。不会开放“同步收藏”、X 登录、设置、备份或删除。</p>
             <h3 class="set-subhead">已配对的手机</h3>
             <ul class="mobile-devices" id="mobile-devices"></ul>
             <p class="set-hint" id="mobile-devices-empty">还没有手机配对。</p>

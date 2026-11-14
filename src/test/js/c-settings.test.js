@@ -437,3 +437,33 @@ test("a normal close does not offer the retry-save button", async () => {
     const app = await setup({ mobile: mobileOff() });
     assert.equal(app.element("mobile-save-off").hidden, true);
 });
+
+test("mobile X inbox permission defaults off, toggles explicitly, and rolls back on save failure", async () => {
+    const on = { enabled: true, active: true, port: 47393, addresses: ["192.168.1.5"], address: "192.168.1.5",
+        error: null, devices: [], pairing: null, xInboxEnabled: false };
+    let fail = false;
+    const app = await setup({ mobile: on, answer: (url, options) => {
+        if (url === "/api/desktop/mobile/x-inbox") {
+            if (fail) return [500, { message: "写入设置失败" }];
+            const body = JSON.parse(options.body);
+            app.mobile = { ...app.mobile, xInboxEnabled: body.enabled };
+            return [200, app.mobile];
+        }
+        return [200, app.mobile];
+    } });
+    assert.equal(app.element("mobile-x-enabled").checked, false);
+
+    app.element("mobile-x-enabled").checked = true;
+    app.element("mobile-x-enabled").listeners.get("change")();
+    await settle();
+    assert.equal(app.sent.at(-1)[0], "/api/desktop/mobile/x-inbox");
+    assert.deepEqual(JSON.parse(app.sent.at(-1)[1].body), { enabled: true });
+    assert.equal(app.element("mobile-x-enabled").checked, true);
+
+    fail = true;
+    app.element("mobile-x-enabled").checked = false;
+    app.element("mobile-x-enabled").listeners.get("change")();
+    await settle();
+    assert.equal(app.element("mobile-x-enabled").checked, true, "rolls back when saving off fails at HTTP layer");
+    assert.match(app.element("mobile-x-error").textContent, /没有关闭.*写入设置失败/);
+});

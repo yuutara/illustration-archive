@@ -168,6 +168,8 @@ public final class DesktopServer {
 		// developer accounts, so no Client Secret or API key ships in the app or is read from the environment.
 		properties.put("x.api.enabled", "true");
 		properties.put("x.api.base-url", "https://api.x.com");
+		properties.put("x.media.photo-cdn-base-url", "https://pbs.twimg.com");
+		properties.put("x.media.video-cdn-base-url", "https://video.twimg.com");
 		properties.put("illustration-archive.desktop.x-authorize-url", "https://x.com/i/oauth2/authorize");
 		properties.put("x.oauth.client-id", "");
 		properties.put("x.oauth.client-secret", "");

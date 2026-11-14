@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-CN" data-look="quiet" data-mode="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="darkreader-lock">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#f6f6f5">
+    <title>X 收藏 · 手机版 · 插画档案</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231b1b1a'/%3E%3Cpath d='M17 43 27 21h6l10 22h-5l-2.4-5.6H24.4L22 43Zm9-10h6.6L29.3 25Z' fill='%23f6f6f5'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="/c/gallery.css">
+    <link rel="stylesheet" href="/c/theme-quiet.css">
+    <link rel="stylesheet" href="/c/motion.css">
+    <link rel="stylesheet" href="app.css">
+    <script src="/c/theme-mode.js"></script>
+    <script src="/c/c-x-model.js" defer></script>
+    <script src="x.js" defer></script>
+</head>
+<body>
+<div class="m-top">
+    <header class="m-head">
+        <a class="m-wordmark" href="/m/">插画档案</a>
+        <nav class="m-nav" aria-label="手机版导航">
+            <a href="/m/">图库</a>
+            <a class="is-active" href="/m/x.html" aria-current="page">X 收藏</a>
+        </nav>
+        <span class="m-count" id="mx-count" aria-live="polite"></span>
+    </header>
+    <div class="mx-toolbar" id="mx-toolbar">
+        <div class="mx-views" role="group" aria-label="视图">
+            <button type="button" id="mx-view-pending" aria-pressed="true">待整理</button>
+            <button type="button" id="mx-view-skipped" aria-pressed="false">最近跳过</button>
+        </div>
+        <div class="mx-tool-actions">
+            <button class="m-btn mx-tool-btn" id="mx-select-page" type="button" hidden>全选本页</button>
+            <button class="m-btn mx-tool-btn" id="mx-refresh" type="button">刷新</button>
+        </div>
+    </div>
+</div>
+
+<main class="m-main mx-main">
+    <h1 class="visually-hidden">X 收藏手机整理</h1>
+
+    <section class="mx-disabled" id="mx-disabled" hidden>
+        <p class="mx-disabled-title">电脑端还没有打开手机整理 X 收藏</p>
+        <p>请到电脑端的「设置 → 手机访问」开启“允许已配对手机整理 X 收藏”后再试。已保存的图库仍可正常查看。</p>
+        <div class="mx-disabled-actions">
+            <button class="m-btn mx-btn-primary" id="mx-recheck" type="button">重新检查</button>
+            <a class="m-btn" href="/m/">返回手机图库</a>
+        </div>
+    </section>
+
+    <p class="m-loading" id="mx-loading">正在载入…</p>
+    <div class="m-grid" id="mx-grid" aria-live="polite"></div>
+
+    <div class="m-empty" id="mx-empty" hidden>
+        <p class="m-empty-title" id="mx-empty-title">待整理是空的</p>
+        <p id="mx-empty-text">电脑上同步的 X 收藏会出现在这里。</p>
+    </div>
+
+    <div class="m-status" id="mx-status" hidden>
+        <p id="mx-status-text">读取失败</p>
+        <button class="m-btn" id="mx-retry" type="button">重试</button>
+    </div>
+
+    <nav class="mx-pager" id="mx-pager" aria-label="分页" hidden>
+        <button class="m-btn mx-tool-btn" id="mx-prev" type="button">上一页</button>
+        <span id="mx-page"></span>
+        <button class="m-btn mx-tool-btn" id="mx-next" type="button">下一页</button>
+    </nav>
+</main>
+
+<div class="mx-bar" id="mx-bar" role="toolbar" aria-label="批量操作" hidden>
+    <span class="mx-bar-count" id="mx-selected" aria-live="polite"></span>
+    <button class="mx-bar-btn" id="mx-clear" type="button">清除</button>
+    <button class="mx-bar-btn" id="mx-skip" type="button">跳过</button>
+    <button class="mx-bar-btn is-primary" id="mx-archive" type="button">归档</button>
+    <button class="mx-bar-btn is-primary" id="mx-archive-rest" type="button" hidden></button>
+    <button class="mx-bar-btn is-primary" id="mx-restore" type="button" hidden>放回待整理</button>
+</div>
+
+<div class="mx-preview" id="mx-preview" role="dialog" aria-modal="true" aria-label="大图预览" tabindex="-1" hidden>
+    <header class="mx-preview-head">
+        <button class="m-btn mx-tool-btn" id="mx-side-close" type="button">关闭</button>
+        <button class="m-btn mx-tool-btn" id="mx-side-prev" type="button">上一件</button>
+        <button class="m-btn mx-tool-btn" id="mx-side-next" type="button">下一件</button>
+        <span class="m-count" id="mx-side-meta"></span>
+    </header>
+    <div class="mx-preview-body">
+        <div class="m-save-hint" id="mx-save-hint" hidden>
+            <span>静态大图支持长按图片保存或发给朋友。</span>
+            <button id="mx-save-hint-close" type="button">知道了</button>
+        </div>
+        <div class="mx-stage" id="mx-stage"></div>
+        <div class="mx-media-switcher" id="mx-media-switcher" hidden>
+            <button class="m-btn mx-retry-mini" id="mx-media-prev" type="button">上一张</button>
+            <span id="mx-media-count"></span>
+            <button class="m-btn mx-retry-mini" id="mx-media-next" type="button">下一张</button>
+        </div>
+        <section class="m-info">
+            <h1 id="mx-side-author"></h1>
+            <p class="m-by" id="mx-side-handle"></p>
+            <p class="m-note" id="mx-side-text"></p>
+            <p class="mx-side-problem" id="mx-side-problem" hidden></p>
+            <p class="m-source"><a id="mx-side-open" target="_blank" rel="noreferrer noopener">在 X 上打开原文 ↗</a></p>
+        </section>
+    </div>
+    <footer class="mx-preview-foot">
+        <button class="m-btn" id="mx-side-skip" type="button">跳过</button>
+        <button class="m-btn mx-btn-primary" id="mx-side-archive" type="button">归档</button>
+        <button class="m-btn mx-btn-primary" id="mx-side-restore" type="button" hidden>放回待整理</button>
+    </footer>
+</div>
+
+<div class="mx-sheet-backdrop" id="mx-confirm" hidden>
+    <section class="mx-sheet" role="alertdialog" aria-modal="true" aria-labelledby="mx-confirm-title" aria-describedby="mx-confirm-text">
+        <h2 id="mx-confirm-title"></h2>
+        <p id="mx-confirm-text"></p>
+        <div class="mx-sheet-foot">
+            <button class="m-btn" id="mx-confirm-cancel" type="button">取消</button>
+            <button class="m-btn mx-btn-primary" id="mx-confirm-ok" type="button">确认</button>
+        </div>
+    </section>
+</div>
+
+<div class="mx-toast" id="mx-toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>

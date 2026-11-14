@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Locale;
@@ -47,6 +48,8 @@ public class LocalAccessFilter extends OncePerRequestFilter {
 			"/m", "/m/", "/m/index.html", "/m/item.html", "/m/pair.html",
 			"/m/app.css", "/m/app.js", "/m/item.js",
 			"/c/gallery.css", "/c/theme-quiet.css", "/c/motion.css", "/c/theme-mode.js");
+	private static final Set<String> PHONE_X_FILES = Set.of(
+			"/m/x.html", "/m/x.js", "/c/c-x-model.js");
 
 	private final byte[] accessToken;
 	private final MobileAccess mobile;
@@ -125,11 +128,36 @@ public class LocalAccessFilter extends OncePerRequestFilter {
 			rejectMobile(response, request, true);
 			return;
 		}
-		if (!SAFE_METHODS.contains(request.getMethod()) || !phonePathAllowed(path)) {
-			rejectJson(response, HttpServletResponse.SC_FORBIDDEN, "这台手机只能查看图库。");
+		String method = request.getMethod();
+		if (SAFE_METHODS.contains(method)) {
+			if (phoneGalleryReadAllowed(path)) {
+				chain.doFilter(request, response);
+				return;
+			}
+			if (phoneXReadAllowed(path)) {
+				if (!mobile.isXInboxEnabled()) {
+					rejectXDisabled(response, path);
+					return;
+				}
+				chain.doFilter(request, response);
+				return;
+			}
+			rejectJson(response, HttpServletResponse.SC_FORBIDDEN, "MOBILE_FORBIDDEN", "这台手机只能查看图库。");
 			return;
 		}
-		chain.doFilter(request, response);
+		if (phoneXWriteAllowed(method, path)) {
+			if (!mobile.isXInboxEnabled()) {
+				rejectXDisabled(response, path);
+				return;
+			}
+			if (!samePhoneOrigin(request, host)) {
+				rejectJson(response, HttpServletResponse.SC_FORBIDDEN, "MOBILE_FORBIDDEN", "拒绝跨站或来源不明的写请求。");
+				return;
+			}
+			chain.doFilter(request, response);
+			return;
+		}
+		rejectJson(response, HttpServletResponse.SC_FORBIDDEN, "MOBILE_FORBIDDEN", "这台手机没有这项写入权限。");
 	}
 
 	/**
@@ -141,17 +169,65 @@ public class LocalAccessFilter extends OncePerRequestFilter {
 				&& host.equalsIgnoreCase(boundAddress + ":" + port);
 	}
 
-	private static boolean phonePathAllowed(String path) {
+	private static boolean phoneGalleryReadAllowed(String path) {
 		if (PHONE_FILES.contains(path)) {
 			return true;
 		}
-		if (path.equals("/api/illustrations")) {
+		if (path.equals("/api/m/capabilities") || path.equals("/api/illustrations")) {
 			return true;
 		}
 		if (path.matches("/api/illustrations/\\d+")) {
 			return true;
 		}
 		return path.matches("/api/assets/\\d+/(content|thumbnail)");
+	}
+
+	private static boolean phoneXReadAllowed(String path) {
+		if (PHONE_X_FILES.contains(path)) {
+			return true;
+		}
+		if (path.equals("/api/x-import/inbox") || path.equals("/api/x-import/inbox/skipped")) {
+			return true;
+		}
+		return !path.contains("..") && !path.contains(";")
+				&& path.matches("/api/x-import/inbox/\\d+/media/[^/]+/content");
+	}
+
+	private static boolean phoneXWriteAllowed(String method, String path) {
+		if ("POST".equals(method)) {
+			return path.equals("/api/x-import/inbox/import");
+		}
+		if ("PATCH".equals(method)) {
+			return path.equals("/api/x-import/inbox/skip") || path.equals("/api/x-import/inbox/unskip");
+		}
+		return false;
+	}
+
+	private static boolean samePhoneOrigin(HttpServletRequest request, String host) {
+		String secFetchSite = request.getHeader("Sec-Fetch-Site");
+		if (secFetchSite != null && !secFetchSite.isBlank()
+				&& !"same-origin".equalsIgnoreCase(secFetchSite.trim())) {
+			return false;
+		}
+		String expectedOrigin = "http://" + host;
+		String origin = request.getHeader(HttpHeaders.ORIGIN);
+		if (origin != null && !origin.isBlank()) {
+			return origin.trim().equalsIgnoreCase(expectedOrigin);
+		}
+		String referer = request.getHeader(HttpHeaders.REFERER);
+		if (referer == null || referer.isBlank()) {
+			return false;
+		}
+		try {
+			URI uri = URI.create(referer.trim());
+			if (!"http".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null) {
+				return false;
+			}
+			String authority = uri.getPort() != -1 ? uri.getHost() + ":" + uri.getPort() : uri.getHost();
+			return authority.equalsIgnoreCase(host);
+		} catch (IllegalArgumentException invalid) {
+			return false;
+		}
 	}
 
 	private static String phoneCookie(HttpServletRequest request) {
@@ -178,7 +254,7 @@ public class LocalAccessFilter extends OncePerRequestFilter {
 			return;
 		}
 		if (path.startsWith("/api/")) {
-			rejectJson(response, HttpServletResponse.SC_FORBIDDEN,
+			rejectJson(response, HttpServletResponse.SC_FORBIDDEN, "MOBILE_FORBIDDEN",
 					unpaired ? "这台手机还没有配对，或配对已被撤销。" : "这页内容不能在手机上查看。");
 			return;
 		}
@@ -188,11 +264,34 @@ public class LocalAccessFilter extends OncePerRequestFilter {
 		response.getWriter().write(unpaired ? "这台手机还没有配对。请在电脑上重新扫码。" : "这页内容不能在手机上查看。");
 	}
 
-	private static void rejectJson(HttpServletResponse response, int status, String message) throws IOException {
+	private static void rejectXDisabled(HttpServletResponse response, String path) throws IOException {
+		String message = "电脑端还没有打开手机整理 X 收藏权限。";
+		if (path.startsWith("/api/")) {
+			rejectJson(response, HttpServletResponse.SC_FORBIDDEN, "MOBILE_X_DISABLED", message);
+			return;
+		}
+		response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+		response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
+		if (path.endsWith(".html")) {
+			response.setContentType("text/html;charset=UTF-8");
+			response.getWriter().write("<!DOCTYPE html><html lang=\"zh-CN\"><head><meta charset=\"UTF-8\">"
+					+ "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+					+ "<title>未开启 X 收藏整理</title></head>"
+					+ "<body style=\"font-family:sans-serif;padding:24px;line-height:1.6\">"
+					+ "<p>" + message + "</p>"
+					+ "<p><a href=\"/m/\">返回手机图库</a></p></body></html>");
+			return;
+		}
+		response.setContentType("text/plain;charset=UTF-8");
+		response.getWriter().write(message);
+	}
+
+	private static void rejectJson(HttpServletResponse response, int status, String code, String message)
+			throws IOException {
 		response.setStatus(status);
 		response.setContentType("application/json;charset=UTF-8");
 		response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
-		response.getWriter().write("{\"code\":\"MOBILE_FORBIDDEN\",\"message\":\"" + message + "\"}");
+		response.getWriter().write("{\"code\":\"" + code + "\",\"message\":\"" + message + "\"}");
 	}
 
 	/** HEAD / OPTIONS of the one-time entry must not read or consume the code. */

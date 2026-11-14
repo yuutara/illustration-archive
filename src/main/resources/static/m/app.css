@@ -56,6 +56,34 @@ button { font: inherit; color: inherit; cursor: pointer; }
     font-variant-numeric: tabular-nums;
 }
 
+.m-nav {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px;
+    border-radius: 10px;
+    background: var(--well);
+    box-shadow: var(--well-edge);
+}
+
+.m-nav a {
+    padding: 4px 10px;
+    border-radius: 7px;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.3;
+    transition: background-color .12s, color .12s;
+}
+
+.m-nav a.is-active {
+    background: var(--card);
+    color: var(--ink);
+    font-weight: 600;
+    box-shadow: var(--art-edge);
+}
+
+.m-head .m-count { margin-left: auto; }
+
 .m-search {
     display: flex;
     align-items: center;
@@ -347,4 +375,401 @@ button { font: inherit; color: inherit; cursor: pointer; }
     .m-main { max-width: 720px; margin: 0 auto; padding-left: 20px; padding-right: 20px; }
     .m-grid { gap: 18px 14px; }
     .m-detail { max-width: 860px; margin: 0 auto; }
+}
+
+/* ---------------- X 收藏手机整理 ---------------- */
+
+.mx-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 0 12px 10px;
+}
+
+.mx-views {
+    display: inline-flex;
+    padding: 3px;
+    border-radius: 10px;
+    background: var(--well);
+    box-shadow: var(--well-edge);
+}
+
+.mx-views button {
+    border: 0;
+    background: none;
+    padding: 6px 12px;
+    border-radius: 7px;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.25;
+}
+
+.mx-views button[aria-pressed="true"] {
+    background: var(--card);
+    color: var(--ink);
+    font-weight: 600;
+    box-shadow: var(--art-edge);
+}
+
+.mx-tool-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.mx-tool-btn {
+    min-height: 34px;
+    padding: 0 11px;
+    font-size: 13px;
+}
+
+.mx-main {
+    padding-bottom: calc(92px + env(safe-area-inset-bottom, 0px));
+}
+
+.mx-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    border-radius: 10px;
+    background: var(--card);
+    box-shadow: var(--art-edge);
+    overflow: hidden;
+    transition: box-shadow .14s;
+}
+
+.mx-card.is-selected {
+    box-shadow: 0 0 0 2px var(--accent), var(--art-edge);
+}
+
+.mx-card-media-btn {
+    display: block;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: none;
+    text-align: left;
+}
+
+.mx-check {
+    position: absolute;
+    top: 0;
+    right: 0;
+    z-index: 4;
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    background: none;
+}
+
+.mx-check span {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 1.8px solid #fff;
+    background: rgba(20, 20, 19, .42);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, .28);
+}
+
+.mx-check[aria-pressed="true"] span {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+.mx-card-badge-left {
+    left: 6px;
+    right: auto;
+}
+
+.mx-problem {
+    margin: 4px 0 0;
+    color: var(--danger);
+    font-size: 12px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+.mx-img-fail {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px;
+    background: var(--paper-2);
+    color: var(--muted);
+    font-size: 12px;
+    text-align: center;
+}
+
+.mx-img-fail-box {
+    position: static;
+    min-height: 220px;
+    border-radius: 10px;
+    margin: 12px;
+}
+
+.mx-retry-mini {
+    min-height: 32px;
+    padding: 0 12px;
+    font-size: 12px;
+}
+
+.mx-pager {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 18px;
+    color: var(--muted);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
+
+.mx-disabled {
+    margin: 20px 0;
+    padding: 20px 16px;
+    border-radius: 12px;
+    background: var(--card);
+    box-shadow: var(--art-edge);
+    text-align: center;
+}
+
+.mx-disabled-title {
+    margin: 0 0 6px;
+    color: var(--ink);
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.mx-disabled-actions {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 14px;
+}
+
+.mx-btn-primary {
+    border: 0;
+    background: var(--accent);
+    color: #fff;
+}
+
+.mx-bar {
+    position: fixed;
+    left: 10px;
+    right: 10px;
+    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    z-index: 30;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: 14px;
+    background: var(--card);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, .2), var(--art-edge);
+}
+
+.mx-bar-count {
+    font-size: 13px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    margin-right: auto;
+}
+
+.mx-bar-btn {
+    min-height: 36px;
+    padding: 0 12px;
+    border-radius: 9px;
+    border: 0;
+    background: var(--well);
+    box-shadow: var(--well-edge);
+    font-size: 13px;
+}
+
+.mx-bar-btn.is-primary {
+    background: var(--accent);
+    color: #fff;
+    box-shadow: none;
+}
+
+.mx-bar-btn:disabled {
+    opacity: .55;
+    cursor: default;
+}
+
+.mx-preview {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    background: var(--paper);
+}
+
+.mx-preview-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 52px;
+    padding: env(safe-area-inset-top, 0px) 12px 0;
+    background: var(--paper);
+    box-shadow: 0 1px 0 var(--gl-sep);
+}
+
+.mx-preview-head .m-count {
+    margin-left: auto;
+    margin-right: 4px;
+}
+
+.mx-preview-body {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 16px;
+}
+
+.mx-stage {
+    background: var(--paper-2);
+}
+
+.mx-figure {
+    margin: 0;
+}
+
+.mx-stage img,
+.mx-stage video {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 74dvh;
+    object-fit: contain;
+    margin: 0 auto;
+    background: var(--paper-2);
+}
+
+.mx-stage img {
+    -webkit-touch-callout: default;
+    user-select: auto;
+}
+
+.mx-media-switcher {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--paper);
+    box-shadow: 0 1px 0 var(--gl-sep);
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.mx-side-problem {
+    margin: 10px 0;
+    padding: 9px 11px;
+    border-radius: 9px;
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
+    color: var(--danger);
+    font-size: 13px;
+}
+
+.mx-preview-foot {
+    display: flex;
+    gap: 10px;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom, 0px));
+    background: var(--card);
+    box-shadow: 0 -1px 0 var(--gl-sep);
+}
+
+.mx-preview-foot .m-btn {
+    flex: 1;
+    min-height: 44px;
+}
+
+.mx-sheet-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    background: rgba(0, 0, 0, .42);
+}
+
+.mx-sheet {
+    width: 100%;
+    max-width: 380px;
+    padding: 18px;
+    border-radius: 14px;
+    background: var(--card);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, .28), var(--art-edge);
+}
+
+.mx-sheet h2 {
+    margin: 0 0 8px;
+    font-size: 17px;
+}
+
+.mx-sheet p {
+    margin: 0 0 16px;
+    color: var(--ink-2);
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+.mx-sheet-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.mx-toast {
+    position: fixed;
+    left: 50%;
+    bottom: calc(74px + env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%);
+    z-index: 45;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    max-width: calc(100vw - 24px);
+    padding: 10px 14px;
+    border-radius: 999px;
+    background: var(--ink);
+    color: var(--paper);
+    font-size: 13px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .28);
+}
+
+.mx-toast button {
+    border: 0;
+    background: none;
+    padding: 0 4px;
+    color: var(--accent-soft, #9ec5ff);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+@media (min-width: 720px) {
+    .mx-bar {
+        max-width: 700px;
+        left: 50%;
+        right: auto;
+        transform: translateX(-50%);
+        width: calc(100% - 24px);
+    }
 }
