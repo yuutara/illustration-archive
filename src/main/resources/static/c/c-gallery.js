@@ -217,8 +217,11 @@
         works.forEach((work) => {
             const p = work.pages[0];
             const i = heights.indexOf(Math.min(...heights));
-            columns[i].appendChild(pieceFor(work));
-            heights[i] += colWidth * (p.height / p.width) + (roomy && hasCaption(work) ? 26 : 0) + gap;
+            const fig = pieceFor(work);
+            const cardHeight = colWidth * (p.height / p.width) + (roomy && hasCaption(work) ? 26 : 0);
+            fig.style.containIntrinsicBlockSize = `auto ${Math.round(cardHeight)}px`;
+            columns[i].appendChild(fig);
+            heights[i] += cardHeight + gap;
         });
     }
 

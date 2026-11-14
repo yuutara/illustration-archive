@@ -92,7 +92,9 @@ kbd { padding: 0 5px; border: 1px solid var(--line); border-radius: 4px; color: 
 .wall-wrap { padding: 8px 24px 40px; overflow-x: clip; }
 .wall { display: flex; align-items: flex-start; }
 .wall-col { display: flex; flex: 1; flex-direction: column; min-width: 0; }
-.piece { position: relative; margin: 0; scroll-margin: 132px 0 96px; }
+/* 离屏作品跳过绘制与合成层更新，避免墙内数百张卡片拖慢拖动主线程；交互/动画中的卡片放开裁剪以完整保留阴影和翻牌位移 */
+.piece { position: relative; margin: 0; scroll-margin: 132px 0 96px; content-visibility: auto; contain-intrinsic-block-size: auto 280px; overflow-clip-margin: 14px; }
+.piece:is(:hover, :focus-within, .fx-raised, .fx-pulled, .fx-decking, .is-fresh, .is-selected) { content-visibility: visible; }
 .piece-media { position: relative; }
 .piece-open { display: block; width: 100%; padding: 0; border: 0; border-radius: var(--r-card, 4px); background: var(--paper-2); overflow: hidden; cursor: zoom-in; transition: box-shadow .15s; }
 .piece-open img { display: block; width: 100%; height: auto; transition: transform .3s ease, filter .2s; }

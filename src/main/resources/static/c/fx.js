@@ -942,15 +942,60 @@
     addEventListener('pointerdown', () => root.classList.add('fx-pointing'), true);
     addEventListener('keydown', (e) => { if (!e.ctrlKey && !e.metaKey) root.classList.remove('fx-pointing'); }, true);
 
+    const dragShield = document.createElement('div');
+    dragShield.className = 'fx-drag-shield';
+    dragShield.setAttribute('aria-hidden', 'true');
+    dragShield.hidden = true;
+    document.body.appendChild(dragShield);
+
+    function releaseDragShield(g) {
+        dragShield.hidden = true;
+        if (g.moveFrame) {
+            cancelAnimationFrame(g.moveFrame);
+            g.moveFrame = 0;
+        }
+        if (g.captureEl) {
+            try {
+                if (!g.captureEl.hasPointerCapture || g.captureEl.hasPointerCapture(g.id)) {
+                    g.captureEl.releasePointerCapture(g.id);
+                }
+            } catch (err) { /* ignore */ }
+            g.captureEl = null;
+        }
+    }
+
+    function flushGestureMove(g) {
+        g.moveFrame = 0;
+        if (!g.pendingMove || g.mode === 'cancelled') return;
+        g.pendingMove = false;
+        if (g.mode === 'scroll') {
+            scrollTo(g.sx0, g.s0 - g.dy);
+        } else if (g.mode === 'swipe') {
+            if (g.deck) dragDeck(g.deck, g.dx);
+        } else if (g.mode === 'tether') {
+            const p = pulls.get(g.fig);
+            if (!p) return;
+            p.state = pullState(g.base.rx + g.dx, g.base.ry + g.dy, g.pivot);
+            renderPull(p, p.state);
+        }
+    }
+
+    function scheduleGestureMove(g) {
+        g.pendingMove = true;
+        if (g.moveFrame) return;
+        g.moveFrame = requestAnimationFrame(() => flushGestureMove(g));
+    }
+
     function stopFling() { cancelAnimationFrame(flingFrame); flingFrame = 0; }
 
     wallWrap.addEventListener('pointerdown', (e) => {
         stopFling();
+        swallowClick = false;
         if (!(has('drag') || has('tether') || has('stack')) || e.pointerType !== 'mouse' || e.button !== 0) return;
         if (e.ctrlKey || e.shiftKey || e.metaKey || e.altKey || api.state.viewer) return;
         // 选择状态下不牵引、不拖动浏览；但按住移动过的那次松手同样不算点击，避免误选
         if (api.state.selecting) {
-            gesture = { id: e.pointerId, x0: e.clientX, y0: e.clientY, s0: scrollY, mode: null, passive: true, fig: null, card: null, base: { rx: 0, ry: 0 }, pivot: 0, samples: [] };
+            gesture = { id: e.pointerId, x0: e.clientX, y0: e.clientY, sx0: scrollX, s0: scrollY, mode: null, passive: true, fig: null, card: null, base: { rx: 0, ry: 0 }, pivot: 0, dx: 0, dy: 0, moveFrame: 0, pendingMove: false, captureEl: null, samples: [] };
             return;
         }
         const fig = e.target.closest('.piece');
@@ -963,7 +1008,7 @@
             pivot = Math.max(-1, Math.min(1, (0.5 - (e.clientY - r.top) / r.height) * 2));
         }
         const pages = card ? workOfFig(fig).pages.length : 0;
-        gesture = { id: e.pointerId, x0: e.clientX, y0: e.clientY, s0: scrollY, mode: null, fig: card ? fig : null, card, pages, base, pivot, samples: [] };
+        gesture = { id: e.pointerId, x0: e.clientX, y0: e.clientY, sx0: scrollX, s0: scrollY, mode: null, fig: card ? fig : null, card, pages, base, pivot, dx: 0, dy: 0, moveFrame: 0, pendingMove: false, captureEl: null, samples: [] };
         // 牌还在动时按下就是抓住它：立刻停在此刻的位置，不等手移动
         if (card && decks.has(fig) && !reduced()) {
             gesture.mode = 'swipe';
@@ -972,8 +1017,16 @@
     });
 
     function beginGesture(g, e) {
-        document.body.classList.add('fx-dragging');
-        try { wallWrap.setPointerCapture(e.pointerId); } catch (err) { /* 指针已释放时无法捕获，继续用 window 事件 */ }
+        dragShield.hidden = false;
+        try {
+            dragShield.setPointerCapture(e.pointerId);
+            g.captureEl = dragShield;
+        } catch (err) {
+            try {
+                wallWrap.setPointerCapture(e.pointerId);
+                g.captureEl = wallWrap;
+            } catch (err2) { /* 指针已释放时无法捕获，继续用 window 事件 */ }
+        }
         const sel = getSelection();
         if (sel) sel.removeAllRanges();
         if (g.fig && (g.mode === 'tether' || g.mode === 'swipe')) raise(g.fig, true);
@@ -995,19 +1048,18 @@
             else g.mode = has('drag') ? 'scroll' : 'idle';
             beginGesture(g, e);
         }
+        g.dx = dx;
+        g.dy = dy;
         if (g.mode === 'scroll') {
-            scrollTo(scrollX, g.s0 - dy);
             g.samples.push({ t: performance.now(), y: e.clientY });
             if (g.samples.length > 8) g.samples.shift();
+            scheduleGestureMove(g);
         } else if (g.mode === 'swipe') {
             g.samples.push({ t: performance.now(), x: e.clientX });
             if (g.samples.length > 8) g.samples.shift();
-            g.dx = dx;
-            if (g.deck) dragDeck(g.deck, dx);
+            if (g.deck) scheduleGestureMove(g);
         } else if (g.mode === 'tether') {
-            const p = pulls.get(g.fig);
-            p.state = pullState(g.base.rx + dx, g.base.ry + dy, g.pivot);
-            renderPull(p, p.state);
+            scheduleGestureMove(g);
         }
     });
 
@@ -1020,7 +1072,8 @@
             if (g.fig && pulls.get(g.fig)) releasePull(pulls.get(g.fig));
             return;
         }
-        document.body.classList.remove('fx-dragging');
+        releaseDragShield(g);
+        if (!cancelled) flushGestureMove(g);
         swallowClick = true;
         setTimeout(() => { swallowClick = false; }, 0);
         if (g.mode === 'tether') releasePull(pulls.get(g.fig));
@@ -1041,10 +1094,11 @@
     function cancelGesture() {
         const g = gesture;
         if (!g) return;
-        if (g.mode === 'scroll') scrollTo(scrollX, g.s0);
+        releaseDragShield(g);
+        g.pendingMove = false;
+        if (g.mode === 'scroll') scrollTo(g.sx0, g.s0);
         if (g.fig && pulls.get(g.fig)) releasePull(pulls.get(g.fig));
         if (g.deck) { releaseDeck(g.deck, [], true); g.deck = null; }
-        document.body.classList.remove('fx-dragging');
         if (g.mode) g.mode = 'cancelled';
         else gesture = null;
     }
