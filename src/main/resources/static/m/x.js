@@ -551,7 +551,7 @@
         const current = media[preview.media];
         if (current) {
             const figure = el('figure', 'mx-figure');
-            figure.appendChild(buildMediaNode(item, current, { size: 'large', controls: true }));
+            figure.appendChild(buildMediaNode(item, current, { size: '4096x4096', controls: true }));
             $('mx-stage').appendChild(figure);
         }
         maybeShowSaveHint(current);

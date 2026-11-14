@@ -9,7 +9,7 @@ import java.util.Set;
 final class XPhotoMediaUrl {
 	static final String DEFAULT_BASE_URL = "https://pbs.twimg.com";
 	private static final String CDN_HOST = "pbs.twimg.com";
-	private static final Set<String> PREVIEW_SIZES = Set.of("small", "medium", "large");
+	private static final Set<String> PREVIEW_SIZES = Set.of("small", "medium", "large", "4096x4096");
 
 	private XPhotoMediaUrl() { }
 

@@ -155,7 +155,7 @@ class MobileXIntegrationTest {
 		assertEquals("nosniff", small.headers().firstValue("X-Content-Type-Options").orElseThrow());
 		assertArrayEquals(pngBytes, small.body());
 
-		HttpResponse<byte[]> large = phoneGetBytes(phone, phoneCookie, "/api/x-import/inbox/" + photoId + "/media/mk-1/content?size=large");
+		HttpResponse<byte[]> large = phoneGetBytes(phone, phoneCookie, "/api/x-import/inbox/" + photoId + "/media/mk-1/content?size=4096x4096");
 		assertEquals(200, large.statusCode());
 		assertArrayEquals(pngBytes, large.body());
 
@@ -166,13 +166,21 @@ class MobileXIntegrationTest {
 		assertArrayEquals(new byte[]{0, 0, 0, 24, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}, gif.body());
 
 		assertTrue(cdn.seen.contains("/media/Art1?format=png&name=small"));
-		assertTrue(cdn.seen.contains("/media/Art1?format=png&name=large"));
+		assertTrue(cdn.seen.contains("/media/Art1?format=png&name=4096x4096"));
 		assertTrue(cdn.seen.contains("/tweet_video/Clip.mp4"));
+
+		// Invalid photo source host or extension returns 502 without hitting upstream CDN
+		long badHostId = seedLike(running, "p-bad-host", 9L, "badhost", "photo", "https://evil.example/media/Bad.png", 80, 60);
+		long badExtId = seedLike(running, "p-bad-ext", 8L, "badext", "photo", "https://pbs.twimg.com/media/Bad.webp", 80, 60);
+		int seenBeforeInvalid = cdn.seen.size();
+		assertEquals(502, phoneGet(phone, phoneCookie, "/api/x-import/inbox/" + badHostId + "/media/mk-1/content?size=4096x4096").statusCode());
+		assertEquals(502, phoneGet(phone, phoneCookie, "/api/x-import/inbox/" + badExtId + "/media/mk-1/content?size=4096x4096").statusCode());
+		assertEquals(seenBeforeInvalid, cdn.seen.size());
 
 		// Invalid preview size -> 400; CDN 500 or 302 redirect -> 502 (never passes upstream body/redirect through)
 		assertEquals(400, phoneGet(phone, phoneCookie, "/api/x-import/inbox/" + photoId + "/media/mk-1/content?size=orig").statusCode());
 		cdn.photoStatus.set(500);
-		assertEquals(502, phoneGet(phone, phoneCookie, "/api/x-import/inbox/" + photoId + "/media/mk-1/content?size=large").statusCode());
+		assertEquals(502, phoneGet(phone, phoneCookie, "/api/x-import/inbox/" + photoId + "/media/mk-1/content?size=4096x4096").statusCode());
 		cdn.photoStatus.set(302);
 		assertEquals(502, phoneGet(phone, phoneCookie, "/api/x-import/inbox/" + photoId + "/media/mk-1/content?size=small").statusCode());
 
@@ -297,22 +305,52 @@ class MobileXIntegrationTest {
 		assertEquals(403, revoked.statusCode());
 		assertTrue(revoked.body().contains("MOBILE_FORBIDDEN"), revoked.body());
 
-		// Fail-closed disable when settings.properties is read-only on Windows
+		// Fail-closed disable when settings.properties is read-only on Windows; error & retry survive LAN startup recovery
 		Assumptions.assumeTrue(System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win"));
+		String phoneCookie2 = pairPhone(running);
+		assertEquals(200, phoneGet(phone, phoneCookie2, "/api/x-import/inbox").statusCode());
+
 		Path settingsFile = home.resolve("config").resolve("settings.properties");
 		Files.setAttribute(settingsFile, "dos:readonly", true);
-		desktopSend(running, desktopCookie, "PUT", "/api/desktop/mobile/x-inbox", "{\"enabled\":false}");
-		assertFalse(running.context().getBean(MobileAccess.class).isXInboxEnabled());
+		HttpResponse<String> failedOff = desktopSend(running, desktopCookie, "PUT", "/api/desktop/mobile/x-inbox", "{\"enabled\":false}");
+		assertEquals(200, failedOff.statusCode());
+		JsonNode failedOffJson = json.readTree(failedOff.body());
+		assertFalse(failedOffJson.path("xInboxEnabled").asBoolean());
+		assertFalse(failedOffJson.path("xInboxError").asText("").isBlank());
+		assertTrue(failedOffJson.path("error").isNull());
 		assertTrue(Files.exists(home.resolve(MobileAccess.X_INBOX_OFF_MARKER)));
+		assertEquals(403, phoneGet(phone, phoneCookie2, "/api/x-import/inbox").statusCode());
+		assertEquals(200, phoneGet(phone, phoneCookie2, "/api/illustrations").statusCode());
 		running.context().close();
 
 		DesktopServer.Running restartedReadonly = startServer(cdn);
-		assertFalse(restartedReadonly.context().getBean(MobileAccess.class).isXInboxEnabled());
+		MobileAccess.Status roStatus = restartedReadonly.context().getBean(MobileAccess.class).status();
+		assertTrue(roStatus.active());
+		assertNull(roStatus.error());
+		assertFalse(roStatus.xInboxEnabled());
+		assertFalse(roStatus.xInboxError() == null || roStatus.xInboxError().isBlank(), roStatus.xInboxError());
+		assertTrue(Files.exists(home.resolve(MobileAccess.X_INBOX_OFF_MARKER)));
+		URI phoneAfterRestart = phoneBase(restartedReadonly);
+		assertEquals(403, phoneGet(phoneAfterRestart, phoneCookie2, "/api/x-import/inbox").statusCode());
+		assertEquals(200, phoneGet(phoneAfterRestart, phoneCookie2, "/api/illustrations").statusCode());
+
+		// Make settings writable and retry PUT enabled:false directly from desktop UI path -> error cleared, marker deleted, X still 403
+		Files.setAttribute(settingsFile, "dos:readonly", false);
+		String desktopCookie2 = openDesktopSession(restartedReadonly);
+		HttpResponse<String> retriedOff = desktopSend(restartedReadonly, desktopCookie2, "PUT", "/api/desktop/mobile/x-inbox", "{\"enabled\":false}");
+		assertEquals(200, retriedOff.statusCode());
+		JsonNode retriedJson = json.readTree(retriedOff.body());
+		assertFalse(retriedJson.path("xInboxEnabled").asBoolean());
+		assertTrue(retriedJson.path("xInboxError").isNull());
+		assertFalse(Files.exists(home.resolve(MobileAccess.X_INBOX_OFF_MARKER)));
+		assertEquals(403, phoneGet(phoneAfterRestart, phoneCookie2, "/api/x-import/inbox").statusCode());
+		assertEquals(200, phoneGet(phoneAfterRestart, phoneCookie2, "/api/illustrations").statusCode());
 		restartedReadonly.context().close();
 
-		Files.setAttribute(settingsFile, "dos:readonly", false);
 		DesktopServer.Running recovered = startServer(cdn);
-		assertFalse(recovered.context().getBean(MobileAccess.class).isXInboxEnabled());
+		MobileAccess.Status recoveredStatus = recovered.context().getBean(MobileAccess.class).status();
+		assertFalse(recoveredStatus.xInboxEnabled());
+		assertNull(recoveredStatus.xInboxError());
 		assertFalse(Files.exists(home.resolve(MobileAccess.X_INBOX_OFF_MARKER)));
 	}
 

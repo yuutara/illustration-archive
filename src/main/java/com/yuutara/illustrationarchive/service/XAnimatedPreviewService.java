@@ -103,7 +103,7 @@ public class XAnimatedPreviewService {
 		URI uri;
 		try {
 			uri = XPhotoMediaUrl.resolve(attachment.sourceUrl(), size, photoCdnBaseUrl).uri();
-		} catch (IllegalArgumentException failure) {
+		} catch (IllegalArgumentException | XPhotoDownloadException failure) {
 			throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Photo preview source is invalid.");
 		}
 		return fetchUpstream(uri, "image/jpeg, image/png", PHOTO_TYPES, "Photo preview");

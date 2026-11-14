@@ -74,6 +74,7 @@ public class MobileAccess {
 	private volatile boolean xInboxEnabled;
 	private volatile Pairing pairing;
 	private volatile String lastError;
+	private volatile String xInboxError;
 
 	public record DeviceView(String id, String label, String pairedAt) {
 	}
@@ -83,7 +84,7 @@ public class MobileAccess {
 
 	/** {@code enabled} is the current intent; {@code active} is whether the selected address is listening right now. */
 	public record Status(boolean enabled, boolean active, int port, List<String> addresses, String address,
-			String error, List<DeviceView> devices, PairingView pairing, boolean xInboxEnabled) {
+			String error, List<DeviceView> devices, PairingView pairing, boolean xInboxEnabled, String xInboxError) {
 	}
 
 	private record Pairing(String code, String url, String qr, String address, Instant expiresAt) {
@@ -179,15 +180,15 @@ public class MobileAccess {
 	private void recoverFromFailedXInboxClose() {
 		if (!settings.mobileXInboxEnabled()) {
 			clearMarker(xInboxOffMarker, "手机 X 收藏关闭标记");
+			xInboxError = null;
 			return;
 		}
 		try {
 			settings.saveMobileXInboxEnabled(false);
 			clearMarker(xInboxOffMarker, "手机 X 收藏关闭标记");
+			xInboxError = null;
 		} catch (RuntimeException failed) {
-			if (lastError == null || lastError.isBlank()) {
-				lastError = "上次关闭手机整理 X 收藏权限没能写入设置，本次保持关闭。修复存储后再试一次关闭。";
-			}
+			xInboxError = "上次关闭手机整理 X 收藏权限没能写入设置，本次保持关闭。修复存储后再试一次关闭。";
 			log.warn("手机 X 收藏权限保持关闭：上次的关闭状态仍没能写入设置。", failed);
 		}
 	}
@@ -236,7 +237,7 @@ public class MobileAccess {
 		return new Status(desiredEnabled, active, active ? current.getLocalPort() : -1, addresses, address, lastError,
 				devices.devices().stream()
 						.map(device -> new DeviceView(device.id(), device.label(), device.pairedAt().toString()))
-						.toList(), view, xInboxEnabled);
+						.toList(), view, xInboxEnabled, xInboxError);
 	}
 
 	/**
@@ -335,7 +336,7 @@ public class MobileAccess {
 			settings.saveMobileXInboxEnabled(true);
 			xInboxEnabled = true;
 			clearMarker(xInboxOffMarker, "手机 X 收藏关闭标记");
-			lastError = null;
+			xInboxError = null;
 			return status();
 		}
 		xInboxEnabled = false;
@@ -343,9 +344,9 @@ public class MobileAccess {
 		try {
 			settings.saveMobileXInboxEnabled(false);
 			clearMarker(xInboxOffMarker, "手机 X 收藏关闭标记");
-			lastError = null;
+			xInboxError = null;
 		} catch (RuntimeException failed) {
-			lastError = markerWritten
+			xInboxError = markerWritten
 					? "手机整理 X 收藏权限已关闭，但设置未能写入磁盘；下次启动会保持关闭。可再试一次保存。"
 					: "手机整理 X 收藏权限已关闭，但关闭状态没能保存；下次启动可能仍会自动打开。请修复存储后重试。";
 			log.warn("手机 X 收藏权限已关闭，但设置没有保存。", failed);

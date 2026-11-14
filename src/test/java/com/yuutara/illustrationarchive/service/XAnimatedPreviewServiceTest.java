@@ -110,6 +110,7 @@ class XAnimatedPreviewServiceTest {
 		when(media.findByItemId(9)).thenReturn(List.of(attachment("photo", "https://pbs.twimg.com/media/Abc123.png")));
 		var smallBody = new Body();
 		var largeBody = new Body();
+		var fullBody = new Body();
 		when(http.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class)))
 				.thenAnswer(call -> {
 					HttpRequest req = call.getArgument(0);
@@ -121,6 +122,11 @@ class XAnimatedPreviewServiceTest {
 					HttpRequest req = call.getArgument(0);
 					assertEquals("http://127.0.0.1:18080/media/Abc123?format=png&name=large", req.uri().toString());
 					return response(200, largeBody, Map.of("Content-Type", List.of("image/jpeg"), "Content-Length", List.of("4")));
+				})
+				.thenAnswer(call -> {
+					HttpRequest req = call.getArgument(0);
+					assertEquals("http://127.0.0.1:18080/media/Abc123?format=png&name=4096x4096", req.uri().toString());
+					return response(200, fullBody, Map.of("Content-Type", List.of("image/png"), "Content-Length", List.of("4")));
 				});
 		try (var preview = custom.openMedia(9, "g", "small")) {
 			assertEquals("image/png", preview.contentType());
@@ -132,14 +138,25 @@ class XAnimatedPreviewServiceTest {
 			assertEquals("image/jpeg", preview.contentType());
 		}
 		assertTrue(largeBody.closed);
+		try (var preview = custom.openMedia(9, "g", "4096x4096")) {
+			assertEquals("image/png", preview.contentType());
+		}
+		assertTrue(fullBody.closed);
 
 		assertStatus(400, () -> custom.openMedia(9, "g", "orig"));
-		assertStatus(400, () -> custom.openMedia(9, "g", "4096x4096"));
 		var badTypeBody = new Body();
 		var badResp = response(200, badTypeBody, Map.of("Content-Type", List.of("image/svg+xml")));
 		when(http.send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenReturn(badResp);
-		assertStatus(502, () -> custom.openMedia(9, "g", "large"));
+		assertStatus(502, () -> custom.openMedia(9, "g", "4096x4096"));
 		assertTrue(badTypeBody.closed);
+
+		for (String badPhoto : List.of("http://pbs.twimg.com/media/Abc123.png", "https://evil.example/media/Abc123.png",
+				"https://pbs.twimg.com/media/Abc123.webp", "https://pbs.twimg.com/other/Abc123.png",
+				"https://pbs.twimg.com/media/Abc123")) {
+			when(media.findByItemId(9)).thenReturn(List.of(attachment("photo", badPhoto)));
+			assertStatus(502, () -> custom.openMedia(9, "g", "4096x4096"));
+		}
+		verify(http, times(4)).send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
 	}
 
 	private void assertStatus(int status, org.junit.jupiter.api.function.Executable action) {

@@ -171,7 +171,7 @@ test("mobile gallery index shows X inbox nav only when desktop capability is ena
     }
 });
 
-test("cards proxy small previews, viewer proxies plain large img, and retries failed proxy image", async () => {
+test("cards proxy small previews, viewer proxies plain full-resolution img, and retries failed proxy image", async () => {
     const app = setupMobileX({ items: [itemOf(10, "photo", {
         media: [
             { mediaKey: "m10b", sortOrder: 1, mediaType: "photo", sourceUrl: "https://pbs.twimg.com/media/B.jpg" },
@@ -183,12 +183,12 @@ test("cards proxy small previews, viewer proxies plain large img, and retries fa
     const cardImg = card.querySelector("img");
     assert.equal(cardImg.src, "/api/x-import/inbox/10/media/m10a/content?size=small");
 
-    // Tap card opens viewer with plain <img src="...?size=large"> (never wrapped in <a>)
+    // Tap card opens viewer with plain <img src="...?size=4096x4096"> (never wrapped in <a>)
     card.querySelector(".mx-card-media-btn").click();
     assert.equal(app.element("mx-preview").hidden, false);
     assert.equal(app.element("mx-side-open").href, "https://x.com/artist10/status/1010");
     const stageImg = app.element("mx-stage").querySelector("img");
-    assert.equal(stageImg.src, "/api/x-import/inbox/10/media/m10a/content?size=large");
+    assert.equal(stageImg.src, "/api/x-import/inbox/10/media/m10a/content?size=4096x4096");
     assert.equal(stageImg.parent.tag, "figure");
     assert.equal(app.element("mx-media-switcher").hidden, false);
 
@@ -198,11 +198,11 @@ test("cards proxy small previews, viewer proxies plain large img, and retries fa
     assert.ok(failBox);
     failBox.querySelector("button").click();
     const retriedImg = app.element("mx-stage").querySelector("img");
-    assert.match(retriedImg.src, /^\/api\/x-import\/inbox\/10\/media\/m10a\/content\?size=large&retry=/);
+    assert.match(retriedImg.src, /^\/api\/x-import\/inbox\/10\/media\/m10a\/content\?size=4096x4096&retry=/);
 
     // Switch to second image cleanly
     app.element("mx-media-next").click();
-    assert.equal(app.element("mx-stage").querySelector("img").src, "/api/x-import/inbox/10/media/m10b/content?size=large");
+    assert.equal(app.element("mx-stage").querySelector("img").src, "/api/x-import/inbox/10/media/m10b/content?size=4096x4096");
 });
 
 test("viewer skip advances, archive failure keeps item for retry, and animated video is released", async () => {

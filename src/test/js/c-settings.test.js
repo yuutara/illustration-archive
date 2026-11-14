@@ -438,20 +438,21 @@ test("a normal close does not offer the retry-save button", async () => {
     assert.equal(app.element("mobile-save-off").hidden, true);
 });
 
-test("mobile X inbox permission defaults off, toggles explicitly, and rolls back on save failure", async () => {
+test("mobile X inbox permission defaults off, toggles explicitly, rolls back on HTTP failure, and retries unsaved close", async () => {
     const on = { enabled: true, active: true, port: 47393, addresses: ["192.168.1.5"], address: "192.168.1.5",
-        error: null, devices: [], pairing: null, xInboxEnabled: false };
+        error: null, devices: [], pairing: null, xInboxEnabled: false, xInboxError: null };
     let fail = false;
     const app = await setup({ mobile: on, answer: (url, options) => {
         if (url === "/api/desktop/mobile/x-inbox") {
             if (fail) return [500, { message: "写入设置失败" }];
             const body = JSON.parse(options.body);
-            app.mobile = { ...app.mobile, xInboxEnabled: body.enabled };
+            app.mobile = { ...app.mobile, xInboxEnabled: body.enabled, xInboxError: null };
             return [200, app.mobile];
         }
         return [200, app.mobile];
     } });
     assert.equal(app.element("mobile-x-enabled").checked, false);
+    assert.equal(app.element("mobile-x-save-off").hidden, true);
 
     app.element("mobile-x-enabled").checked = true;
     app.element("mobile-x-enabled").listeners.get("change")();
@@ -466,4 +467,29 @@ test("mobile X inbox permission defaults off, toggles explicitly, and rolls back
     await settle();
     assert.equal(app.element("mobile-x-enabled").checked, true, "rolls back when saving off fails at HTTP layer");
     assert.match(app.element("mobile-x-error").textContent, /没有关闭.*写入设置失败/);
+
+    // When xInboxError persists independently of LAN error, desktop offers and executes dedicated retry
+    fail = false;
+    const unsavedClose = { ...on, xInboxEnabled: false,
+        xInboxError: "上次关闭手机整理 X 收藏权限没能写入设置，本次保持关闭。修复存储后再试一次关闭。" };
+    const retryApp = await setup({ mobile: unsavedClose, answer: (url, options) => {
+        if (url === "/api/desktop/mobile/x-inbox") {
+            const body = JSON.parse(options.body);
+            return [200, { ...unsavedClose, xInboxEnabled: body.enabled, xInboxError: null }];
+        }
+        return [200, unsavedClose];
+    } });
+    assert.equal(retryApp.element("mobile-x-enabled").checked, false);
+    assert.equal(retryApp.element("mobile-error").hidden, true);
+    assert.equal(retryApp.element("mobile-x-error").hidden, false);
+    assert.equal(retryApp.element("mobile-x-actions").hidden, false);
+    assert.equal(retryApp.element("mobile-x-save-off").hidden, false);
+
+    retryApp.element("mobile-x-save-off").listeners.get("click")();
+    await settle();
+    assert.equal(retryApp.sent.at(-1)[0], "/api/desktop/mobile/x-inbox");
+    assert.deepEqual(JSON.parse(retryApp.sent.at(-1)[1].body), { enabled: false });
+    assert.equal(retryApp.element("mobile-x-error").hidden, true);
+    assert.equal(retryApp.element("mobile-x-actions").hidden, true);
+    assert.equal(retryApp.element("mobile-x-save-off").hidden, true);
 });

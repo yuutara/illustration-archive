@@ -879,10 +879,14 @@ Codex 在工作区预审中复现五项，第一批提交 `76bbad0` 后修复：
 
 ### 手机端 X 收藏整理与图片代取（R4.3 剩余功能，2026-11-14）
 
-- **默认关闭与桌面显式开关**：`mobile.x-inbox.enabled` 默认 `false`（与 `mobile.enabled` 独立）。桌面「设置 → 手机访问」通过 `PUT /api/desktop/mobile/x-inbox` 切换；设置写盘失败时写入 `<home>\mobile-x-inbox.off` 保守关闭并在下次启动优先遵守，界面提示并支持重试。关闭权限或撤销已配对设备后，手机端后续请求立即返回 `403`。
+- **默认关闭与桌面显式开关**：`mobile.x-inbox.enabled` 默认 `false`（与 `mobile.enabled` 独立）。桌面「设置 → 手机访问」通过 `PUT /api/desktop/mobile/x-inbox` 切换；设置写盘失败时写入 `<home>\mobile-x-inbox.off` 保守关闭并在下次启动优先遵守，状态中的 `xInboxError` 独立于局域网连接错误保存，桌面显示专用提示与“重试保存关闭状态”按钮（可直接重试 `PUT enabled:false`）。关闭权限或撤销已配对设备后，手机端后续请求立即返回 `403`。
 - **手机通道与写操作同源校验**：手机通道仅保留整理所需接口（`/m/x.html`、`/api/m/capabilities`、`/api/x-import/inbox*`、预览与代取端点），不开放同步、登录、设置、备份或删除。写操作（`POST /api/x-import/inbox/import`、`PATCH /api/x-import/inbox/skip`、`PATCH /api/x-import/inbox/unskip`）同时校验已配对 Cookie、`xInboxEnabled` 与同源请求头（`Sec-Fetch-Site`、`Origin` / `Referer` 至少其一且同源，缺失均拒 `403`）。
-- **受限 X CDN 代取与微信长按大图**：列表小图（`size=small`）、看图器大图（`size=large`）与 GIF MP4 统一经 `/api/x-import/inbox/{itemId}/media/{mediaKey}/content` 由桌面端从受限 CDN 代取后同源转发（响应带 `Cache-Control: no-store`、`X-Content-Type-Options: nosniff`；上游非 200、跳转或非白名单类型返回 `502`）。看图器静态大图保留裸 `<img>`（不套 `<a>`，`-webkit-touch-callout: default`），以支持安卓微信长按保存或发送；沿用 R4.1 的待整理/最近跳过、归档重试、本页“归档选中并跳过其余”和 10 秒跳过撤销。
+- **受限 X CDN 代取与微信长按原图**：列表小图（`size=small`）、看图器原图（`size=4096x4096`，与归档规格一致）与 GIF MP4 统一经 `/api/x-import/inbox/{itemId}/media/{mediaKey}/content` 由桌面端从受限 CDN 代取后同源转发（响应带 `Cache-Control: no-store`、`X-Content-Type-Options: nosniff`；非法图片/GIF 源地址在出站前拦截并返回 `502`，上游非 200、跳转或非白名单类型同样返回 `502`）。看图器静态大图保留裸 `<img>`（不套 `<a>`，`-webkit-touch-callout: default`），以支持安卓微信长按保存或发送；沿用 R4.1 的待整理/最近跳过、归档重试、本页“归档选中并跳过其余”和 10 秒跳过撤销。
 - **已知范围**：R4.4 留到下一包；安卓微信真机长按体验及真实 X CDN 真机联调待 B/D 级验收。
+
+**C 级复验（`b60068b`，11-14，未通过）**：隔离 Tomcat/H2 上，手机白名单和写操作同源校验通过。关闭权限或撤销设备后，后续 X 请求返回 403。设置只读时关闭标记跨重启有效，但桌面丢失提示且缺少专用重试入口。非法图片地址在出站前被拒绝，响应为 500，GIF 对应分支返回 502。代取实测支持 `small`、`medium`、`large`，`4096x4096` 预览返回 400。看图器使用 `large`，原图规格待对齐。证据见 `D:\Temp\ia-r43-x-c-b60068b-20261114\result.md`。
+
+**本轮修复（基于 `b60068b`，2026-11-14）**：拆分 `MobileAccess.Status.xInboxError` 并为「手机端权限」补“重试保存关闭状态”按钮；`openPhoto` 捕获 `XPhotoDownloadException` 使非法图片源统一返回 `502`（零出站）；`XPhotoMediaUrl` 放行 `4096x4096` 且手机看图器改为请求 `size=4096x4096`（与归档和路线一致）。定向 Java 48/48、JS 全量 445/445 通过，待 Codex 基于新提交复验与用户真机 B 级验收。
 
 ## 已知问题与后续候选
 
