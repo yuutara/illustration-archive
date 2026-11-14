@@ -82,8 +82,8 @@
 
     /* ---------------- 作品墙：FLIP 重排、主色占位、渐显 ---------------- */
 
-    function tagWall() {
-        api.pieces.forEach((fig, id) => {
+    function tagWall(fresh = null) {
+        const tag = (fig, id) => {
             const w = window.Archive.get(id);
             if (!w) return;
             if (!fig.style.getPropertyValue('--fx-tone')) fig.style.setProperty('--fx-tone', w.pages[0].tone);
@@ -97,7 +97,9 @@
                 img.addEventListener('load', done, { once: true });
                 img.addEventListener('error', done, { once: true });
             }
-        });
+        };
+        if (fresh) fresh.forEach(({ id }) => tag(api.pieces.get(id), id));
+        else api.pieces.forEach(tag);
     }
 
     /*
@@ -1088,7 +1090,7 @@
     }
 
     window.GalleryFx = {
-        captureWall, playWall, viewerOpened, viewerClosing,
+        captureWall, playWall, appendWall: tagWall, viewerOpened, viewerClosing,
         settle: () => { settleOpening(); stopInertia(); },
         navigate, pageShown, panStart, panMove, panEnd, startPage
     };

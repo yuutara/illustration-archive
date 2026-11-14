@@ -237,6 +237,32 @@ async function deleteFromWall(env, id) {
     assert.equal(env.ids["delete-confirm"].hidden, true);
 }
 
+test("loading the next page keeps existing cards attached, focus and selection intact", async () => {
+    const initial = Array.from({ length: 30 }, (_, i) => item(i + 1));
+    const env = setup({
+        "/api/illustrations?page=0&size=30": { page: 0, size: 30, totalElements: 32, items: initial },
+        "/api/illustrations?page=1&size=30": { page: 1, size: 30, totalElements: 32, items: [item(31), item(32)] },
+        "/api/illustrations?page=0&size=30&q=keep": { page: 0, size: 30, totalElements: 1, items: [item(32)] }
+    });
+    await env.Archive.loadMore(); // joins the initial in-flight request
+    const first = card(env, 1);
+    const firstColumn = first.parent;
+    const button = cardButton(env, 1);
+    env.ids["select-toggle"].click();
+    button.click();
+    button.focus();
+    assert.equal(await env.Archive.loadMore(), true);
+    assert.equal(first.parent, firstColumn, "the existing column was not rebuilt");
+    assert.equal(env.doc.activeElement, button);
+    assert.equal(first.querySelector(".piece-check").getAttribute("aria-pressed"), "true");
+    assert.equal(card(env, 32).querySelector(".piece-check").getAttribute("aria-pressed"), "false");
+    assert.equal(env.ids.wall.querySelectorAll(".piece").length, 32);
+    await env.Archive.setQuery({ q: "keep" });
+    await settle();
+    assert.deepEqual(env.ids.wall.querySelectorAll(".piece").map((card) => Number(card.dataset.id)), [32]);
+    assert.equal(env.Gallery.state.selected.size, 0);
+});
+
 test("deleting a focused card from the wall moves the focus to the next card, or the previous one at the end", async () => {
     const env = setup(library([3, 2, 1]));
     await settle();

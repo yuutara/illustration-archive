@@ -168,7 +168,9 @@
         return fig;
     }
 
-    function renderWall() {
+    let wallLayout;
+
+    function renderWall(appended = 0) {
         const wall = $('wall');
         const roomy = state.density === 'roomy';
         const target = roomy ? 230 : 165;
@@ -176,6 +178,18 @@
         const width = wall.clientWidth;
         const cols = Math.max(1, Math.floor((width + gap) / (target + gap)));
         const colWidth = (width - gap * (cols - 1)) / cols;
+        const start = state.results.length - appended;
+        if (appended > 0 && start > 0 && wallLayout &&
+                wallLayout.count === start && wallLayout.width === width && wallLayout.roomy === roomy &&
+                wallLayout.generation === A.generation()) {
+            const fresh = state.results.slice(start);
+            placeWorks(fresh, wallLayout.columns, wallLayout.heights, colWidth, roomy, gap);
+            wallLayout.count = state.results.length;
+            paintSelection(fresh);
+            renderStatus();
+            fx('appendWall', fresh);
+            return;
+        }
         const before = fx('captureWall');
         wall.classList.remove('is-refreshing');
         wall.removeAttribute('aria-busy');
@@ -190,17 +204,22 @@
             columns.push(col);
             heights.push(0);
         }
-        state.results.forEach((work) => {
-            const p = work.pages[0];
-            const i = heights.indexOf(Math.min(...heights));
-            columns[i].appendChild(pieceFor(work));
-            heights[i] += colWidth * (p.height / p.width) + (roomy && hasCaption(work) ? 26 : 0) + gap;
-        });
+        placeWorks(state.results, columns, heights, colWidth, roomy, gap);
+        wallLayout = { columns, heights, count: state.results.length, width, roomy, generation: A.generation() };
         // 换了条件后，不在结果里的卡片留在 pieces 里备用，视频不留
         pieces.forEach((fig) => { if (!fig.isConnected) releaseVideo(fig); });
         paintSelection();
         renderStatus();
         fx('playWall', before);
+    }
+
+    function placeWorks(works, columns, heights, colWidth, roomy, gap) {
+        works.forEach((work) => {
+            const p = work.pages[0];
+            const i = heights.indexOf(Math.min(...heights));
+            columns[i].appendChild(pieceFor(work));
+            heights[i] += colWidth * (p.height / p.width) + (roomy && hasCaption(work) ? 26 : 0) + gap;
+        });
     }
 
     /* ---------------- 选择模式 ---------------- */
@@ -233,15 +252,17 @@
         paintSelection();
     }
 
-    function paintSelection() {
+    function paintSelection(fresh = null) {
         document.body.classList.toggle('is-selecting', state.selecting);
-        pieces.forEach((fig, id) => {
+        const paintPiece = (fig, id) => {
             const on = state.selected.has(id);
             fig.classList.toggle('is-selected', on);
             const check = fig.querySelector('.piece-check');
             check.setAttribute('aria-pressed', String(on));
             check.setAttribute('aria-label', on ? '取消选择' : '选择');
-        });
+        };
+        if (fresh) fresh.forEach(({ id }) => paintPiece(pieces.get(id), id));
+        else pieces.forEach(paintPiece);
         const n = state.selected.size;
         const all = n > 0 && n === state.results.length;
         $('batchbar').hidden = !state.selecting;
@@ -813,7 +834,7 @@
             if (window.scrollY > 0) window.scrollTo({ top: 0 });
             renderStatus();
         } else if (event.type === 'append') {
-            renderWall();
+            renderWall(event.count);
             updatePosition();
         } else if (event.type === 'refresh') {
             // 编辑保存后按服务端结果重读了已载入的列表：看图器停在已移出结果的作品上时记下它原来的位置
@@ -824,6 +845,8 @@
             renderWall();
             updatePosition();
         } else if (event.type === 'updated') {
+            // Metadata changes may add or remove a caption before the next page arrives.
+            wallLayout = undefined;
             const work = A.get(event.id);
             if (work && pieces.has(event.id)) pieceFor(work);
             if (state.viewer && state.viewer.id === event.id) {
