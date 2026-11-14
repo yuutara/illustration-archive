@@ -85,8 +85,19 @@ public class XImportService {
 			RuntimeException failure = original;
 			if (original instanceof DuplicateKeyException) {
 				try {
-					if (files.stream().anyMatch(file -> assets.findIllustrationIdBySha256(file.sha256()).isPresent())) {
-						failure = new XPostDuplicateException("An X Post photo already exists in the archive.");
+					var matched = files.stream()
+							.map(file -> assets.findIllustrationIdBySha256(file.sha256()))
+							.flatMap(java.util.Optional::stream)
+							.findFirst();
+					if (matched.isPresent()) {
+						long existingId = matched.get();
+						boolean trashed = assets.isIllustrationTrashed(existingId);
+						failure = new XPostDuplicateException(
+								trashed ? "An X Post photo already exists in the trash."
+										: "An X Post photo already exists in the archive.",
+								existingId,
+								trashed
+						);
 						failure.addSuppressed(original);
 					}
 				} catch (RuntimeException lookupFailure) {
@@ -101,15 +112,18 @@ public class XImportService {
 					log.error("Failed to clean up X Post photo. storageKey={}", file.storageKey(), cleanupFailure);
 				}
 			}
-			if (failure instanceof XPostDuplicateException) {
-				return new ItemResult(itemId, "DUPLICATE", null, failure.getMessage());
+			if (failure instanceof XPostDuplicateException duplicate) {
+				return new ItemResult(itemId, "DUPLICATE", duplicate.illustrationId(), duplicate.getMessage(), duplicate.trashed());
 			}
 			log.warn("X Post import failed. itemId={}", itemId, failure);
 			return new ItemResult(itemId, "FAILED", null, failure.getMessage());
 		}
 	}
 
-	public record ItemResult(long itemId, String status, Long illustrationId, String reason) {
+	public record ItemResult(long itemId, String status, Long illustrationId, String reason, boolean inTrash) {
+		public ItemResult(long itemId, String status, Long illustrationId, String reason) {
+			this(itemId, status, illustrationId, reason, false);
+		}
 	}
 	public record Summary(int total, int successCount, int duplicateCount, int failureCount,
 			List<ItemResult> items) {

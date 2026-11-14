@@ -57,7 +57,7 @@ class FakeImage {
     get src() { return this._src; }
 }
 
-function setup(responses, { viewerOpen = true, editorState = {} } = {}) {
+function setup(responses, { viewerOpen = true, editorState = {}, desktop = false } = {}) {
     const document = { activeElement: null };
     const make = (tag, id) => { const n = new Node(tag, id); n.ownerDocument = document; return n; };
     const ids = Object.fromEntries(IDS.map((id) => [id, make(id.startsWith("del-ok") || id.startsWith("del-cancel") ? "button" : "div", id)]));
@@ -69,7 +69,12 @@ function setup(responses, { viewerOpen = true, editorState = {} } = {}) {
     const requests = [];
     const toasts = [];
     const inert = [];
-    const window = { addEventListener() {} };
+    let trashRefreshed = 0;
+    const window = {
+        addEventListener() {},
+        UiCapabilities: { desktop },
+        AppShell: { refreshTrash: () => { trashRefreshed++; } }
+    };
     const context = {
         window, document, console, URLSearchParams, AbortController, Image: FakeImage,
         fetch: async (url, init = {}) => {
@@ -95,7 +100,7 @@ function setup(responses, { viewerOpen = true, editorState = {} } = {}) {
     vm.runInContext(deleteSource, context);
     const events = [];
     window.Archive.subscribe((e) => events.push(JSON.parse(JSON.stringify(e))));
-    return { ids, requests, toasts, inert, editor, events, Archive: window.Archive, Delete: window.CDelete, document };
+    return { ids, requests, toasts, inert, editor, events, Archive: window.Archive, Delete: window.CDelete, document, trashRefreshed: () => trashRefreshed };
 }
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
@@ -285,8 +290,45 @@ test("Tab moves only between the two buttons", async () => {
     assert.equal(env.document.activeElement, env.ids["del-ok"]);
 });
 
-async function readyEnv({ extra = {}, viewerOpen = true, editorState = {} } = {}) {
-    const env = setup({ ...list([work3, work4]), ...extra }, { viewerOpen, editorState });
+async function readyEnv({ extra = {}, viewerOpen = true, editorState = {}, desktop = false } = {}) {
+    const env = setup({ ...list([work3, work4]), ...extra }, { viewerOpen, editorState, desktop });
     await env.Archive.setQuery({});
     return env;
 }
+
+test("desktop single and batch confirmations use Move to Trash copy, show counts, and call trash endpoints", async () => {
+    const env = await readyEnv({
+        desktop: true,
+        extra: {
+            "DELETE /api/illustrations/3": NO_CONTENT,
+            "POST /api/illustrations/batch/trash": { requestedCount: 2, movedCount: 2, movedIds: [3, 4] }
+        }
+    });
+    assert.equal(env.Delete.request(3), true);
+    assert.equal(env.ids["del-title"].textContent, "将这件作品移入回收站？");
+    assert.equal(env.ids["del-ok"].textContent, "移入回收站");
+    assert.match(env.ids["del-text"].textContent, /回收站.*30 天/);
+    env.ids["del-ok"].click();
+    await settle();
+    assert.equal(env.Archive.listed(3), false);
+    assert.equal(env.trashRefreshed(), 1);
+    assert.match(env.toasts.at(-1), /^已移入回收站：/);
+
+    // Re-seed works for batch trash check
+    const batchEnv = await readyEnv({
+        desktop: true,
+        viewerOpen: false,
+        extra: {
+            "POST /api/illustrations/batch/trash": { requestedCount: 2, movedCount: 2, movedIds: [3, 4] }
+        }
+    });
+    assert.equal(batchEnv.Delete.requestBatch([3, 4]), true);
+    assert.equal(batchEnv.ids["del-title"].textContent, "将这 2 件作品移入回收站？");
+    assert.equal(batchEnv.ids["del-ok"].textContent, "移入回收站（2 件）");
+    batchEnv.ids["del-ok"].click();
+    await settle();
+    assert.ok(batchEnv.requests.includes("POST /api/illustrations/batch/trash"));
+    assert.equal(batchEnv.Archive.total(), 0);
+    assert.equal(batchEnv.trashRefreshed(), 1);
+    assert.equal(batchEnv.toasts.at(-1), "已将 2 件作品移入回收站");
+});

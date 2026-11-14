@@ -43,8 +43,9 @@
 	-->
 	<sql id="galleryFilter">
 		<where>
+			i.trashed_at IS NULL
 			<if test="!authorIds.isEmpty()">
-				i.author_id IN
+				AND i.author_id IN
 				<foreach collection="authorIds" item="authorId" open="(" separator=", " close=")">#{authorId}</foreach>
 			</if>
 			<if test="!tagIds.isEmpty()">

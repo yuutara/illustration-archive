@@ -72,6 +72,18 @@ public class MaintenanceGate extends OncePerRequestFilter {
 	}
 
 	/**
+	 * Participates in the same maintenance drain barrier for desktop background work (such as Trash
+	 * expiration or pending file cleanup retries). Returns false while the gate is closed.
+	 */
+	public synchronized boolean tryEnterBackground() {
+		return enter();
+	}
+
+	public synchronized void leaveBackground() {
+		leave();
+	}
+
+	/**
 	 * Refuses new requests from now on and waits for those inside to return.
 	 *
 	 * @return true once none is left; false when time ran out or {@code cancelled} turned true, and the gate stays

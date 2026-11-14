@@ -520,8 +520,11 @@
             return;
         }
 
+        const desktop = Boolean(window.UiCapabilities && window.UiCapabilities.desktop);
         const confirmed = window.confirm(
-            "删除后插画记录和本地文件都会被删除，当前 V0.1 没有回收站。确定继续吗？"
+            desktop
+                ? "确认将这件作品移入回收站吗？移入后可在回收站恢复，30 天后自动永久清理。"
+                : "删除后插画记录和本地文件都会被删除，当前 V0.1 没有回收站。确定继续吗？"
         );
         if (!confirmed) {
             return;

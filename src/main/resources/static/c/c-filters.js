@@ -576,7 +576,7 @@
             if (picker) renderPicker(picker);
         } else if (event.type === 'error') {
             renderSummary();
-        } else if (event.type === 'updated' || event.type === 'refresh' || event.type === 'removed') {
+        } else if (event.type === 'updated' || event.type === 'refresh' || event.type === 'removed' || event.type === 'removedBatch') {
             refreshUntaggedCount();
         } else if (event.type === 'blocked') {
             // 数据层拒绝了换查询（有未保存的编辑或正在保存）：条件不变，搜索框回到当前条件

@@ -53,6 +53,7 @@ public class XLikePersistenceService {
 	private XLikeSyncSummary save(XLikePage page, Long firstOrder, boolean history, Set<String> previouslyOrdered, Long floor) {
 		int added = 0;
 		int existing = 0;
+		int trashedExisting = 0;
 		int pending = 0;
 		int unsupported = 0;
 		int position = 0;
@@ -65,6 +66,9 @@ public class XLikePersistenceService {
 			if (itemId == null) {
 				existing++;
 				storedStatus = items.findStatusByPostId(candidate.xPostId());
+				if (storedStatus == XLikeStatus.IMPORTED && items.isImportedIllustrationTrashed(candidate.xPostId())) {
+					trashedExisting++;
+				}
 				if (firstOrder != null && firstObservation) {
 					if (floor != null) items.updateRecentOrder(candidate.xPostId(), order, floor, firstOrder,
 							Math.subtractExact(firstOrder, page.candidates().size() - 1));
@@ -91,6 +95,6 @@ public class XLikePersistenceService {
 			}
 		}
 		return new XLikeSyncSummary(1, page.candidates().size(), added, existing,
-				pending, unsupported, page.hasMore(), false, false);
+				pending, unsupported, page.hasMore(), false, false, trashedExisting);
 	}
 }

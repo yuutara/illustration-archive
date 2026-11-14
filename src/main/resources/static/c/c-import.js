@@ -142,10 +142,42 @@
         st.textContent = STATUS_TEXT[item.status];
         const action = li.querySelector('.imp-action');
         action.innerHTML = '';
+        if (item.status === 'duplicate' && item.inTrash && item.illustrationId != null && window.UiCapabilities && window.UiCapabilities.desktop) {
+            const b = el('button', 'link', item.restoring ? '正在恢复…' : '恢复作品');
+            b.type = 'button';
+            b.disabled = !!item.restoring;
+            b.title = '从回收站恢复已有作品，保留原有记录和图片';
+            b.addEventListener('click', async () => {
+                if (item.restoring) return;
+                item.restoring = true;
+                renderRow(item);
+                try {
+                    const restored = await A.restoreFromTrash([item.illustrationId]);
+                    item.restoring = false;
+                    item.inTrash = false;
+                    item.restored = restored && restored.restoredCount > 0;
+                    item.message = item.restored ? '已从回收站恢复到图库' : '作品已不在回收站';
+                    if (item.restored) {
+                        refreshed.delete(item.illustrationId);
+                        await A.refreshLoaded();
+                        if (A.isFiltered()) {
+                            try { host('setLibraryTotal', await A.libraryCount()); } catch (e) { /* 仅影响计数 */ }
+                        }
+                        if (window.AppShell && typeof window.AppShell.refreshTrash === 'function') window.AppShell.refreshTrash();
+                    }
+                } catch (e) {
+                    item.restoring = false;
+                    item.message = '恢复失败：' + (e && e.message ? e.message : '请稍后重试');
+                }
+                renderRow(item);
+            });
+            action.appendChild(b);
+            return;
+        }
         if ((item.status === 'success' || item.status === 'duplicate') && item.illustrationId != null && A.listed(item.illustrationId)) {
             const b = el('button', 'link', '打开');
             b.type = 'button';
-            b.title = item.status === 'success' ? '在看图器中打开，可以继续编辑' : '打开图库中已有的这件作品';
+            b.title = item.status === 'success' || item.restored ? '在看图器中打开，可以继续编辑' : '打开图库中已有的这件作品';
             b.addEventListener('click', () => {
                 if (close()) host('openViewer', item.illustrationId);
             });

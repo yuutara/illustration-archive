@@ -24,6 +24,17 @@
         } catch (e) { /* 数量只是提示，读不到就不显示 */ }
     }
 
+    async function refreshTrash() {
+        const badge = document.getElementById('nav-trash');
+        if (!badge) return;
+        try {
+            const response = await fetch('/api/trash?page=0&size=1', { headers: { Accept: 'application/json' } });
+            if (!response.ok) return;
+            const total = (await response.json()).totalItems;
+            badge.textContent = total > 0 ? String(total) : '';
+        } catch (e) { /* 数量只是提示，读不到就不显示 */ }
+    }
+
     // 刷新、查找、打印、开发者工具这类浏览器快捷键。Ctrl+A / C / V / X / Z 留给页面和输入框
     function isBrowserShortcut(e) {
         if (e.key === 'F5' || e.key === 'F7' || e.key === 'F12') return true;
@@ -91,6 +102,7 @@
         );
     }
 
-    window.AppShell = { refreshInbox, ready };
+    window.AppShell = { refreshInbox, refreshTrash, ready };
     refreshInbox();
+    refreshTrash();
 })();

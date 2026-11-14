@@ -284,3 +284,81 @@ test("under another order a new work beyond the loaded pages is explained, not r
     button.click();
     assert.equal(env.calls.newest, 1);
 });
+
+test("desktop import duplicate-in-trash row offers restoring the trashed work", async () => {
+    let restorePayload = null;
+    let listRefresh = 0;
+    let trashRefreshed = 0;
+    const env = setup({
+        list: () => { listRefresh++; return page([item(1)]); },
+        script: async () => ({
+            status: 409,
+            json: { errorCode: "DUPLICATE_IN_TRASH", existingIllustrationId: 42 }
+        })
+    });
+    const prevFetch = env.Archive.setQuery;
+    // Also stub /api/trash/restore through window & custom fetch override on context via desktop capability:
+    const rowEnv = (() => {
+        const calls = { restore: [], toast: [], refreshTrash: 0 };
+        const window = {
+            UiCapabilities: { desktop: true },
+            AppShell: { refreshTrash: () => { calls.refreshTrash++; } },
+            addEventListener() {},
+            GalleryApi: { isViewerOpen: () => false, setBackgroundInert() {}, toast: (t) => calls.toast.push(t), markFresh() {}, setLibraryTotal() {}, openViewer() {} },
+            CFilters: { clearAll() {}, showNewest() {} },
+            CEditor: { isConfirming: () => false }
+        };
+        const ids = Object.fromEntries(IDS.map((id) => [id, new Node("div", id)]));
+        ids["import-sheet"].hidden = true;
+        ids["shortcuts"].hidden = true;
+        ids["import-bar"].appendChild(new Node("span"));
+        const docListeners = new Map();
+        const document = {
+            activeElement: null,
+            getElementById: (id) => ids[id],
+            createElement: (tag) => new Node(tag),
+            addEventListener: (t, fn) => docListeners.set(t, fn)
+        };
+        let total = 1;
+        const ctx = {
+            window, document, console, URLSearchParams, AbortController, FormData, Image: class {},
+            URL: { createObjectURL: () => "blob:p", revokeObjectURL() {} },
+            fetch: async (url, init = {}) => {
+                if (url === "/api/trash/restore") {
+                    restorePayload = JSON.parse(init.body);
+                    calls.restore.push(restorePayload);
+                    total = 2;
+                    return { ok: true, status: 200, json: async () => ({ restoredCount: 1, restoredIds: [42] }) };
+                }
+                if (url === "/api/illustrations/import") {
+                    return {
+                        ok: true, status: 200,
+                        json: async () => ({
+                            totalCount: 1, successCount: 0, duplicateCount: 1, failureCount: 0,
+                            items: [{ fileName: "dup.png", status: "DUPLICATE", errorCode: "DUPLICATE_IN_TRASH", illustrationId: 42 }]
+                        })
+                    };
+                }
+                if (String(url).startsWith("/api/illustrations")) {
+                    return { ok: true, status: 200, json: async () => page([item(1)], total) };
+                }
+                return { ok: true, status: 200, json: async () => ({}) };
+            }
+        };
+        vm.createContext(ctx);
+        vm.runInContext(archiveSource, ctx);
+        vm.runInContext(importSource, ctx);
+        return { ctx, ids, calls };
+    })();
+    await rowEnv.ctx.window.Archive.setQuery({});
+    rowEnv.ctx.window.CImport.addFiles([pic("dup.png")]);
+    await settle(8);
+    assert.match(rowsText(rowEnv.ids)[0], /回收站/);
+    const restoreBtn = rowEnv.ids["import-list"].all("BUTTON").find((b) => /恢复/.test(b.textContent));
+    assert.ok(restoreBtn, "expected restore button on desktop DUPLICATE_IN_TRASH row");
+    restoreBtn.click();
+    await settle(8);
+    assert.deepEqual(restorePayload, { ids: [42] });
+    assert.equal(rowEnv.calls.refreshTrash, 1);
+    assert.match(rowsText(rowEnv.ids)[0], /已从回收站恢复到图库/);
+});

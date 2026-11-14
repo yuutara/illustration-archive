@@ -124,6 +124,16 @@ public class XLikeRepository {
 		return statuses.get(0);
 	}
 
+	public boolean isImportedIllustrationTrashed(String postId) {
+		List<Integer> flags = jdbcTemplate.query("""
+				SELECT CASE WHEN i.trashed_at IS NOT NULL THEN 1 ELSE 0 END AS trashed
+				FROM x_like_item x
+				JOIN illustration i ON i.id = x.imported_illustration_id
+				WHERE x.x_post_id = ? AND x.status = 'IMPORTED'
+				""", (rs, row) -> rs.getInt("trashed"), postId);
+		return !flags.isEmpty() && flags.get(0) != 0;
+	}
+
 	public int skipIfPending(long itemId) {
 		return skipIfPending(itemId, utcNow(), java.util.UUID.randomUUID().toString());
 	}

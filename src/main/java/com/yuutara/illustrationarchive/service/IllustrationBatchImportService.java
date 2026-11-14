@@ -49,7 +49,7 @@ public class IllustrationBatchImportService {
 						filename,
 						false,
 						exception.illustrationId(),
-						DuplicateIllustrationException.ERROR_CODE,
+						exception.errorCode(),
 						exception.getMessage(),
 						IllustrationBatchImportItemResult.DUPLICATE
 				));

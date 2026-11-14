@@ -26,7 +26,7 @@
 
     const state = {
         page: 0, totalPages: 0, total: 0, items: [],
-        selected: new Set(), problems: new Map(),
+        selected: new Set(), problems: new Map(), trashedDuplicates: new Map(),
         connected: false, scanBudget: 50, busy: false, recovering: false, progress: null,
         view: 'pending', // pending：待整理；skipped：最近跳过
         connectCard: null, emptyText: '同步后，待整理的收藏会出现在这里。',
@@ -121,12 +121,57 @@
 
     const indexOfItem = (id) => state.items.findIndex((item) => item.id === id);
 
+    function renderProblemNode(container, itemId, text) {
+        container.textContent = text;
+        const illustrationId = state.trashedDuplicates.get(itemId);
+        if (illustrationId != null) {
+            const btn = el('button', 'btn x-restore-trash', '恢复已有作品');
+            btn.type = 'button';
+            btn.style.marginLeft = '8px';
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                restoreTrashedDuplicate(itemId, illustrationId);
+            });
+            container.appendChild(btn);
+        }
+    }
+
     function syncProblem(card, id) {
         const text = state.problems.get(id);
         let line = card.querySelector('.x-problem');
         if (!text) { if (line) line.remove(); return; }
         if (!line) line = card.appendChild(el('p', 'x-problem'));
-        line.textContent = text;
+        renderProblemNode(line, id, text);
+    }
+
+    async function restoreTrashedDuplicate(itemId, illustrationId) {
+        if (state.busy) return;
+        state.busy = true;
+        syncSelection();
+        try {
+            const response = await fetch('/api/trash/restore', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify({ ids: [illustrationId] })
+            });
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(body.message || `HTTP ${response.status}`);
+            state.trashedDuplicates.delete(itemId);
+            state.problems.set(itemId, '已恢复回收站中的原作品；此条可跳过');
+            document.querySelectorAll('.x-card').forEach((card) => {
+                if (Number(card.dataset.id) === itemId) syncProblem(card, itemId);
+            });
+            if (state.preview && state.preview.item.id === itemId) renderPreviewStatus();
+            if (window.AppShell && typeof window.AppShell.refreshTrash === 'function') {
+                window.AppShell.refreshTrash();
+            }
+            toast('已恢复已有作品，可在图库查看；当前收藏可跳过');
+        } catch (e) {
+            toast(`恢复失败：${e.message}`);
+        } finally {
+            state.busy = false;
+            syncSelection();
+        }
     }
 
     function renderCard(item) {
@@ -154,7 +199,7 @@
         meta.appendChild(el('p', 'x-author', item.authorDisplayName || item.authorUsername));
         if (item.postText) meta.appendChild(el('p', 'x-text', item.postText));
         card.appendChild(meta);
-        card.addEventListener('click', (e) => { if (!e.target.closest('a')) toggle(item.id); });
+        card.addEventListener('click', (e) => { if (!e.target.closest('a, button')) toggle(item.id); });
         card.addEventListener('dblclick', () => openPreview(indexOfItem(item.id)));
         card.addEventListener('keydown', (e) => {
             if (e.target !== card) return;
@@ -296,13 +341,18 @@
 
     /* ---------------- 连接状态与同步 ---------------- */
 
-    function showResult(head, detail, { problem = false, settings = false, settingsHash = 'x' } = {}) {
+    function showResult(head, detail, { problem = false, settings = false, settingsHash = 'x', trashLink = false } = {}) {
         $('x-result').hidden = false;
         $('x-result').classList.toggle('is-problem', problem);
         $('x-result-head').textContent = head;
         $('x-result-detail').textContent = detail;
         const actions = $('x-result-actions');
         actions.replaceChildren();
+        if (trashLink) {
+            const link = el('a', 'link', '前往回收站');
+            link.href = '/c/trash.html';
+            actions.appendChild(link);
+        }
         if (settings) {
             const link = el('a', 'link', '打开设置');
             link.href = `/c/settings.html#${settingsHash}`;
@@ -395,7 +445,8 @@
             showResult(summary.problem || summary.headline, summary.problem ? summary.headline + '。' + summary.detail : summary.detail, {
                 problem: !!summary.problem,
                 settings: summary.readLimit || (!!summary.problem && /设置/.test(summary.problem)),
-                settingsHash: summary.readLimit ? 'x-read-limit' : 'x'
+                settingsHash: summary.readLimit ? 'x-read-limit' : 'x',
+                trashLink: (summary.trashedCount || 0) > 0
             });
             await load(0);
         } catch (e) {
@@ -466,7 +517,10 @@
             $('x-selected').textContent = `正在归档 ${done + 1} / ${total}`;
         });
         outcome.problems.forEach((text, id) => state.problems.set(id, text));
-        outcome.archived.forEach((id) => { state.problems.delete(id); state.selected.delete(id); });
+        if (outcome.trashedDuplicates) {
+            outcome.trashedDuplicates.forEach((illustrationId, id) => state.trashedDuplicates.set(id, illustrationId));
+        }
+        outcome.archived.forEach((id) => { state.problems.delete(id); state.trashedDuplicates.delete(id); state.selected.delete(id); });
         return outcome;
     }
 
@@ -528,7 +582,7 @@
     }
 
     const postSkip = (ids) => patchItems('/api/x-import/inbox/skip', ids);
-    const forget = (ids) => ids.forEach((id) => { state.selected.delete(id); state.problems.delete(id); });
+    const forget = (ids) => ids.forEach((id) => { state.selected.delete(id); state.problems.delete(id); state.trashedDuplicates.delete(id); });
 
     /*
      * 撤销只认服务端确认这一次跳过的作品和这次跳过的凭据：请求里别处已经跳过的不算，
@@ -628,7 +682,8 @@
         $('x-side-meta').textContent = [created, position].filter(Boolean).join(' · ');
         const problem = state.problems.get(item.id);
         $('x-side-problem').hidden = !problem;
-        $('x-side-problem').textContent = problem || '';
+        if (problem) renderProblemNode($('x-side-problem'), item.id, problem);
+        else $('x-side-problem').textContent = '';
     }
 
     /*

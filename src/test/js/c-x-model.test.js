@@ -320,6 +320,26 @@ test("history a limit cannot reach says how much it needs instead of inviting an
     assert.match(summary.detail, /至少要读 125 条/);
     assert.match(summary.detail, /选 200 条/);
     assert.doesNotMatch(summary.detail, /再同步一次会接着往下/);
-    assert.doesNotMatch(M.syncSummary(report(phase(), phase(), { historyStatus: "MORE", readLimitNeeded: 50 })).detail, /选 /,
+    assert.doesNotMatch(M.summaryText ? "" : M.syncSummary(report(phase(), phase(), { historyStatus: "MORE", readLimitNeeded: 50 })).detail, /选 /,
         "without the choices it only names the count");
+});
+
+test("trash-related sync summaries and duplicate-in-trash archive results surface clear guidance", async () => {
+    const M = model();
+    const sync = M.syncSummary(report(phase({ existingCount: 2 }), phase(), { trashedExistingCount: 1 }));
+    assert.equal(sync.trashedCount, 1);
+    assert.match(sync.detail, /回收站/);
+
+    const problem = M.archiveProblem({ status: "DUPLICATE", inTrash: true, illustrationId: 88 });
+    assert.match(problem, /回收站/);
+
+    const outcome = await M.archiveAll([10, 11], async (id) => ({
+        items: [id === 10
+            ? { status: "DUPLICATE", inTrash: true, illustrationId: 88 }
+            : { status: "DUPLICATE", inTrash: false, illustrationId: 89 }]
+    }));
+    assert.equal(outcome.trashedDuplicates.get(10), 88);
+    assert.equal(outcome.trashedDuplicates.has(11), false);
+    assert.match(outcome.problems.get(10), /回收站/);
+    assert.equal(outcome.problems.get(11), "图库里已有这张图，可以跳过");
 });

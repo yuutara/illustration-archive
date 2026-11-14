@@ -27,11 +27,22 @@ public class AssetRepository {
 
 	private static final String FIND_CONTENT_INFO_BY_ID_SQL = """
 			SELECT
-				storage_key,
-				mime_type,
-				file_size
-			FROM asset
-			WHERE id = ?
+				a.storage_key,
+				a.mime_type,
+				a.file_size
+			FROM asset a
+			JOIN illustration i ON i.id = a.illustration_id
+			WHERE a.id = ? AND i.trashed_at IS NULL
+			""";
+
+	private static final String FIND_TRASHED_CONTENT_INFO_BY_ID_SQL = """
+			SELECT
+				a.storage_key,
+				a.mime_type,
+				a.file_size
+			FROM asset a
+			JOIN illustration i ON i.id = a.illustration_id
+			WHERE a.id = ? AND i.trashed_at IS NOT NULL
 			""";
 
 	private static final String FIND_STORAGE_KEYS_BY_ILLUSTRATION_ID_SQL = """
@@ -120,11 +131,28 @@ public class AssetRepository {
 	}
 
 	public Optional<AssetContentInfo> findContentInfoById(long id) {
-		return jdbcTemplate.query(FIND_CONTENT_INFO_BY_ID_SQL, (resultSet, rowNum) -> new AssetContentInfo(
+		return queryContentInfo(FIND_CONTENT_INFO_BY_ID_SQL, id);
+	}
+
+	public Optional<AssetContentInfo> findTrashedContentInfoById(long id) {
+		return queryContentInfo(FIND_TRASHED_CONTENT_INFO_BY_ID_SQL, id);
+	}
+
+	private Optional<AssetContentInfo> queryContentInfo(String sql, long id) {
+		return jdbcTemplate.query(sql, (resultSet, rowNum) -> new AssetContentInfo(
 				resultSet.getString("storage_key"),
 				resultSet.getString("mime_type"),
 				resultSet.getLong("file_size")
 		), id).stream().findFirst();
+	}
+
+	public boolean isIllustrationTrashed(long illustrationId) {
+		List<Integer> flags = jdbcTemplate.query(
+				"SELECT CASE WHEN trashed_at IS NOT NULL THEN 1 ELSE 0 END AS trashed FROM illustration WHERE id = ?",
+				(rs, rowNum) -> rs.getInt("trashed"),
+				illustrationId
+		);
+		return !flags.isEmpty() && flags.get(0) != 0;
 	}
 
 	public List<String> findStorageKeysByIllustrationId(long illustrationId) {

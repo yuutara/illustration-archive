@@ -41,4 +41,8 @@ public class IllustrationPersistenceService {
 	public Optional<Long> findIllustrationIdBySha256(String sha256) {
 		return assetRepository.findIllustrationIdBySha256(sha256);
 	}
+
+	public boolean isTrashed(long illustrationId) {
+		return assetRepository.isIllustrationTrashed(illustrationId);
+	}
 }

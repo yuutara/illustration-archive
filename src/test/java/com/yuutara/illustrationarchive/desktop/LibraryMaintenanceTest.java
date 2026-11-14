@@ -144,7 +144,7 @@ class LibraryMaintenanceTest {
 		long red = jdbc().queryForObject("SELECT illustration_id FROM asset WHERE original_filename = 'red.png'", Long.class);
 		HttpResponse<String> deleted = send("DELETE", "/api/illustrations/" + red, null);
 		assertTrue(deleted.statusCode() < 300, deleted.body());
-		assertEquals(1, jdbc().queryForObject("SELECT COUNT(*) FROM illustration", Integer.class));
+		assertEquals(1, jdbc().queryForObject("SELECT COUNT(*) FROM illustration WHERE trashed_at IS NULL", Integer.class));
 		assertEquals(201, send("POST", "/api/tags", "{\"name\":\"备份后\"}").statusCode());
 		assertEquals(204, send("PUT", "/api/desktop/settings/proxy", "{\"address\":\"127.0.0.1:7891\"}").statusCode());
 		Map<Path, byte[]> config = files(home.resolve("config"));
@@ -334,7 +334,7 @@ class LibraryMaintenanceTest {
 		assertEquals(List.of(503), whileHeld, "an old tab cannot write before the restore is confirmed");
 		assertEquals(2, jdbc().queryForObject("SELECT COUNT(*) FROM illustration", Integer.class));
 		assertTrue(deleteStatus(red) < 300, "once confirmed, the library is open again");
-		assertEquals(1, jdbc().queryForObject("SELECT COUNT(*) FROM illustration", Integer.class));
+		assertEquals(1, jdbc().queryForObject("SELECT COUNT(*) FROM illustration WHERE trashed_at IS NULL", Integer.class));
 	}
 
 	@Test
@@ -435,7 +435,7 @@ class LibraryMaintenanceTest {
 		JsonNode preview = ready.get("importPreview");
 		assertEquals("mysql.example:3306 / illustration_archive", preview.get("source").asString());
 		assertEquals("7", preview.get("schemaBefore").asString());
-		assertEquals("9", preview.get("schemaAfter").asString());
+		assertEquals("10", preview.get("schemaAfter").asString());
 		assertEquals(1, preview.get("incoming").get("works").asLong());
 		assertEquals(1, preview.get("incoming").get("inbox").asLong());
 		assertEquals(1, preview.get("current").get("works").asLong(), "what would be replaced is shown beside it");

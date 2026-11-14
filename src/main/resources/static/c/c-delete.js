@@ -38,7 +38,10 @@
     const cancelButton = $('del-cancel');
     const viewer = $('viewer');
 
-    const OK_TEXT = { confirm: '永久删除', deleting: '正在删除…', kept: '重试删除', unknown: '重新核实', verifying: '正在核实…' };
+    const isDesktop = () => !!(window.UiCapabilities && window.UiCapabilities.desktop);
+    const OK_TEXT = () => isDesktop()
+        ? { confirm: '移入回收站', deleting: '正在移入…', kept: '重试移入', unknown: '重新核实', verifying: '正在核实…' }
+        : { confirm: '永久删除', deleting: '正在删除…', kept: '重试删除', unknown: '重新核实', verifying: '正在核实…' };
 
     /*
      * 一次删除：confirm 等待确认 → deleting 删除中 → 成功即关闭；
@@ -72,6 +75,28 @@
         return true;
     }
 
+    function requestBatch(ids, { returnFocus = document.activeElement } = {}) {
+        if (current || !isDesktop()) return false;
+        const works = (ids || []).map((id) => A.get(id)).filter(Boolean);
+        if (!works.length) return false;
+        if (editor('isSaving')) {
+            host('toast', '正在保存修改，保存完成后才能删除');
+            return false;
+        }
+        const totalPages = works.reduce((sum, w) => sum + w.pages.length, 0);
+        current = {
+            ids: works.map((w) => w.id), batch: true, phase: 'confirm', message: '', returnFocus,
+            title: `已选 ${works.length} 件作品`, pages: totalPages,
+            behind: 'gallery'
+        };
+        host('setBackgroundInert', true);
+        fillBatch(works, totalPages);
+        box.hidden = false;
+        render();
+        cancelButton.focus();
+        return true;
+    }
+
     function close({ restoreFocus }) {
         const mine = current;
         current = null;
@@ -98,19 +123,38 @@
         nameText.textContent = current.title;
         const author = A.authorName(work);
         metaText.textContent = (author ? author + '　·　' : '') + (n > 1 ? `${n} 页，共 ${n} 张图片` : '1 张图片');
-        explain.textContent = (n > 1 ? `作品记录和全部 ${n} 张图片` : '作品记录和它的图片')
-            + '都会从本机图库中永久删除，无法恢复。';
+        if (isDesktop()) {
+            explain.textContent = (n > 1 ? `这件作品和全部 ${n} 张图片` : '这件作品和它的图片')
+                + '会移入回收站，可在 30 天内恢复；到期后自动永久清理。';
+        } else {
+            explain.textContent = (n > 1 ? `作品记录和全部 ${n} 张图片` : '作品记录和它的图片')
+                + '都会从本机图库中永久删除，无法恢复。';
+        }
         const dirty = editor('editingId') === work.id && editor('isDirty');
         draftNote.hidden = !dirty;
-        draftNote.textContent = dirty ? '编辑面板里还有未保存的修改，删除后也会一并丢弃。' : '';
+        draftNote.textContent = dirty ? '编辑面板里还有未保存的修改，移走后会一并放弃。' : '';
+    }
+
+    function fillBatch(works, totalPages) {
+        const first = works[0];
+        thumb.src = first.pages[0].src;
+        cover.classList.toggle('is-stack', works.length > 1 || first.pages.length > 1);
+        nameText.textContent = current.title;
+        metaText.textContent = `共包含 ${totalPages} 张图片或视频`;
+        explain.textContent = `这 ${works.length} 件作品都会移入回收站，可在回收站中恢复；30 天后自动永久清理。`;
+        draftNote.hidden = true;
+        draftNote.textContent = '';
     }
 
     function render() {
         const p = current.phase;
         const checking = p === 'unknown' || p === 'verifying';
         box.setAttribute('aria-busy', String(busy()));
-        heading.textContent = checking ? '无法确认是否已删除' : '永久删除这件作品？';
-        okButton.textContent = OK_TEXT[p];
+        if (checking) heading.textContent = '无法确认是否已删除';
+        else if (current.batch) heading.textContent = `将这 ${current.ids.length} 件作品移入回收站？`;
+        else heading.textContent = isDesktop() ? '将这件作品移入回收站？' : '永久删除这件作品？';
+        const labels = OK_TEXT();
+        okButton.textContent = current.batch && p === 'confirm' ? `移入回收站（${current.ids.length} 件）` : labels[p];
         okButton.className = checking ? 'btn btn-ink' : 'btn btn-danger';
         okButton.disabled = busy();
         cancelButton.textContent = checking ? '关闭' : '取消';
@@ -136,25 +180,45 @@
         render();
         // 按钮锁定后焦点留在确认框上，按键仍由它接住
         dialog.focus({ preventScroll: true });
+        if (mine.batch) {
+            try {
+                const outcome = await A.moveBatchToTrash(mine.ids);
+                if (current !== mine) return;
+                close({ restoreFocus: false });
+                const movedIds = outcome.movedIds && outcome.movedIds.length ? outcome.movedIds : mine.ids;
+                await A.removeWorks(movedIds);
+                if (window.AppShell && typeof window.AppShell.refreshTrash === 'function') window.AppShell.refreshTrash();
+                host('toast', `已将 ${outcome.movedCount} 件作品移入回收站`);
+            } catch (error) {
+                if (current !== mine) return;
+                mine.phase = 'kept';
+                mine.message = '没有移入回收站：' + (error && error.message ? error.message : '操作失败');
+                render();
+                cancelButton.focus();
+            }
+            return;
+        }
         const result = await (mine.phase === 'deleting' ? A.deleteWork(mine.id) : A.checkDeleted(mine.id));
         if (current !== mine) return;
         if (result.status === 'deleted' || result.status === 'gone') {
             close({ restoreFocus: false });
             // 移除后由图库关闭看图器、重排作品墙，并把焦点交给原位置的下一件
             await A.removeWork(mine.id);
+            if (isDesktop() && window.AppShell && typeof window.AppShell.refreshTrash === 'function') window.AppShell.refreshTrash();
             host('toast', doneMessage(mine, result));
             return;
         }
         mine.phase = result.status === 'kept' ? 'kept' : 'unknown';
-        mine.message = mine.phase === 'kept' ? '没有删除：' + result.message : result.message;
+        mine.message = mine.phase === 'kept' ? (isDesktop() ? '没有移入回收站：' : '没有删除：') + result.message : result.message;
         render();
         (mine.phase === 'kept' ? cancelButton : okButton).focus();
     }
 
     function doneMessage(mine, result) {
         if (result.status === 'gone') return `“${mine.title}”已不存在（可能已在旧图库中删除），已从列表中移除`;
-        const what = `已永久删除“${mine.title}”` + (mine.pages > 1 ? `（${mine.pages} 张图片）` : '');
-        return result.verified ? what + '。删除时没有收到确切回应，已重新读取确认' : what;
+        const what = (isDesktop() ? '已移入回收站：' : '已永久删除') + `“${mine.title}”` + (mine.pages > 1 ? `（${mine.pages} 张图片）` : '');
+        const fallback = isDesktop() ? '。移入时没有收到确切回应，已重新读取确认' : '。删除时没有收到确切回应，已重新读取确认';
+        return result.verified ? what + fallback : what;
     }
 
     function cancel() {
@@ -188,5 +252,5 @@
         }
     });
 
-    window.CDelete = { request, isOpen: () => !!current, isBusy: busy };
+    window.CDelete = { request, requestBatch, isOpen: () => !!current, isBusy: busy };
 })();

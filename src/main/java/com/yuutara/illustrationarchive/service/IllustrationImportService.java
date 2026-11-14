@@ -109,7 +109,10 @@ public class IllustrationImportService {
 		try {
 			illustrationPersistenceService.findIllustrationIdBySha256(storedFile.sha256())
 					.ifPresent(existingIllustrationId -> {
-						throw new DuplicateIllustrationException(existingIllustrationId);
+						throw new DuplicateIllustrationException(
+								existingIllustrationId,
+								illustrationPersistenceService.isTrashed(existingIllustrationId)
+						);
 					});
 			result = illustrationPersistenceService.persist(storedFile);
 		} catch (RuntimeException operationException) {
@@ -147,7 +150,8 @@ public class IllustrationImportService {
 		try {
 			var existingIllustrationId = illustrationPersistenceService.findIllustrationIdBySha256(sha256);
 			if (existingIllustrationId.isPresent()) {
-				return new DuplicateIllustrationException(existingIllustrationId.get());
+				long id = existingIllustrationId.get();
+				return new DuplicateIllustrationException(id, illustrationPersistenceService.isTrashed(id));
 			}
 			return originalException;
 		} catch (RuntimeException lookupException) {

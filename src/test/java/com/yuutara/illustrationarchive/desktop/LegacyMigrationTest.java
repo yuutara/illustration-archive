@@ -130,6 +130,7 @@ class LegacyMigrationTest {
 		upgraded.forEach((table, rows) -> all.put(table, rows.stream().map(row -> {
 			Map<String, Object> kept = new LinkedHashMap<>(row);
 			if ("x_like_item".equals(table)) assertEquals("NULL", kept.remove("skip_token"), "V9 adds skip_token empty");
+			if ("illustration".equals(table)) assertEquals("NULL", kept.remove("trashed_at"), "V10 adds trashed_at empty");
 			return kept;
 		}).toList()));
 		return all;
@@ -146,8 +147,8 @@ class LegacyMigrationTest {
 
 		assertEquals(1L, result.rows().get("illustration"));
 		assertEquals(1L, result.rows().get("x_like_sync_seen_token"));
-		assertEquals("9", result.schemaBefore());
-		assertEquals("9", result.schemaAfter());
+		assertEquals("10", result.schemaBefore());
+		assertEquals("10", result.schemaAfter());
 		assertEquals(1, result.files());
 		assertTrue(result.problems().isEmpty());
 		assertEquals("image-bytes", Files.readString(target.resolve("media").resolve("2026-10").resolve("work.png")));
@@ -182,13 +183,13 @@ class LegacyMigrationTest {
 			LegacyMigration.Result result = LegacyMigration.execute(v7, v7Media, target, false);
 
 			assertEquals("7", result.schemaBefore());
-			assertEquals("9", result.schemaAfter());
+			assertEquals("10", result.schemaAfter());
 			assertFalse(result.rows().containsKey("x_like_sync_account"), "a table V7 does not have is not read");
 			JdbcTemplate copied = library(target);
 			assertEquals(before, asV7(everyRow(copied, v7Tables)));
 			assertEquals(0, copied.queryForObject("SELECT COUNT(*) FROM x_like_sync_account", Integer.class),
 					"V7 progress has no owner yet; the first sync asks");
-			assertEquals("9", copied.queryForObject(
+			assertEquals("10", copied.queryForObject(
 					"SELECT MAX(CAST(version AS INT)) FROM flyway_schema_history WHERE success = TRUE", String.class));
 			assertEquals(before, everyRow(v7Jdbc, v7Tables), "the source is only read");
 			assertEquals(history, v7Jdbc.queryForList("SELECT * FROM flyway_schema_history"), "and is not upgraded");
@@ -254,14 +255,14 @@ class LegacyMigrationTest {
 	void aNewerFailedOrIncompleteSchemaIsRefusedAndNothingIsLeft() throws Exception {
 		Path target = workspace.resolve("new-home");
 		sourceJdbc.update("INSERT INTO flyway_schema_history (installed_rank, version, description, type, script, checksum,"
-				+ " installed_by, execution_time, success) VALUES (99, '10', 'future', 'SQL', 'V10__future.sql', 1, 'sa', 1, TRUE)");
+				+ " installed_by, execution_time, success) VALUES (99, '11', 'future', 'SQL', 'V11__future.sql', 1, 'sa', 1, TRUE)");
 		assertRefused(target, "更新版本");
 
-		sourceJdbc.update("DELETE FROM flyway_schema_history WHERE version = '10'");
-		sourceJdbc.update("UPDATE flyway_schema_history SET success = FALSE WHERE version = '9'");
+		sourceJdbc.update("DELETE FROM flyway_schema_history WHERE version = '11'");
+		sourceJdbc.update("UPDATE flyway_schema_history SET success = FALSE WHERE version = '10'");
 		assertRefused(target, "没有完成的升级");
 
-		sourceJdbc.update("UPDATE flyway_schema_history SET success = TRUE WHERE version = '9'");
+		sourceJdbc.update("UPDATE flyway_schema_history SET success = TRUE WHERE version = '10'");
 		sourceJdbc.update("DELETE FROM flyway_schema_history WHERE version = '5'");
 		assertRefused(target, "对不上");
 

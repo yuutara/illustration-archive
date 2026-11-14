@@ -49,7 +49,7 @@ public class IllustrationImportController {
 	public ResponseEntity<IllustrationDuplicateResult> handleDuplicate(DuplicateIllustrationException exception) {
 		return ResponseEntity.status(HttpStatus.CONFLICT)
 				.body(new IllustrationDuplicateResult(
-						DuplicateIllustrationException.ERROR_CODE,
+						exception.errorCode(),
 						exception.illustrationId()
 				));
 	}

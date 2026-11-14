@@ -809,9 +809,12 @@
                 item.status = 'success';
             } else if (result.status === 'DUPLICATE') {
                 item.status = 'duplicate';
+                item.inTrash = result.errorCode === 'DUPLICATE_IN_TRASH';
                 // 之前那次“无法确认”其实已经落库：仍算“已存在”，但它是这一轮新进图库的作品，列表要同步
-                item.recovered = !!item.wasUnknown;
-                item.message = item.recovered ? '图库中已存在（之前那次其实已经导入）' : '图库中已存在';
+                item.recovered = !item.inTrash && !!item.wasUnknown;
+                item.message = item.inTrash
+                    ? '已有同图作品在回收站，可在右侧恢复'
+                    : (item.recovered ? '图库中已存在（之前那次其实已经导入）' : '图库中已存在');
             } else {
                 item.status = 'failed';
                 item.message = importFailureText(result.errorCode, result.message);
@@ -940,6 +943,54 @@
         return { index };
     }
 
+    async function removeWorks(ids) {
+        if (!ids || !ids.length) return [];
+        if (loading) await loading.catch(() => {});
+        const idSet = new Set(ids);
+        const removed = [];
+        let firstIndex = -1;
+        for (let i = works.length - 1; i >= 0; i--) {
+            const w = works[i];
+            if (idSet.has(w.id)) {
+                firstIndex = i;
+                removed.push(w.id);
+                works.splice(i, 1);
+                byId.delete(w.id);
+                retained.delete(w.id);
+            }
+        }
+        if (removed.length) {
+            if (total != null) total = Math.max(0, total - removed.length);
+            nextPage = Math.min(nextPage, Math.floor(works.length / PAGE_SIZE));
+        }
+        emit('removedBatch', { ids: [...idSet], removed, index: firstIndex });
+        return removed;
+    }
+
+    async function postTrashJson(url, ids) {
+        let response;
+        try {
+            response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ ids })
+            });
+        } catch (e) {
+            throw new RequestError(0, '无法连接到本地图库服务');
+        }
+        if (!response.ok) {
+            let message = '';
+            try { message = (await response.json()).message || ''; } catch (e) { /* 忽略解析失败 */ }
+            if (response.status === 403) throw new RequestError(403, '本机访问会话已失效，请从控制窗口重新打开图库');
+            throw new RequestError(response.status, message || `服务返回 ${response.status}`);
+        }
+        return response.json();
+    }
+
+    const moveBatchToTrash = (ids) => postTrashJson('/api/illustrations/batch/trash', ids);
+    const restoreFromTrash = (ids) => postTrashJson('/api/trash/restore', ids);
+
     // 整个图库（不带条件）的作品数：筛选时导入后用来更新“全部”旁的数字
     async function libraryCount() {
         const page = await getJson('/api/illustrations?page=0&size=1');
@@ -1033,6 +1084,9 @@
         deleteWork,
         checkDeleted,
         removeWork,
+        removeWorks,
+        moveBatchToTrash,
+        restoreFromTrash,
         isDeleting: (id) => deletions.has(id),
         libraryCount,
         untaggedCount,

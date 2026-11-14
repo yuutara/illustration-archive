@@ -248,6 +248,7 @@
         $('bb-count').textContent = n ? `已选 ${n} 件` : '点击作品进行选择';
         $('bb-all').textContent = all ? '取消全选' : A.hasMore() ? '全选已载入' : '全选';
         $('bb-edit').disabled = !n;
+        if ($('bb-trash')) $('bb-trash').disabled = !n;
         $('select-toggle').setAttribute('aria-pressed', String(state.selecting));
     }
 
@@ -261,6 +262,13 @@
         else toast('先选择要整理的作品');
     }
 
+    function requestBatchDelete() {
+        if (!(window.UiCapabilities && window.UiCapabilities.desktop)) return false;
+        if (!state.selected.size) { toast('先选择要移入回收站的作品'); return false; }
+        deleter('requestBatch', [...state.selected], { returnFocus: document.activeElement });
+        return true;
+    }
+
     $('select-toggle').addEventListener('click', () => setSelecting(!state.selecting));
     $('bb-done').addEventListener('click', () => setSelecting(false));
     $('bb-all').addEventListener('click', () => {
@@ -268,6 +276,7 @@
         else selectAll();
     });
     $('bb-edit').addEventListener('click', openBatch);
+    if ($('bb-trash')) $('bb-trash').addEventListener('click', requestBatchDelete);
 
     // “全部”旁的数字只表示整个图库；筛选时的结果数显示在已选条件旁
     let libraryTotal = null;
@@ -825,6 +834,8 @@
             renderStatus();
         } else if (event.type === 'removed') {
             afterRemoved(event);
+        } else if (event.type === 'removedBatch') {
+            afterRemovedBatch(event);
         } else if (event.type === 'error') {
             if (!state.results.length) renderWall();
             else renderStatus();
@@ -859,6 +870,30 @@
         if (A.isFiltered()) {
             A.libraryCount().then((n) => { libraryTotal = n; renderStatus(); })
                 .catch(() => { if (libraryTotal) { libraryTotal--; renderStatus(); } });
+        }
+    }
+
+    function afterRemovedBatch({ ids = [], index = -1 }) {
+        let hadFocus = false;
+        let onViewer = false;
+        ids.forEach((id) => {
+            if (state.viewer && state.viewer.id === id) onViewer = true;
+            const fig = pieces.get(id);
+            if (fig) {
+                if (fig.contains(document.activeElement)) hadFocus = true;
+                releaseVideo(fig);
+                pieces.delete(id);
+            }
+            state.selected.delete(id);
+            if (state.focusId === id) state.focusId = null;
+        });
+        if (state.selecting && !state.selected.size) setSelecting(false);
+        renderWall();
+        if (onViewer) closeViewer({ force: true });
+        if (onViewer || hadFocus || document.activeElement === document.body) focusNear(index);
+        if (A.isFiltered()) {
+            A.libraryCount().then((n) => { libraryTotal = n; renderStatus(); })
+                .catch(() => { if (libraryTotal) { libraryTotal = Math.max(0, libraryTotal - ids.length); renderStatus(); } });
         }
     }
 
@@ -999,9 +1034,12 @@
                 else if (focus != null) { e.preventDefault(); openViewer(focus, { edit: true }); }
                 else toast('先用方向键或鼠标选中一件作品，再按 E 编辑');
                 break;
-            // 只删键盘焦点所在的卡片：焦点不在卡片上（例如点过空白处）时不猜是哪一件
+            // 桌面版选中模式按 Delete 触发批量移入回收站；原有浏览器模式只支持在看图器内单件删除
             case 'Delete':
-                if (state.selecting) toast('批量整理不包含删除；打开作品后可以单件删除');
+                if (state.selecting) {
+                    if (window.UiCapabilities && window.UiCapabilities.desktop) { e.preventDefault(); requestBatchDelete(); }
+                    else toast('批量整理不包含删除；打开作品后可以单件删除');
+                }
                 else if (activePiece && focus != null) { e.preventDefault(); requestDelete(focus); }
                 else toast('先用方向键或鼠标选中一件作品，再按 Delete 删除');
                 break;
@@ -1039,6 +1077,12 @@
         // 筛选时列表总数不是整库数量：导入后由导入面板读一次整库数量，更新“全部”旁的数字
         setLibraryTotal: (n) => { libraryTotal = n; renderStatus(); }
     };
+
+    if (window.UiCapabilities && window.UiCapabilities.desktop) {
+        if ($('sv-delete')) $('sv-delete').innerHTML = '移入回收站… <kbd>Del</kbd>';
+        if ($('sc-batch-del')) $('sc-batch-del').textContent = '将选中作品移入回收站（先确认）';
+        if ($('sc-single-del')) $('sc-single-del').textContent = '将这件作品移入回收站（先确认）';
+    }
 
     renderWall();
     // 页面地址里带着条件（刷新、或从别处带条件打开）时直接按条件载入

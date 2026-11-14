@@ -26,7 +26,7 @@ class IllustrationMetadataUpdateRepositoryTest {
 
 		repository.updateBasicMetadata(10L, request);
 
-		assertUpdate(jdbcTemplate, "UPDATE illustration SET title = ? WHERE id = ?", "New title", 10L);
+		assertUpdate(jdbcTemplate, "UPDATE illustration SET title = ? WHERE id = ? AND trashed_at IS NULL", "New title", 10L);
 	}
 
 	@Test
@@ -42,7 +42,7 @@ class IllustrationMetadataUpdateRepositoryTest {
 
 		assertUpdate(
 				jdbcTemplate,
-				"UPDATE illustration SET title = ?, note = ? WHERE id = ?",
+				"UPDATE illustration SET title = ?, note = ? WHERE id = ? AND trashed_at IS NULL",
 				"New title",
 				"New note",
 				10L
@@ -59,7 +59,7 @@ class IllustrationMetadataUpdateRepositoryTest {
 
 		repository.updateBasicMetadata(10L, request);
 
-		assertUpdate(jdbcTemplate, "UPDATE illustration SET author_id = ? WHERE id = ?", 7L, 10L);
+		assertUpdate(jdbcTemplate, "UPDATE illustration SET author_id = ? WHERE id = ? AND trashed_at IS NULL", 7L, 10L);
 	}
 
 	@Test
@@ -72,7 +72,7 @@ class IllustrationMetadataUpdateRepositoryTest {
 
 		repository.updateBasicMetadata(10L, request);
 
-		assertUpdate(jdbcTemplate, "UPDATE illustration SET author_id = ? WHERE id = ?", null, 10L);
+		assertUpdate(jdbcTemplate, "UPDATE illustration SET author_id = ? WHERE id = ? AND trashed_at IS NULL", null, 10L);
 	}
 
 	@Test
@@ -88,7 +88,7 @@ class IllustrationMetadataUpdateRepositoryTest {
 
 		assertUpdate(
 				jdbcTemplate,
-				"UPDATE illustration SET title = ?, author_id = ? WHERE id = ?",
+				"UPDATE illustration SET title = ?, author_id = ? WHERE id = ? AND trashed_at IS NULL",
 				"New title",
 				7L,
 				10L
@@ -105,7 +105,7 @@ class IllustrationMetadataUpdateRepositoryTest {
 
 		repository.updateBasicMetadata(10L, request);
 
-		assertUpdate(jdbcTemplate, "UPDATE illustration SET source_url = ? WHERE id = ?", null, 10L);
+		assertUpdate(jdbcTemplate, "UPDATE illustration SET source_url = ? WHERE id = ? AND trashed_at IS NULL", null, 10L);
 	}
 
 	@Test

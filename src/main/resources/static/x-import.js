@@ -362,7 +362,9 @@
                     successLinks.appendChild(directLink);
                 }
             } else if (itemResult.status === "DUPLICATE") {
-                row.appendChild(paragraph("inbox-result-warning", "图片重复，未导入；仍在待处理列表中，可重新尝试或选择 Skip。"));
+                row.appendChild(paragraph("inbox-result-warning", itemResult.inTrash
+                    ? "图库回收站里已有这张图；请到桌面端回收站恢复原作品，或在此跳过。"
+                    : "图片重复，未导入；仍在待处理列表中，可重新尝试或选择 Skip。"));
                 if (itemResult.reason) row.appendChild(paragraph("inbox-result-reason", itemResult.reason));
                 row.appendChild(reselectButton(itemResult.itemId));
             } else {

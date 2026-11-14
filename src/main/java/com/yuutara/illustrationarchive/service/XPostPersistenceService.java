@@ -50,8 +50,16 @@ public class XPostPersistenceService {
 			if (!hashes.add(file.sha256())) {
 				throw new XPostDuplicateException("Two photos in this X Post have identical content.");
 			}
-			if (assets.findIllustrationIdBySha256(file.sha256()).isPresent()) {
-				throw new XPostDuplicateException("An X Post photo already exists in the archive.");
+			var existingIllustrationId = assets.findIllustrationIdBySha256(file.sha256());
+			if (existingIllustrationId.isPresent()) {
+				long id = existingIllustrationId.get();
+				boolean trashed = assets.isIllustrationTrashed(id);
+				throw new XPostDuplicateException(
+						trashed ? "An X Post photo already exists in the trash."
+								: "An X Post photo already exists in the archive.",
+						id,
+						trashed
+				);
 			}
 		}
 

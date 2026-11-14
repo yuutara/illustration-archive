@@ -59,10 +59,12 @@
         const recent = report.recent, history = report.history;
         const found = recent.newCount + history.newCount;
         const existing = recent.existingCount + history.existingCount;
+        const trashed = report.trashedExistingCount || 0;
         const unsupported = recent.unsupportedCount + history.unsupportedCount;
         const scanned = recent.scannedCount + history.scannedCount;
         const parts = [];
         if (existing) parts.push(`${existing} 件已经见过`);
+        if (trashed) parts.push(`其中 ${trashed} 件之前已归档的作品目前在回收站，可在回收站恢复`);
         if (unsupported) parts.push(`${unsupported} 件没有可归档的图片`);
         if (scanned) parts.push(`读取 ${scanned} 条，约 ${costEstimate(scanned)}`);
 
@@ -89,7 +91,8 @@
             headline: found ? `新发现 ${found} 件收藏` : '没有发现新的收藏',
             detail: parts.join('，') + (parts.length ? '。' : '') + next,
             problem,
-            readLimit: !!needed
+            readLimit: !!needed,
+            trashedCount: trashed
         };
     }
 
@@ -190,7 +193,10 @@
     }
 
     function archiveProblem(result) {
-        if (result.status === 'DUPLICATE') return '图库里已有这张图，可以跳过';
+        if (result.status === 'DUPLICATE') {
+            if (result.inTrash) return '图库回收站里已有这张图，请到电脑端回收站恢复或此处跳过';
+            return '图库里已有这张图，可以跳过';
+        }
         const reason = String(result.reason || '');
         if (/dimension|resolution/i.test(reason)) return 'X 上的图片尺寸与记录不一致，请稍后重试';
         // CDN 只说明这次取不到，作品是否还在要到 X 上才知道
@@ -212,7 +218,7 @@
      * 后面的不再发送，这一件标为“无法确认”：它可能已经入库，重新载入列表后就知道了。
      */
     async function archiveAll(ids, post, onProgress = () => {}) {
-        const outcome = { archived: [], problems: new Map(), unconfirmed: null, notSent: [] };
+        const outcome = { archived: [], problems: new Map(), trashedDuplicates: new Map(), unconfirmed: null, notSent: [] };
         for (let i = 0; i < ids.length; i++) {
             const id = ids[i];
             onProgress(i, ids.length);
@@ -226,7 +232,12 @@
             }
             const result = summary.items && summary.items[0];
             if (result && result.status === 'SUCCESS') outcome.archived.push(id);
-            else outcome.problems.set(id, archiveProblem(result || {}));
+            else {
+                outcome.problems.set(id, archiveProblem(result || {}));
+                if (result && result.status === 'DUPLICATE' && result.inTrash && result.illustrationId != null) {
+                    outcome.trashedDuplicates.set(id, result.illustrationId);
+                }
+            }
         }
         return outcome;
     }

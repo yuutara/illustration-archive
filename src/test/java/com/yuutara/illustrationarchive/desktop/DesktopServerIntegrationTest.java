@@ -51,6 +51,7 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -86,7 +87,7 @@ class DesktopServerIntegrationTest {
 		assertEquals("true", environment.getProperty("ai.analysis.enabled"));
 		assertEquals("", environment.getProperty("gemini.api-key"), "no key is read from the environment");
 		assertEquals("", environment.getProperty("x.oauth.client-secret"), "no secret is read from the environment");
-		assertEquals(9, jdbc(first).queryForObject(
+		assertEquals(10, jdbc(first).queryForObject(
 				"SELECT COUNT(*) FROM \"flyway_schema_history\" WHERE \"success\" = TRUE AND \"version\" IS NOT NULL", Integer.class));
 
 		String cookie = openSession(first);
@@ -152,6 +153,10 @@ class DesktopServerIntegrationTest {
 
 		assertEquals(204, send(second, secondCookie, request(second, secondCookie, "/api/illustrations/" + illustrationId)
 				.DELETE().build()).statusCode());
+		assertNotNull(jdbc(second).queryForObject("SELECT trashed_at FROM illustration WHERE id = ?", Object.class, illustrationId));
+		assertEquals(404, send(second, secondCookie, get(second, "/api/illustrations/" + illustrationId)).statusCode());
+		assertEquals(200, send(second, secondCookie, json(second, "POST", "/api/trash/purge",
+				"{\"ids\":[" + illustrationId + "]}")).statusCode());
 		assertEquals(0, jdbc(second).queryForObject("SELECT COUNT(*) FROM asset WHERE id = ?", Integer.class, assetId));
 		assertFalse(Files.exists(media().resolve(storageKey)));
 		assertEquals(1, originalFiles().size());
@@ -163,7 +168,7 @@ class DesktopServerIntegrationTest {
 	@Test
 	void cGalleryIsServedBehindTheLaunchSessionAndReadsAPagedMultiPageLibraryAcrossRestart() throws Exception {
 		DesktopServer.Running first = start();
-		List<String> pageFiles = List.of("/c/", "/c/x.html", "/c/settings.html", "/c/archive-client.js", "/c/c-gallery.js", "/c/c-filters.js", "/c/c-editor.js", "/c/c-import.js", "/c/c-delete.js", "/c/c-batch.js", "/c/fx.js", "/c/theme-mode.js",
+		List<String> pageFiles = List.of("/c/", "/c/x.html", "/c/trash.html", "/c/settings.html", "/c/archive-client.js", "/c/c-gallery.js", "/c/c-filters.js", "/c/c-editor.js", "/c/c-import.js", "/c/c-delete.js", "/c/c-batch.js", "/c/c-trash.js", "/c/fx.js", "/c/theme-mode.js",
 				"/c/shell.js", "/c/c-ai.js", "/c/c-x-model.js", "/c/c-x.js", "/c/c-settings.js",
 				"/c/gallery.css", "/c/motion.css", "/c/fx.css", "/c/theme-quiet.css", "/c/c.css", "/c/app.css");
 		for (String path : pageFiles) {
@@ -523,8 +528,17 @@ class DesktopServerIntegrationTest {
 		assertEquals(library.works(), jdbc.queryForObject("SELECT COUNT(*) FROM illustration", Integer.class));
 		assertEquals(filesBefore, allFiles());
 
-		// The multi-page work: its rows, tag links, originals and thumbnails all go; nothing else changes
+		// The multi-page work moves to Trash on desktop DELETE; its files stay until permanently purged.
 		assertEquals(204, send(running, cookie, request(running, cookie, "/api/illustrations/" + multi).DELETE().build()).statusCode());
+		assertNotNull(jdbc.queryForObject("SELECT trashed_at FROM illustration WHERE id = ?", Object.class, multi));
+		assertEquals(filesBefore, allFiles(), "trashing keeps originals and thumbnails until purge");
+		assertEquals(404, send(running, cookie, request(running, cookie, "/api/illustrations/" + multi).DELETE().build()).statusCode());
+		assertEquals(404, send(running, cookie, get(running, "/api/illustrations/" + multi)).statusCode());
+		assertEquals(404, patch(running, cookie, multi, "{\"title\":\"too late\"}").statusCode());
+
+		HttpResponse<String> purged = send(running, cookie, json(running, "POST", "/api/trash/purge", "{\"ids\":[" + multi + "]}"));
+		assertEquals(200, purged.statusCode(), purged.body());
+		assertTrue(purged.body().contains("\"purgedCount\":1"), purged.body());
 		assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM illustration WHERE id = ?", Integer.class, multi));
 		assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM asset WHERE illustration_id = ?", Integer.class, multi));
 		assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM illustration_tag WHERE illustration_id = ?", Integer.class, multi));
@@ -533,7 +547,7 @@ class DesktopServerIntegrationTest {
 			expected.remove(media().resolve(key));
 			expected.remove(media().resolve("thumbnails").resolve(key));
 		});
-		assertEquals(expected, allFiles(), "exactly the deleted work's originals and thumbnails are gone");
+		assertEquals(expected, allFiles(), "exactly the purged work's originals and thumbnails are gone");
 		assertEquals(tags, jdbc.queryForObject("SELECT COUNT(*) FROM tag", Integer.class), "tags themselves stay");
 		assertEquals(authors, jdbc.queryForObject("SELECT COUNT(*) FROM author", Integer.class), "authors themselves stay");
 
@@ -551,8 +565,9 @@ class DesktopServerIntegrationTest {
 				.statusCode(), "the access guard still answers first");
 		assertEquals(expected, allFiles(), "the 404 requests changed nothing");
 
-		// A single-image work
+		// A single-image work: desktop DELETE moves to Trash, then Trash purge removes its row & files
 		assertEquals(204, send(running, cookie, request(running, cookie, "/api/illustrations/" + single).DELETE().build()).statusCode());
+		assertEquals(200, send(running, cookie, json(running, "POST", "/api/trash/purge", "{\"ids\":[" + single + "]}")).statusCode());
 		assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM asset WHERE illustration_id = ?", Integer.class, single));
 		expected.remove(media().resolve(singleKeys.get(0)));
 		expected.remove(media().resolve("thumbnails").resolve(singleKeys.get(0)));
@@ -797,7 +812,7 @@ class DesktopServerIntegrationTest {
 			try (var connection = running.context().getBean(javax.sql.DataSource.class).getConnection()) {
 				assertTrue(connection.getMetaData().getURL().startsWith(expected), connection.getMetaData().getURL());
 			}
-			assertEquals(9, flyway.info().applied().length, "migrations ran against the PoC database");
+			assertEquals(10, flyway.info().applied().length, "migrations ran against the PoC database");
 			var environment = running.context().getEnvironment();
 			assertEquals("90", environment.getProperty("ai.analysis.timeout-seconds"));
 			assertEquals("6", environment.getProperty("x.sync.max-pages"));

@@ -100,6 +100,7 @@ class XLikePersistenceServiceTest {
 				List.of(new XLikeMedia("p2", 0, "photo", "https://img/2", 100, 200)));
 		when(items.insertIfAbsent(candidate)).thenReturn(null);
 		when(items.findStatusByPostId("12")).thenReturn(XLikeStatus.IMPORTED);
+		when(items.isImportedIllustrationTrashed("12")).thenReturn(false);
 
 		var summary = new XLikePersistenceService(items, media, mock(XLikeSyncStateRepository.class))
 				.savePage(new XLikePage(List.of(candidate), false, null));
@@ -107,8 +108,32 @@ class XLikePersistenceServiceTest {
 		assertEquals(1, summary.existingCount());
 		assertEquals(0, summary.pendingCount());
 		assertEquals(0, summary.unsupportedCount());
+		assertEquals(0, summary.trashedExistingCount());
 		verify(items).insertIfAbsent(candidate);
 		verify(items).findStatusByPostId("12");
+		verify(items).isImportedIllustrationTrashed("12");
+		verifyNoMoreInteractions(items);
+		verifyNoMoreInteractions(media);
+	}
+
+	@Test
+	void syncingImportedPostInTrashCountsTrashedExistingWithoutResettingStatus() {
+		XLikeRepository items = mock(XLikeRepository.class);
+		XLikeMediaRepository media = mock(XLikeMediaRepository.class);
+		XLikeCandidate candidate = candidate("12", XLikeStatus.PENDING,
+				List.of(new XLikeMedia("p2", 0, "photo", "https://img/2", 100, 200)));
+		when(items.insertIfAbsent(candidate)).thenReturn(null);
+		when(items.findStatusByPostId("12")).thenReturn(XLikeStatus.IMPORTED);
+		when(items.isImportedIllustrationTrashed("12")).thenReturn(true);
+
+		var summary = new XLikePersistenceService(items, media, mock(XLikeSyncStateRepository.class))
+				.savePage(new XLikePage(List.of(candidate), false, null));
+
+		assertEquals(1, summary.existingCount());
+		assertEquals(1, summary.trashedExistingCount());
+		verify(items).insertIfAbsent(candidate);
+		verify(items).findStatusByPostId("12");
+		verify(items).isImportedIllustrationTrashed("12");
 		verifyNoMoreInteractions(items);
 		verifyNoMoreInteractions(media);
 	}

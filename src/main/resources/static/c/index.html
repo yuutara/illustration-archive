@@ -37,6 +37,7 @@
         <nav class="mast-nav" aria-label="主导航">
             <a href="/c/" aria-current="page">图库</a>
             <a href="/c/x.html">X 收藏<sup id="nav-inbox"></sup></a>
+            <a class="desktop-only" href="/c/trash.html">回收站<sup id="nav-trash"></sup></a>
             <a href="/c/settings.html">设置</a>
         </nav>
     </div>
@@ -108,6 +109,7 @@
     <button class="bb-btn" id="bb-all" type="button">全选</button>
     <span class="bb-sep" aria-hidden="true"></span>
     <button class="bb-btn bb-primary" id="bb-edit" type="button" aria-haspopup="dialog" title="统一改作者或标签（E）" disabled>整理…</button>
+    <button class="bb-btn danger desktop-only" id="bb-trash" type="button" title="将选中作品移入回收站（Del）" disabled>移入回收站…</button>
     <button class="bb-btn" id="bb-done" type="button">完成<kbd>Esc</kbd></button>
 </div>
 
@@ -301,7 +303,7 @@
                 <dt><kbd>Esc</kbd>（搜索框内）</dt><dd>清空搜索</dd>
                 <dt><kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd></dt><dd>移动焦点</dd>
                 <dt><kbd>Enter</kbd></dt><dd>打开看图器</dd>
-                <dt><kbd>Delete</kbd></dt><dd>删除选中的作品（先确认）</dd>
+                <dt><kbd>Delete</kbd></dt><dd id="sc-batch-del">删除选中的作品（先确认）</dd>
                 <dt><kbd>Ctrl</kbd> / <kbd>Shift</kbd> + 点击</dt><dd>多选 / 连续选择</dd>
                 <dt><kbd>Ctrl</kbd><kbd>A</kbd></dt><dd>全选已载入的作品</dd>
                 <dt><kbd>E</kbd>（选择时）</dt><dd>整理所选作品</dd>
@@ -317,7 +319,7 @@
                 <dt><kbd>I</kbd></dt><dd>作品信息</dd>
                 <dt><kbd>E</kbd></dt><dd>编辑作品（图库中先选中一件）</dd>
                 <dt><kbd>Ctrl</kbd><kbd>Enter</kbd></dt><dd>保存编辑</dd>
-                <dt><kbd>Delete</kbd></dt><dd>删除这件作品（先确认）</dd>
+                <dt><kbd>Delete</kbd></dt><dd id="sc-single-del">删除这件作品（先确认）</dd>
                 <dt><kbd>Esc</kbd></dt><dd>逐层返回</dd>
             </dl>
         </div>

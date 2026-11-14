@@ -41,7 +41,7 @@ public class IllustrationRepository {
 				a.x_username AS author_x_username
 			FROM illustration i
 			LEFT JOIN author a ON i.author_id = a.id
-			WHERE i.id = ?
+			WHERE i.id = ? AND i.trashed_at IS NULL
 			""";
 
 	private static final String FIND_ASSET_SUMMARIES_BY_ILLUSTRATION_ID_SQL = """
@@ -197,7 +197,7 @@ public class IllustrationRepository {
 		}
 
 		parameters.add(id);
-		String sql = "UPDATE illustration SET " + String.join(", ", assignments) + " WHERE id = ?";
+		String sql = "UPDATE illustration SET " + String.join(", ", assignments) + " WHERE id = ? AND trashed_at IS NULL";
 		jdbcTemplate.update(sql, parameters.toArray());
 	}
 

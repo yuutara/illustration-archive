@@ -130,10 +130,20 @@ class XPostPersistenceServiceTest {
 	@Test
 	void duplicateExistingOrWithinPostPreventsAllRows() {
 		when(assets.findIllustrationIdBySha256("sha1")).thenReturn(Optional.of(81L));
-		assertThrows(XPostDuplicateException.class, () -> service.persist(item, media(3), files(3)));
+		when(assets.isIllustrationTrashed(81L)).thenReturn(true);
+		XPostDuplicateException trashedDup = assertThrows(XPostDuplicateException.class,
+				() -> service.persist(item, media(3), files(3)));
+		assertEquals(81L, trashedDup.illustrationId());
+		assertEquals(true, trashedDup.trashed());
 		verifyNoInteractions(authors, illustrations);
 		verify(assets, never()).insert(anyLong(), anyString(), anyString(), anyString(), anyLong(), anyInt(), anyString());
 		verify(items, never()).markImported(anyLong(), anyLong());
+
+		when(assets.isIllustrationTrashed(81L)).thenReturn(false);
+		XPostDuplicateException activeDup = assertThrows(XPostDuplicateException.class,
+				() -> service.persist(item, media(3), files(3)));
+		assertEquals(81L, activeDup.illustrationId());
+		assertEquals(false, activeDup.trashed());
 
 		List<StoredFile> repeated = List.of(files(1).get(0), new StoredFile("1.jpg", "1.jpg", "image/jpeg", 100, "sha0"));
 		assertThrows(XPostDuplicateException.class, () -> service.persist(item, media(2), repeated));

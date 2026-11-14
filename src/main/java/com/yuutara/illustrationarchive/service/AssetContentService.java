@@ -26,16 +26,30 @@ public class AssetContentService {
 	}
 
 	public AssetContent load(long assetId) {
-		AssetContentInfo contentInfo = assetRepository.findContentInfoById(assetId)
-				.orElseThrow(() -> new AssetNotFoundException(assetId));
+		return loadContent(assetRepository.findContentInfoById(assetId), assetId);
+	}
+
+	public AssetContent loadThumbnail(long assetId) {
+		return loadThumb(assetRepository.findContentInfoById(assetId), assetId);
+	}
+
+	public AssetContent loadTrashed(long assetId) {
+		return loadContent(assetRepository.findTrashedContentInfoById(assetId), assetId);
+	}
+
+	public AssetContent loadTrashedThumbnail(long assetId) {
+		return loadThumb(assetRepository.findTrashedContentInfoById(assetId), assetId);
+	}
+
+	private AssetContent loadContent(java.util.Optional<AssetContentInfo> found, long assetId) {
+		AssetContentInfo contentInfo = found.orElseThrow(() -> new AssetNotFoundException(assetId));
 		Resource resource = fileStorageService.load(contentInfo.storageKey());
 
 		return new AssetContent(resource, contentInfo.mimeType(), contentInfo.fileSize());
 	}
 
-	public AssetContent loadThumbnail(long assetId) {
-		AssetContentInfo contentInfo = assetRepository.findContentInfoById(assetId)
-				.orElseThrow(() -> new AssetNotFoundException(assetId));
+	private AssetContent loadThumb(java.util.Optional<AssetContentInfo> found, long assetId) {
+		AssetContentInfo contentInfo = found.orElseThrow(() -> new AssetNotFoundException(assetId));
 		if (!contentInfo.mimeType().equals("image/jpeg") && !contentInfo.mimeType().equals("image/png")) {
 			throw new ThumbnailNotFoundException();
 		}

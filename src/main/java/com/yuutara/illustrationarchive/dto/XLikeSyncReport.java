@@ -6,10 +6,15 @@ package com.yuutara.illustrationarchive.dto;
  * newest page: the smallest per-sync read that would. Null otherwise.
  */
 public record XLikeSyncReport(Phase recent, Phase history, int pageBudget, int scanBudget,
-		int newBudget, boolean partial, String historyStatus, String recentStatus, Integer readLimitNeeded) {
+		int newBudget, boolean partial, String historyStatus, String recentStatus, Integer readLimitNeeded,
+		int trashedExistingCount) {
+	public XLikeSyncReport(Phase recent, Phase history, int pageBudget, int scanBudget,
+			int newBudget, boolean partial, String historyStatus, String recentStatus, Integer readLimitNeeded) {
+		this(recent, history, pageBudget, scanBudget, newBudget, partial, historyStatus, recentStatus, readLimitNeeded, 0);
+	}
 	public XLikeSyncReport(Phase recent, Phase history, int pageBudget, int scanBudget,
 			int newBudget, boolean partial, String historyStatus, String recentStatus) {
-		this(recent, history, pageBudget, scanBudget, newBudget, partial, historyStatus, recentStatus, null);
+		this(recent, history, pageBudget, scanBudget, newBudget, partial, historyStatus, recentStatus, null, 0);
 	}
 	public XLikeSyncReport(Phase recent, Phase history, int pageBudget, int scanBudget,
 			int newBudget, boolean partial, String historyStatus) {

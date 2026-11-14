@@ -141,7 +141,8 @@ public class XLikeSyncService {
 				&& Set.of("SCAN_BUDGET", "NEW_BUDGET", "PAGE_BUDGET").contains(history.reason);
 		Integer needed = historyStarved ? recent.reserved + historyPageSize : null;
 		return new XLikeSyncReport(recent.report(), history.report(), limits.maxPages(), limits.maxScanned(),
-				limits.maxNew(), recent.partial || history.partial, progress.historyStatus(), progress.recentStatus(), needed);
+				limits.maxNew(), recent.partial || history.partial, progress.historyStatus(), progress.recentStatus(),
+				needed, recent.trashedExisting + history.trashedExisting);
 	}
 
 	/**
@@ -448,6 +449,7 @@ public class XLikeSyncService {
 				result.added += saved.newCount();
 				usage.added += saved.newCount();
 				result.existing += saved.existingCount();
+				result.trashedExisting += saved.trashedExistingCount();
 				result.pending += saved.pendingCount();
 				result.unsupported += saved.unsupportedCount();
 				order = Math.subtractExact(order, page.candidates().size());
@@ -501,14 +503,15 @@ public class XLikeSyncService {
 	}
 
 	private static final class Scan {
-		int requested, reserved, saved, savedFetched, scanned, added, existing, pending, unsupported;
+		int requested, reserved, saved, savedFetched, scanned, added, existing, trashedExisting, pending, unsupported;
 		boolean scanKnown = true, hasMore, partial;
 		String reason = "NOT_STARTED", nextToken;
 		XLikePage firstPage;
 		Integer upstreamStatus;
 		void add(Scan other) {
 			saved += other.saved; savedFetched += other.savedFetched; scanned += other.scanned;
-			added += other.added; existing += other.existing; pending += other.pending; unsupported += other.unsupported;
+			added += other.added; existing += other.existing; trashedExisting += other.trashedExisting;
+			pending += other.pending; unsupported += other.unsupported;
 			scanKnown &= other.scanKnown; partial |= other.partial; hasMore = other.hasMore;
 			reason = other.reason; upstreamStatus = other.upstreamStatus;
 		}

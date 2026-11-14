@@ -27,6 +27,7 @@ public record IllustrationBatchImportItemResult(
 		if (success) {
 			return SUCCESS;
 		}
-		return DuplicateIllustrationException.ERROR_CODE.equals(errorCode) ? DUPLICATE : FAILED;
+		return (DuplicateIllustrationException.ERROR_CODE.equals(errorCode)
+				|| DuplicateIllustrationException.TRASHED_ERROR_CODE.equals(errorCode)) ? DUPLICATE : FAILED;
 	}
 }

@@ -23,7 +23,7 @@ public class IllustrationBatchRepository {
 	}
 
 	public List<Long> findExistingIds(List<Long> ids) {
-		return jdbcTemplate.queryForList("SELECT id FROM illustration WHERE id IN (" + marks(ids) + ")",
+		return jdbcTemplate.queryForList("SELECT id FROM illustration WHERE trashed_at IS NULL AND id IN (" + marks(ids) + ")",
 				Long.class, ids.toArray());
 	}
 
@@ -31,7 +31,7 @@ public class IllustrationBatchRepository {
 		List<Object> parameters = new ArrayList<>();
 		parameters.add(authorId);
 		parameters.addAll(ids);
-		jdbcTemplate.update("UPDATE illustration SET author_id = ? WHERE id IN (" + marks(ids) + ")", parameters.toArray());
+		jdbcTemplate.update("UPDATE illustration SET author_id = ? WHERE trashed_at IS NULL AND id IN (" + marks(ids) + ")", parameters.toArray());
 	}
 
 	public void removeTags(List<Long> ids, List<Long> tagIds) {
@@ -45,7 +45,7 @@ public class IllustrationBatchRepository {
 				SELECT i.id, t.id
 				FROM illustration i
 				JOIN tag t ON t.id IN (%s)
-				WHERE i.id IN (%s)
+				WHERE i.trashed_at IS NULL AND i.id IN (%s)
 					AND NOT EXISTS (SELECT 1 FROM illustration_tag existing
 						WHERE existing.illustration_id = i.id AND existing.tag_id = t.id)
 				""".formatted(marks(tagIds), marks(ids)), concat(tagIds, ids));
@@ -55,8 +55,9 @@ public class IllustrationBatchRepository {
 		return jdbcTemplate.query("""
 				SELECT t.id, t.name, COUNT(*) AS works
 				FROM illustration_tag it
+				JOIN illustration i ON i.id = it.illustration_id
 				JOIN tag t ON t.id = it.tag_id
-				WHERE it.illustration_id IN (%s)
+				WHERE i.trashed_at IS NULL AND it.illustration_id IN (%s)
 				GROUP BY t.id, t.name
 				ORDER BY works DESC, t.name ASC, t.id ASC
 				""".formatted(marks(ids)), (row, number) -> new IllustrationBatchTagCount(

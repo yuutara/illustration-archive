@@ -115,7 +115,8 @@ class AssetRepositoryTest {
 		assertTrue(sql.contains("mime_type"));
 		assertTrue(sql.contains("file_size"));
 		assertTrue(sql.contains("FROM asset"));
-		assertTrue(sql.contains("WHERE id = ?"));
+		assertTrue(sql.contains("WHERE a.id = ?"));
+		assertTrue(sql.contains("i.trashed_at IS NULL"));
 
 		AssetContentInfo contentInfo = rowMapperCaptor.getValue().mapRow(resultSet, 0);
 		assertEquals("2026-09/example.jpg", contentInfo.storageKey());
