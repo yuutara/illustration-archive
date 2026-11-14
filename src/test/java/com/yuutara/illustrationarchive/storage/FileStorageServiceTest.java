@@ -245,6 +245,43 @@ class FileStorageServiceTest {
 	}
 
 	@Test
+	@EnabledOnOs(OS.WINDOWS)
+	void desktopHomeAnchorRejectsMediaRootJunctionWhilePreservingServerModeExternalRoot(@TempDir Path tempWorkspace) throws Exception {
+		Path home = Files.createDirectories(tempWorkspace.resolve("home"));
+		Path mediaDir = home.resolve("media");
+		FileStorageService anchored = new FileStorageService(mediaDir.toString(), home.toString());
+		// Missing media dir under valid home stays idempotent
+		anchored.delete("2026-10/absent.png");
+
+		Path outsideMedia = Files.createDirectories(tempWorkspace.resolve("outside-media"));
+		Path outsideOrig = Files.write(Files.createDirectories(outsideMedia.resolve("2026-10")).resolve("pic.png"), PNG_BYTES);
+		Path outsideThumb = Files.write(Files.createDirectories(outsideMedia.resolve("thumbnails").resolve("2026-10")).resolve("pic.png"), PNG_BYTES);
+
+		Process mkRootJunction = new ProcessBuilder("cmd", "/c", "mklink", "/J", mediaDir.toString(), outsideMedia.toString())
+				.redirectErrorStream(true).start();
+		assertEquals(0, mkRootJunction.waitFor(), new String(mkRootJunction.getInputStream().readAllBytes()));
+
+		ThumbnailService anchoredThumbs = new ThumbnailService(anchored);
+		assertThrows(FileStorageValidationException.class, () -> anchored.delete("2026-10/pic.png"));
+		assertThrows(FileStorageValidationException.class, () -> anchoredThumbs.deleteThumbnail("2026-10/pic.png"));
+		assertTrue(Files.exists(outsideOrig), "outside original behind replaced media junction must remain intact");
+		assertTrue(Files.exists(outsideThumb), "outside thumbnail behind replaced media junction must remain intact");
+
+		// Server mode explicitly configured to another path / drive continues to delete inside its configured root
+		FileStorageService serverMode = new FileStorageService(outsideMedia.toString());
+		serverMode.delete("2026-10/pic.png");
+		new ThumbnailService(serverMode).deleteThumbnail("2026-10/pic.png");
+		assertFalse(Files.exists(outsideOrig));
+		assertFalse(Files.exists(outsideThumb));
+
+		// Repair desktop media dir back to a real directory under home and verify normal deletion resumes
+		Files.delete(mediaDir);
+		Path realOrig = Files.write(Files.createDirectories(mediaDir.resolve("2026-10")).resolve("pic.png"), PNG_BYTES);
+		anchored.delete("2026-10/pic.png");
+		assertFalse(Files.exists(realOrig));
+	}
+
+	@Test
 	void rejectsStorageKeyThatEscapesStorageRoot() {
 		assertThrows(FileStorageValidationException.class,
 				() -> fileStorageService.delete("../outside-storage-root.jpg"));

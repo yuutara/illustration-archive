@@ -3,6 +3,8 @@ package com.yuutara.illustrationarchive.desktop;
 import com.yuutara.illustrationarchive.IllustrationArchiveApplication;
 import com.yuutara.illustrationarchive.repository.PendingAssetCleanupRepository;
 import com.yuutara.illustrationarchive.repository.PendingAssetCleanupRepository.AssetFile;
+import com.yuutara.illustrationarchive.service.IllustrationTrashService;
+import com.yuutara.illustrationarchive.service.TrashPurgeScheduler;
 import com.yuutara.illustrationarchive.storage.FileStorage;
 import com.yuutara.illustrationarchive.storage.FileStorageService;
 import com.yuutara.illustrationarchive.storage.StoredFile;
@@ -21,6 +23,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -129,6 +132,78 @@ class TrashPurgeSchedulerShutdownTest {
 		}
 	}
 
+	@Test
+	void exhaustedShortDrainBudgetStillKeepsDataSourceOpenUntilInFlightWritebackFinishes() throws Exception {
+		SlowDeleteController.reset();
+		Path home = workspace.resolve("short-budget-home");
+		Path mediaRoot = Files.createDirectories(home.resolve("media").resolve("2026-10"));
+		Path firstFile = Files.writeString(mediaRoot.resolve("first.png"), "one");
+		Path secondFile = Files.writeString(mediaRoot.resolve("second.png"), "two");
+
+		Map<String, String> props = new java.util.LinkedHashMap<>(
+				DesktopServer.properties(home, 0, DesktopServer.newAccessToken()));
+		props.put("illustration-archive.desktop.open-external", "false");
+
+		DesktopServer.Running seed = DesktopServer.start(home, 0, true,
+				Map.of(MaintenanceGate.START_CLOSED_PROPERTY, "true"));
+		try {
+			PendingAssetCleanupRepository repo = seed.context().getBean(PendingAssetCleanupRepository.class);
+			repo.enqueueAll(List.of(
+					new AssetFile("2026-10/first.png", "image/gif"),
+					new AssetFile("2026-10/second.png", "image/gif")), Instant.now());
+		} finally {
+			seed.context().close();
+		}
+
+		SlowDeleteController.blockOnFirstDelete = true;
+		props.put("spring.main.allow-bean-definition-overriding", "true");
+		String[] args = props.entrySet().stream()
+				.map(entry -> "--" + entry.getKey() + "=" + entry.getValue())
+				.toArray(String[]::new);
+		ConfigurableApplicationContext ctx = new SpringApplicationBuilder(
+				IllustrationArchiveApplication.class, SlowDeleteConfig.class, ShortBudgetSchedulerConfig.class)
+				.profiles(DesktopServer.PROFILE)
+				.headless(true)
+				.run(args);
+		try {
+			assertTrue(SlowDeleteController.enteredDelete.await(10, TimeUnit.SECONDS));
+			HikariDataSource pool = (HikariDataSource) ctx.getBean(javax.sql.DataSource.class);
+
+			CompletableFuture<Void> closing = CompletableFuture.runAsync(ctx::close);
+			// Sleep past 200ms + 200ms (2 * drainTimeout) while slow I/O is still in flight
+			Thread.sleep(700);
+			assertFalse(pool.isClosed(), "HikariDataSource must remain open even after 200ms drain budget expires");
+			assertFalse(closing.isDone(), "context.close() must wait until in-flight cleanup writeback finishes");
+
+			SlowDeleteController.releaseDelete.set(true);
+			closing.get(15, TimeUnit.SECONDS);
+			assertTrue(pool.isClosed(), "HikariDataSource closes cleanly once in-flight writeback finishes");
+		} finally {
+			if (ctx.isActive()) {
+				SlowDeleteController.releaseDelete.set(true);
+				ctx.close();
+			}
+		}
+
+		assertFalse(Files.exists(firstFile), "first file should be deleted before shutdown finished");
+		assertTrue(Files.exists(secondFile), "second queued file should await restart");
+
+		// Restart picks up the remaining row and clears both the second file and queue cleanly
+		SlowDeleteController.blockOnFirstDelete = false;
+		DesktopServer.Running restarted = DesktopServer.start(home, 0, true, Map.of());
+		try {
+			PendingAssetCleanupRepository repo = restarted.context().getBean(PendingAssetCleanupRepository.class);
+			long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+			while (repo.count() > 0 && System.nanoTime() < deadline) {
+				Thread.sleep(50);
+			}
+			assertEquals(0, repo.count());
+			assertFalse(Files.exists(secondFile));
+		} finally {
+			restarted.context().close();
+		}
+	}
+
 	static final class SlowDeleteController {
 		static volatile boolean blockOnFirstDelete;
 		static CountDownLatch enteredDelete = new CountDownLatch(1);
@@ -140,6 +215,15 @@ class TrashPurgeSchedulerShutdownTest {
 			enteredDelete = new CountDownLatch(1);
 			releaseDelete.set(false);
 			armedFirst.set(true);
+		}
+	}
+
+	@TestConfiguration
+	static class ShortBudgetSchedulerConfig {
+		@Bean(name = "trashPurgeScheduler")
+		TrashPurgeScheduler trashPurgeScheduler(IllustrationTrashService trashService,
+				MaintenanceGate maintenanceGate) {
+			return new TrashPurgeScheduler(trashService, maintenanceGate, Duration.ofMillis(200)) {};
 		}
 	}
 

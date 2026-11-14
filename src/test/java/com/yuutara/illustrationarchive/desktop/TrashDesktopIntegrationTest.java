@@ -483,6 +483,114 @@ class TrashDesktopIntegrationTest {
 		assertFalse(gate.tryEnterBackground(), "gate closes before DB pool shutdown");
 	}
 
+	@Test
+	@EnabledOnOs(OS.WINDOWS)
+	void purgeThroughReplacedDesktopMediaRootJunctionPreservesOutsideOriginalThumbnailAndPendingQueue(@TempDir Path outside) throws Exception {
+		Path home = workspace.resolve("root-junction-home");
+		DesktopServer.Running running = start(home, Map.of());
+		String cookie = openSession(running);
+		long workId = importSingle(running, cookie, "root-junction.png", png(Color.MAGENTA));
+		JdbcTemplate jdbc = running.context().getBean(JdbcTemplate.class);
+		String storageKey = jdbc.queryForObject("SELECT storage_key FROM asset WHERE illustration_id = ?", String.class, workId);
+		Path mediaRoot = home.resolve("media");
+		Path realOrig = mediaRoot.resolve(storageKey);
+		Path realThumb = mediaRoot.resolve("thumbnails").resolve(storageKey);
+		assertTrue(Files.exists(realOrig));
+		assertTrue(Files.exists(realThumb));
+
+		assertEquals(204, send(running.baseUri().resolve("/api/illustrations/" + workId), cookie, "DELETE", null).statusCode());
+
+		// While desktop server is running, move media outside and replace home/media with a Windows Junction
+		Path outsideOrig = outside.resolve(storageKey);
+		Path outsideThumb = outside.resolve("thumbnails").resolve(storageKey);
+		Files.createDirectories(outsideOrig.getParent());
+		Files.createDirectories(outsideThumb.getParent());
+		Files.move(realOrig, outsideOrig);
+		Files.move(realThumb, outsideThumb);
+		deleteRecursively(mediaRoot);
+		Process junctionProc = new ProcessBuilder("cmd", "/c", "mklink", "/J", mediaRoot.toString(), outside.toString())
+				.redirectErrorStream(true).start();
+		assertEquals(0, junctionProc.waitFor(), new String(junctionProc.getInputStream().readAllBytes()));
+
+		HttpResponse<String> purgeResp = send(running.baseUri().resolve("/api/trash/purge"), cookie, "POST", "{\"ids\":[" + workId + "]}");
+		assertEquals(200, purgeResp.statusCode(), purgeResp.body());
+		assertTrue(purgeResp.body().contains("\"pendingFileCleanups\":1"), purgeResp.body());
+		assertTrue(Files.exists(outsideOrig), "outside original beyond replaced media root junction must not be deleted");
+		assertTrue(Files.exists(outsideThumb), "outside thumbnail beyond replaced media root junction must not be deleted");
+		assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM pending_asset_cleanup WHERE storage_key = ?", Integer.class, storageKey));
+
+		// Repair home/media back to a real directory containing the files and confirm retry succeeds
+		Files.delete(mediaRoot);
+		Files.createDirectories(realOrig.getParent());
+		Files.createDirectories(realThumb.getParent());
+		Files.move(outsideOrig, realOrig);
+		Files.move(outsideThumb, realThumb);
+		assertEquals(1, running.context().getBean(IllustrationTrashService.class).retryPendingCleanups());
+		assertFalse(Files.exists(realOrig));
+		assertFalse(Files.exists(realThumb));
+		assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM pending_asset_cleanup", Integer.class));
+	}
+
+	@Test
+	void reverseOrder501MoveToTrashAndOverlappingBatchUpdateDoNotDeadlock() throws Exception {
+		Path home = workspace.resolve("bulk-lock-order-home");
+		DesktopServer.Running running = start(home, Map.of());
+		String cookie = openSession(running);
+		JdbcTemplate jdbc = running.context().getBean(JdbcTemplate.class);
+		jdbc.update("INSERT INTO tag (id, name) VALUES (1, 'tag-a')");
+		for (long id = 1000; id <= 1500; id++) {
+			jdbc.update("INSERT INTO illustration (id, title) VALUES (?, ?)", id, "work-" + id);
+		}
+		List<Long> reverse501 = new java.util.ArrayList<>(501);
+		for (long id = 1500; id >= 1000; id--) {
+			reverse501.add(id);
+		}
+		String moveJson = "{\"ids\":" + reverse501 + "}";
+		String batchJson = "{\"ids\":[1000,1500],\"addTagIds\":[1]}";
+
+		try (ExecutorService pool = Executors.newFixedThreadPool(2)) {
+			for (int round = 0; round < 5; round++) {
+				jdbc.update("UPDATE illustration SET trashed_at = NULL WHERE id BETWEEN 1000 AND 1500");
+				jdbc.update("DELETE FROM illustration_tag");
+				CountDownLatch startTogether = new CountDownLatch(1);
+				Future<HttpResponse<String>> moveFuture = pool.submit(() -> {
+					startTogether.await();
+					return send(running.baseUri().resolve("/api/illustrations/batch/trash"), cookie, "POST", moveJson);
+				});
+				Future<HttpResponse<String>> batchFuture = pool.submit(() -> {
+					startTogether.await();
+					return send(running.baseUri().resolve("/api/illustrations/batch/metadata"), cookie, "POST", batchJson);
+				});
+				startTogether.countDown();
+				HttpResponse<String> moveResp = moveFuture.get(15, TimeUnit.SECONDS);
+				HttpResponse<String> batchResp = batchFuture.get(15, TimeUnit.SECONDS);
+
+				assertEquals(200, moveResp.statusCode(), "moveToTrash failed unexpectedly on round " + round + ": " + moveResp.body());
+				assertTrue(batchResp.statusCode() == 204 || batchResp.statusCode() == 404,
+						"overlapping batchUpdate must finish cleanly with 204 or 404, never deadlock/500 on round "
+								+ round + ": " + batchResp.statusCode() + " " + batchResp.body());
+				assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM illustration WHERE id BETWEEN 1000 AND 1500 AND trashed_at IS NULL", Integer.class));
+				int tagCount = jdbc.queryForObject("SELECT COUNT(*) FROM illustration_tag", Integer.class);
+				assertEquals(batchResp.statusCode() == 204 ? 2 : 0, tagCount);
+			}
+		}
+	}
+
+	private static void deleteRecursively(Path dir) throws IOException {
+		if (Files.notExists(dir)) {
+			return;
+		}
+		try (var stream = Files.walk(dir)) {
+			stream.sorted(java.util.Comparator.reverseOrder()).forEach(path -> {
+				try {
+					Files.deleteIfExists(path);
+				} catch (IOException ex) {
+					throw new java.io.UncheckedIOException(ex);
+				}
+			});
+		}
+	}
+
 	private static void awaitLatch(CountDownLatch latch) {
 		try {
 			assertTrue(latch.await(10, TimeUnit.SECONDS));

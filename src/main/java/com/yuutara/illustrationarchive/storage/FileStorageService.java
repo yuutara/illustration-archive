@@ -1,5 +1,6 @@
 package com.yuutara.illustrationarchive.storage;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
@@ -10,7 +11,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -31,9 +34,24 @@ public class FileStorageService implements FileStorage {
 	private static final DateTimeFormatter STORAGE_MONTH_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM");
 
 	private final Path storageRoot;
+	private final Path desktopHome;
+	private final Path pinnedDesktopHomeRealPath;
+	private final Path pinnedStorageRootRealPath;
 
-	public FileStorageService(@Value("${illustration-archive.storage.root-dir}") String storageRootDir) {
+	public FileStorageService(String storageRootDir) {
+		this(storageRootDir, null);
+	}
+
+	@Autowired
+	public FileStorageService(
+			@Value("${illustration-archive.storage.root-dir}") String storageRootDir,
+			@Value("${illustration-archive.desktop.home-dir:}") String desktopHomeDir) {
 		this.storageRoot = Path.of(storageRootDir).toAbsolutePath().normalize();
+		this.desktopHome = (desktopHomeDir == null || desktopHomeDir.isBlank())
+				? null
+				: Path.of(desktopHomeDir).toAbsolutePath().normalize();
+		this.pinnedDesktopHomeRealPath = tryRealPath(this.desktopHome);
+		this.pinnedStorageRootRealPath = this.desktopHome == null ? tryRealPath(this.storageRoot) : null;
 	}
 
 	public StoredFile store(String originalFilename, InputStream source) {
@@ -90,35 +108,84 @@ public class FileStorageService implements FileStorage {
 	}
 
 	private Path resolveRealPathWithinRootForDelete(Path filePath) throws IOException {
-		if (Files.notExists(storageRoot, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+		Path realRoot = resolveRealStorageRootForDelete();
+		if (realRoot == null) {
+			return null;
+		}
+		Path relative = storageRoot.relativize(filePath);
+		Path parentRelative = relative.getNameCount() > 1 ? relative.subpath(0, relative.getNameCount() - 1) : null;
+		Path current = parentRelative == null ? realRoot : resolveDirectorySegments(realRoot, parentRelative);
+		if (current == null) {
+			return null;
+		}
+		Path leaf = current.resolve(relative.getFileName());
+		if (Files.notExists(leaf, LinkOption.NOFOLLOW_LINKS)) {
+			return null;
+		}
+		BasicFileAttributes attrs = Files.readAttributes(leaf, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+		if (attrs.isSymbolicLink() || attrs.isOther() || attrs.isDirectory() || !attrs.isRegularFile()) {
+			throw new FileStorageValidationException("Stored file must stay within the configured storage root.");
+		}
+		Path realLeaf = leaf.toRealPath();
+		if (!realLeaf.startsWith(realRoot) || !current.equals(realLeaf.getParent())) {
+			throw new FileStorageValidationException("Stored file must stay within the configured storage root.");
+		}
+		return realLeaf;
+	}
+
+	private Path resolveRealStorageRootForDelete() throws IOException {
+		if (desktopHome != null) {
+			if (!storageRoot.startsWith(desktopHome) || storageRoot.equals(desktopHome)) {
+				throw new FileStorageValidationException("Storage root must stay within the desktop library home.");
+			}
+			if (Files.notExists(desktopHome, LinkOption.NOFOLLOW_LINKS)) {
+				return null;
+			}
+			Path realHome = desktopHome.toRealPath();
+			if (pinnedDesktopHomeRealPath != null && !realHome.equals(pinnedDesktopHomeRealPath)) {
+				throw new FileStorageValidationException("Desktop library home must stay at its anchored location.");
+			}
+			return resolveDirectorySegments(realHome, desktopHome.relativize(storageRoot));
+		}
+		if (Files.notExists(storageRoot, LinkOption.NOFOLLOW_LINKS)) {
 			return null;
 		}
 		Path realRoot = storageRoot.toRealPath();
-		Path relative = storageRoot.relativize(filePath);
-		Path current = realRoot;
-		for (int i = 0; i < relative.getNameCount() - 1; i++) {
-			current = current.resolve(relative.getName(i));
-			if (Files.notExists(current, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+		if (pinnedStorageRootRealPath != null && !realRoot.equals(pinnedStorageRootRealPath)) {
+			throw new FileStorageValidationException("Stored file must stay within the configured storage root.");
+		}
+		return realRoot;
+	}
+
+	private static Path resolveDirectorySegments(Path realAnchor, Path relativeDirs) throws IOException {
+		Path current = realAnchor;
+		for (Path segment : relativeDirs) {
+			current = current.resolve(segment);
+			if (Files.notExists(current, LinkOption.NOFOLLOW_LINKS)) {
 				return null;
 			}
+			BasicFileAttributes attrs = Files.readAttributes(current, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+			if (attrs.isSymbolicLink() || attrs.isOther() || !attrs.isDirectory()) {
+				throw new FileStorageValidationException("Stored file must stay within the configured storage root.");
+			}
 			Path realDir = current.toRealPath();
-			if (!realDir.startsWith(realRoot)) {
+			if (!realDir.startsWith(realAnchor) || !current.getParent().equals(realDir.getParent())) {
 				throw new FileStorageValidationException("Stored file must stay within the configured storage root.");
 			}
 			current = realDir;
 		}
-		Path leaf = current.resolve(relative.getFileName());
-		if (Files.notExists(leaf, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+		return current;
+	}
+
+	private static Path tryRealPath(Path path) {
+		if (path == null || Files.notExists(path, LinkOption.NOFOLLOW_LINKS)) {
 			return null;
 		}
-		if (Files.isSymbolicLink(leaf) || Files.isDirectory(leaf, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
-			throw new FileStorageValidationException("Stored file must stay within the configured storage root.");
+		try {
+			return path.toRealPath();
+		} catch (IOException ignored) {
+			return null;
 		}
-		Path realLeaf = leaf.toRealPath();
-		if (!realLeaf.startsWith(realRoot)) {
-			throw new FileStorageValidationException("Stored file must stay within the configured storage root.");
-		}
-		return realLeaf;
 	}
 
 	public Resource load(String storageKey) {

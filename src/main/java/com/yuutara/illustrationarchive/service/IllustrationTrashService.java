@@ -228,7 +228,7 @@ public class IllustrationTrashService {
 				throw new IllegalArgumentException("Cannot operate on more than " + MAX_WORKS_PER_REQUEST + " works at once.");
 			}
 		}
-		return List.copyOf(unique);
+		return unique.stream().sorted().toList();
 	}
 
 	public record BackgroundPurgeOutcome(boolean executed, int purgedWorks, int cleanedFiles, int pendingFileCleanups) {

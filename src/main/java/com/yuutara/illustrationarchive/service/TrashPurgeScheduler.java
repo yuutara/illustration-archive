@@ -51,7 +51,7 @@ public class TrashPurgeScheduler implements SmartLifecycle, DisposableBean {
 		this(trashService, null, DEFAULT_DRAIN_TIMEOUT);
 	}
 
-	TrashPurgeScheduler(IllustrationTrashService trashService, MaintenanceGate maintenanceGate, Duration drainTimeout) {
+	protected TrashPurgeScheduler(IllustrationTrashService trashService, MaintenanceGate maintenanceGate, Duration drainTimeout) {
 		this.trashService = trashService;
 		this.maintenanceGate = maintenanceGate;
 		this.drainTimeout = drainTimeout;
@@ -119,17 +119,48 @@ public class TrashPurgeScheduler implements SmartLifecycle, DisposableBean {
 		lifecycleRunning.set(false);
 		requestStop();
 		executor.shutdown();
+		awaitInFlightPurge();
+		awaitMaintenanceGateDrain();
+	}
+
+	private void awaitInFlightPurge() {
+		long timeoutMillis = Math.max(1L, drainTimeout.toMillis());
+		boolean loggedSlow = false;
 		try {
-			if (!executor.awaitTermination(drainTimeout.toMillis(), TimeUnit.MILLISECONDS)) {
-				log.warn("Timed out after {}s waiting for background Trash cleanup to finish during shutdown.",
-						drainTimeout.toSeconds());
-				executor.shutdownNow();
-			}
-			if (maintenanceGate != null && !maintenanceGate.close(drainTimeout, () -> false)) {
-				log.warn("Timed out waiting for MaintenanceGate to drain before closing DataSource.");
+			while (!executor.isTerminated()) {
+				if (executor.awaitTermination(timeoutMillis, TimeUnit.MILLISECONDS)) {
+					return;
+				}
+				if (!loggedSlow) {
+					log.warn("In-flight background Trash cleanup is still running after {}ms; waiting for DB writeback before closing DataSource.",
+							timeoutMillis);
+					loggedSlow = true;
+				}
 			}
 		} catch (InterruptedException interrupted) {
 			Thread.currentThread().interrupt();
+			log.warn("Interrupted while waiting for background Trash cleanup during shutdown.");
+		}
+	}
+
+	private void awaitMaintenanceGateDrain() {
+		if (maintenanceGate == null) {
+			return;
+		}
+		long timeoutMillis = Math.max(1L, drainTimeout.toMillis());
+		Duration stepTimeout = Duration.ofMillis(timeoutMillis);
+		boolean loggedSlow = false;
+		try {
+			while (!maintenanceGate.close(stepTimeout, () -> false)) {
+				if (!loggedSlow) {
+					log.warn("MaintenanceGate still has active work after {}ms; waiting before closing DataSource.",
+							timeoutMillis);
+					loggedSlow = true;
+				}
+			}
+		} catch (InterruptedException interrupted) {
+			Thread.currentThread().interrupt();
+			log.warn("Interrupted while waiting for MaintenanceGate to drain before closing DataSource.");
 		}
 	}
 }

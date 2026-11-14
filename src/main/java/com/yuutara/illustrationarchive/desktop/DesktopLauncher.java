@@ -237,12 +237,14 @@ public final class DesktopLauncher {
 		try {
 			DesktopServer.Running started = launch(false);
 			if (stopping) {
-				running = null;
-				started.context().close();
+				// Leave `running` populated so shutDown() drains and either closes cleanly or cancels exit.
 				return;
 			}
 			display.asyncExec(() -> show(started));
 		} catch (RuntimeException exception) {
+			if (stopping) {
+				return;
+			}
 			String message = LibraryMaintenance.message(exception);
 			display.asyncExec(() -> startFailed(message));
 		}
@@ -642,6 +644,10 @@ public final class DesktopLauncher {
 				resumeAfterCancelledShutdown(current);
 				stopping = false;
 				quitAfterMaintenance = false;
+				if (!shown) {
+					DesktopSplash.close();
+					show(current);
+				}
 				maintenanceWindow().result("仍在完成清理或写入，暂未退出",
 						"图库还有收尾清理或写入没有完成，为避免损坏数据已取消本次退出。请稍等几秒后再试。",
 						List.of(new MaintenanceWindow.Action("确定", () -> maintenanceWindow().close())), 0);
