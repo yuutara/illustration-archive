@@ -34,8 +34,9 @@ public class IllustrationUpdateService {
 
 	@Transactional
 	public void updateBasicMetadata(long id, IllustrationPatchRequest request) {
-		illustrationRepository.findDetailBaseById(id)
-				.orElseThrow(() -> new IllustrationNotFoundException(id));
+		if (!illustrationRepository.lockActiveById(id)) {
+			throw new IllustrationNotFoundException(id);
+		}
 		List<Long> tagIds = request.tagIdsPresent() ? validateTagIds(request.tagIds()) : null;
 
 		if (tagIds != null) {

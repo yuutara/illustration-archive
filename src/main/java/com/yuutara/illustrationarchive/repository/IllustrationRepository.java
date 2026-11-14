@@ -132,6 +132,15 @@ public class IllustrationRepository {
 		return q == null ? null : "%" + q.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%";
 	}
 
+	public boolean lockActiveById(long id) {
+		List<Object> rows = jdbcTemplate.query(
+				"SELECT trashed_at FROM illustration WHERE id = ? FOR UPDATE",
+				(resultSet, rowNum) -> resultSet.getObject("trashed_at"),
+				id
+		);
+		return !rows.isEmpty() && rows.getFirst() == null;
+	}
+
 	public Optional<IllustrationDetailBase> findDetailBaseById(long id) {
 		return jdbcTemplate.query(FIND_DETAIL_BASE_BY_ID_SQL, (resultSet, rowNum) -> {
 			Long authorId = resultSet.getObject("author_id", Long.class);

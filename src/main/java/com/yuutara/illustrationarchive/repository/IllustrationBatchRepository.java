@@ -27,6 +27,20 @@ public class IllustrationBatchRepository {
 				Long.class, ids.toArray());
 	}
 
+	public List<Long> lockActiveIds(List<Long> ids) {
+		List<Long> active = new ArrayList<>();
+		jdbcTemplate.query(
+				"SELECT id, trashed_at FROM illustration WHERE id IN (" + marks(ids) + ") ORDER BY id FOR UPDATE",
+				resultSet -> {
+					if (resultSet.getObject("trashed_at") == null) {
+						active.add(resultSet.getLong("id"));
+					}
+				},
+				ids.toArray()
+		);
+		return active;
+	}
+
 	public void updateAuthor(List<Long> ids, Long authorId) {
 		List<Object> parameters = new ArrayList<>();
 		parameters.add(authorId);

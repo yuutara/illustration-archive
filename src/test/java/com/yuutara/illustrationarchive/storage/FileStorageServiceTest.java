@@ -2,6 +2,8 @@ package com.yuutara.illustrationarchive.storage;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.core.io.Resource;
 
@@ -210,6 +212,36 @@ class FileStorageServiceTest {
 		fileStorageService.delete(storedFile.storageKey());
 
 		assertFalse(Files.exists(storedPath));
+		// Deleting an already-missing file in a real or absent directory remains an idempotent no-op
+		fileStorageService.delete(storedFile.storageKey());
+		fileStorageService.delete("2026-01/never-existed.png");
+	}
+
+	@Test
+	@EnabledOnOs(OS.WINDOWS)
+	void deleteRejectsWindowsJunctionEscapeForOriginalsAndThumbnails(@TempDir Path outsideRoot) throws Exception {
+		Path outsideOriginal = Files.write(outsideRoot.resolve("secret.png"), PNG_BYTES);
+		Path monthJunction = temporaryStorageRoot.resolve("2026-10");
+		Process origProc = new ProcessBuilder("cmd", "/c", "mklink", "/J", monthJunction.toString(), outsideRoot.toString())
+				.redirectErrorStream(true).start();
+		assertEquals(0, origProc.waitFor(), new String(origProc.getInputStream().readAllBytes()));
+
+		assertThrows(FileStorageValidationException.class,
+				() -> fileStorageService.delete("2026-10/secret.png"));
+		assertTrue(Files.exists(outsideOriginal), "outside original must remain untouched");
+
+		Path thumbOutside = Files.createDirectories(outsideRoot.resolve("thumbs-outside"));
+		Path outsideThumb = Files.write(thumbOutside.resolve("secret.png"), PNG_BYTES);
+		Path thumbsDir = Files.createDirectories(temporaryStorageRoot.resolve("thumbnails"));
+		Path thumbMonthJunction = thumbsDir.resolve("2026-10");
+		Process thumbProc = new ProcessBuilder("cmd", "/c", "mklink", "/J", thumbMonthJunction.toString(), thumbOutside.toString())
+				.redirectErrorStream(true).start();
+		assertEquals(0, thumbProc.waitFor(), new String(thumbProc.getInputStream().readAllBytes()));
+
+		ThumbnailService thumbnailService = new ThumbnailService(fileStorageService);
+		assertThrows(FileStorageValidationException.class,
+				() -> thumbnailService.deleteThumbnail("2026-10/secret.png"));
+		assertTrue(Files.exists(outsideThumb), "outside thumbnail must remain untouched");
 	}
 
 	@Test

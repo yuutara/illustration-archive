@@ -84,12 +84,19 @@ public class MaintenanceGate extends OncePerRequestFilter {
 	}
 
 	/**
+	 * Immediately refuses new HTTP and background work during shutdown without waiting for drainage.
+	 */
+	public synchronized void closeForShutdown() {
+		closed = true;
+	}
+
+	/**
 	 * Refuses new requests from now on and waits for those inside to return.
 	 *
 	 * @return true once none is left; false when time ran out or {@code cancelled} turned true, and the gate stays
 	 *         closed until {@link #open} either way
 	 */
-	synchronized boolean close(Duration timeout, BooleanSupplier cancelled) throws InterruptedException {
+	public synchronized boolean close(Duration timeout, BooleanSupplier cancelled) throws InterruptedException {
 		closed = true;
 		long deadline = System.nanoTime() + timeout.toNanos();
 		while (active > 0) {
@@ -102,7 +109,7 @@ public class MaintenanceGate extends OncePerRequestFilter {
 		return true;
 	}
 
-	synchronized void open() {
+	public synchronized void open() {
 		closed = false;
 	}
 }

@@ -1,10 +1,15 @@
 package com.yuutara.illustrationarchive.desktop;
 
+import com.yuutara.illustrationarchive.dto.IllustrationBatchUpdateRequest;
+import com.yuutara.illustrationarchive.dto.IllustrationPatchRequest;
 import com.yuutara.illustrationarchive.dto.XLikeCandidate;
 import com.yuutara.illustrationarchive.dto.XLikeMedia;
 import com.yuutara.illustrationarchive.dto.XLikePage;
 import com.yuutara.illustrationarchive.dto.XLikeStatus;
+import com.yuutara.illustrationarchive.service.IllustrationBatchUpdateService;
+import com.yuutara.illustrationarchive.service.IllustrationNotFoundException;
 import com.yuutara.illustrationarchive.service.IllustrationTrashService;
+import com.yuutara.illustrationarchive.service.IllustrationUpdateService;
 import com.yuutara.illustrationarchive.service.XLikePersistenceService;
 import com.yuutara.illustrationarchive.service.XPostDuplicateException;
 import com.yuutara.illustrationarchive.service.XPostPersistenceService;
@@ -13,9 +18,13 @@ import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -39,6 +48,9 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -128,11 +140,13 @@ class TrashDesktopIntegrationTest {
 		assertEquals(404, send(running.baseUri().resolve("/api/illustrations/" + redWork), cookie, "PATCH", "{\"title\":\"Nope\"}").statusCode());
 		assertEquals(404, send(running.baseUri().resolve("/api/illustrations/batch/metadata"), cookie,
 				"POST", "{\"ids\":[" + redWork + "," + greenWork + "],\"authorId\":" + authorId + "}").statusCode());
+		JsonNode greenAfterMixed = JSON.readTree(send(running.baseUri().resolve("/api/illustrations/" + greenWork), cookie, "GET", null).body());
+		assertTrue(greenAfterMixed.get("author").isNull(), "mixed batch with a trashed work must leave active works untouched");
 		assertEquals("[]", send(running.baseUri().resolve("/api/illustrations/batch/tags"), cookie,
 				"POST", "{\"ids\":[" + redWork + "]}").body());
 		assertEquals(404, send(running.baseUri().resolve("/api/assets/" + redAsset + "/content"), cookie, "GET", null).statusCode());
 		assertEquals(404, send(running.baseUri().resolve("/api/assets/" + redAsset + "/thumbnail"), cookie, "GET", null).statusCode());
-		assertEquals(404, send(running.baseUri().resolve("/api/ai/illustrations/" + redWork + "/analyze"), cookie, "POST", "{}").statusCode());
+		assertEquals(404, send(running.baseUri().resolve("/api/illustrations/" + redWork + "/ai-analysis"), cookie, "POST", null).statusCode());
 		JsonNode byTag = JSON.readTree(send(running.baseUri().resolve("/api/illustrations?tagId=" + tagId), cookie, "GET", null).body());
 		assertEquals(0, byTag.get("totalElements").asInt(), "trashed works are excluded from tag-filtered gallery reads");
 		JsonNode byAuthor = JSON.readTree(send(running.baseUri().resolve("/api/illustrations?authorId=" + authorId), cookie, "GET", null).body());
@@ -243,7 +257,8 @@ class TrashDesktopIntegrationTest {
 				new String[] {"POST", "/api/trash/purge-all"},
 				new String[] {"GET", "/api/trash/assets/" + assetId + "/content"},
 				new String[] {"GET", "/c/trash.html"},
-				new String[] {"DELETE", "/api/illustrations/" + workId}
+				new String[] {"DELETE", "/api/illustrations/" + workId},
+				new String[] {"POST", "/api/illustrations/" + workId + "/ai-analysis"}
 		)) {
 			HttpResponse<String> resp = send(phone.resolve(req[1]), phoneCookie, req[0], "POST".equals(req[0]) ? "{\"ids\":[1]}" : null);
 			assertEquals(403, resp.statusCode(), req[0] + " " + req[1] + " -> " + resp.body());
@@ -316,6 +331,165 @@ class TrashDesktopIntegrationTest {
 		restored.context().getBean(IllustrationTrashService.class).retryPendingCleanups();
 		assertEquals(0, restored.context().getBean(JdbcTemplate.class)
 				.queryForObject("SELECT COUNT(*) FROM pending_asset_cleanup", Integer.class));
+	}
+
+	@Test
+	void editsSerializeWithMoveToTrashForBothSinglePatchAndBatchAndMixedBatchLeavesAllUntouched() throws Exception {
+		Path home = workspace.resolve("race-home");
+		DesktopServer.Running running = start(home, Map.of());
+		String cookie = openSession(running);
+		long w1 = importSingle(running, cookie, "w1.png", png(Color.RED));
+		long w2 = importSingle(running, cookie, "w2.png", png(Color.BLUE));
+		long w3 = importSingle(running, cookie, "w3.png", png(Color.GREEN));
+		long w4 = importSingle(running, cookie, "w4.png", png(Color.YELLOW));
+		long t1 = JSON.readTree(send(running.baseUri().resolve("/api/tags"), cookie, "POST", "{\"name\":\"RaceTag1\"}").body()).get("id").asLong();
+		long t2 = JSON.readTree(send(running.baseUri().resolve("/api/tags"), cookie, "POST", "{\"name\":\"RaceTag2\"}").body()).get("id").asLong();
+		assertEquals(204, send(running.baseUri().resolve("/api/illustrations/" + w1), cookie, "PATCH", "{\"tagIds\":[" + t1 + "]}").statusCode());
+		assertEquals(204, send(running.baseUri().resolve("/api/illustrations/" + w2), cookie, "PATCH", "{\"tagIds\":[" + t1 + "]}").statusCode());
+		assertEquals(204, send(running.baseUri().resolve("/api/illustrations/" + w3), cookie, "PATCH", "{\"tagIds\":[" + t1 + "]}").statusCode());
+
+		JdbcTemplate jdbc = running.context().getBean(JdbcTemplate.class);
+		TransactionTemplate tx = new TransactionTemplate(running.context().getBean(PlatformTransactionManager.class));
+		IllustrationTrashService trashService = running.context().getBean(IllustrationTrashService.class);
+		IllustrationBatchUpdateService batchUpdateService = running.context().getBean(IllustrationBatchUpdateService.class);
+		IllustrationUpdateService updateService = running.context().getBean(IllustrationUpdateService.class);
+
+		try (ExecutorService pool = Executors.newFixedThreadPool(2)) {
+			// Case 1: moveToTrash holds the row lock on w1 & w2 before batch tag removal runs -> batch rejects whole mixed batch (w1, w3) and preserves all tags
+			CountDownLatch lockedForTrash = new CountDownLatch(1);
+			CountDownLatch releaseTrash = new CountDownLatch(1);
+			Future<?> trashWin = pool.submit(() -> tx.executeWithoutResult(status -> {
+				jdbc.queryForList("SELECT id FROM illustration WHERE id = ? FOR UPDATE", Long.class, w1);
+				lockedForTrash.countDown();
+				awaitLatch(releaseTrash);
+				jdbc.update("UPDATE illustration SET trashed_at = CURRENT_TIMESTAMP WHERE id = ?", w1);
+			}));
+			assertTrue(lockedForTrash.await(5, TimeUnit.SECONDS));
+
+			IllustrationBatchUpdateRequest mixedBatch = new IllustrationBatchUpdateRequest();
+			mixedBatch.setIds(List.of(w1, w3));
+			mixedBatch.setRemoveTagIds(List.of(t1));
+			mixedBatch.setAddTagIds(List.of(t2));
+			Future<?> batchFuture = pool.submit(() -> assertThrows(IllustrationNotFoundException.class,
+					() -> batchUpdateService.update(mixedBatch)));
+			Thread.sleep(100);
+			assertFalse(batchFuture.isDone(), "batch edit must wait on the illustration row lock");
+			releaseTrash.countDown();
+			trashWin.get(5, TimeUnit.SECONDS);
+			batchFuture.get(5, TimeUnit.SECONDS);
+
+			assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM illustration_tag WHERE illustration_id = ? AND tag_id = ?", Integer.class, w1, t1));
+			assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM illustration_tag WHERE illustration_id = ? AND tag_id = ?", Integer.class, w3, t1));
+			assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM illustration_tag WHERE illustration_id = ? AND tag_id = ?", Integer.class, w3, t2));
+
+			// Case 2: moveToTrash locks w2 before single PATCH runs -> single PATCH fails and leaves w2's existing tags untouched
+			CountDownLatch lockedSingle = new CountDownLatch(1);
+			CountDownLatch releaseSingle = new CountDownLatch(1);
+			Future<?> trashW2 = pool.submit(() -> tx.executeWithoutResult(status -> {
+				jdbc.queryForList("SELECT id FROM illustration WHERE id = ? FOR UPDATE", Long.class, w2);
+				lockedSingle.countDown();
+				awaitLatch(releaseSingle);
+				jdbc.update("UPDATE illustration SET trashed_at = CURRENT_TIMESTAMP WHERE id = ?", w2);
+			}));
+			assertTrue(lockedSingle.await(5, TimeUnit.SECONDS));
+
+			IllustrationPatchRequest clearTags = new IllustrationPatchRequest();
+			clearTags.setTagIds(List.of());
+			Future<?> patchFuture = pool.submit(() -> assertThrows(IllustrationNotFoundException.class,
+					() -> updateService.updateBasicMetadata(w2, clearTags)));
+			Thread.sleep(100);
+			assertFalse(patchFuture.isDone(), "single PATCH must wait on the illustration row lock");
+			releaseSingle.countDown();
+			trashW2.get(5, TimeUnit.SECONDS);
+			patchFuture.get(5, TimeUnit.SECONDS);
+
+			assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM illustration_tag WHERE illustration_id = ? AND tag_id = ?", Integer.class, w2, t1));
+
+			// Case 3: single PATCH locks w4 first -> concurrent moveToTrash waits until edited tags commit
+			CountDownLatch editLocked = new CountDownLatch(1);
+			CountDownLatch releaseEdit = new CountDownLatch(1);
+			IllustrationPatchRequest editW4 = new IllustrationPatchRequest();
+			editW4.setTagIds(List.of(t2));
+			Future<?> editFirst = pool.submit(() -> tx.executeWithoutResult(status -> {
+				updateService.updateBasicMetadata(w4, editW4);
+				editLocked.countDown();
+				awaitLatch(releaseEdit);
+			}));
+			assertTrue(editLocked.await(5, TimeUnit.SECONDS));
+
+			Future<?> moveW4 = pool.submit(() -> trashService.moveToTrash(w4));
+			Thread.sleep(100);
+			assertFalse(moveW4.isDone(), "moveToTrash must wait until in-flight single edit commits");
+			releaseEdit.countDown();
+			editFirst.get(5, TimeUnit.SECONDS);
+			moveW4.get(5, TimeUnit.SECONDS);
+
+			assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM illustration_tag WHERE illustration_id = ? AND tag_id = ?", Integer.class, w4, t2));
+			assertNotNull(jdbc.queryForObject("SELECT trashed_at FROM illustration WHERE id = ?", Object.class, w4));
+		}
+	}
+
+	@Test
+	@EnabledOnOs(OS.WINDOWS)
+	void purgeThroughWindowsJunctionPreservesOutsideFileAndPendingRecordUntilRepaired() throws Exception {
+		Path home = workspace.resolve("junction-home");
+		Path outsideDir = Files.createDirectories(workspace.resolve("outside-media"));
+		Path outsideFile = Files.write(outsideDir.resolve("keep.png"), png(Color.PINK));
+		DesktopServer.Running running = start(home, Map.of());
+		String cookie = openSession(running);
+		long workId = importSingle(running, cookie, "work.png", png(Color.BLACK));
+
+		assertEquals(204, send(running.baseUri().resolve("/api/illustrations/" + workId), cookie, "DELETE", null).statusCode());
+		Path monthJunction = Files.createDirectories(home.resolve("media")).resolve("2099-01");
+		Process junctionProc = new ProcessBuilder("cmd", "/c", "mklink", "/J", monthJunction.toString(), outsideDir.toString())
+				.redirectErrorStream(true).start();
+		assertEquals(0, junctionProc.waitFor(), new String(junctionProc.getInputStream().readAllBytes()));
+
+		JdbcTemplate jdbc = running.context().getBean(JdbcTemplate.class);
+		jdbc.update("UPDATE asset SET storage_key = '2099-01/keep.png' WHERE illustration_id = ?", workId);
+
+		HttpResponse<String> purgeResp = send(running.baseUri().resolve("/api/trash/purge"), cookie, "POST", "{\"ids\":[" + workId + "]}");
+		assertEquals(200, purgeResp.statusCode(), purgeResp.body());
+		assertTrue(purgeResp.body().contains("\"pendingFileCleanups\":1"), purgeResp.body());
+		assertTrue(Files.exists(outsideFile), "file beyond junction must not be deleted");
+		assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM pending_asset_cleanup WHERE storage_key = '2099-01/keep.png'", Integer.class));
+
+		// Remove junction & place normal file under media/2099-01/keep.png, then retry cleanup
+		Files.delete(monthJunction);
+		Path realTarget = Files.createDirectories(monthJunction).resolve("keep.png");
+		Files.write(realTarget, png(Color.BLACK));
+		assertEquals(1, running.context().getBean(IllustrationTrashService.class).retryPendingCleanups());
+		assertFalse(Files.exists(realTarget));
+		assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM pending_asset_cleanup", Integer.class));
+	}
+
+	@Test
+	void desktopShutdownDrainRejectsNewWorkCancelsOnTimeoutAndReopensCleanly() throws Exception {
+		Path home = workspace.resolve("shutdown-gate-home");
+		DesktopServer.Running running = start(home, Map.of());
+		MaintenanceGate gate = running.context().getBean(MaintenanceGate.class);
+
+		assertTrue(gate.tryEnterBackground());
+		assertFalse(DesktopLauncher.drainBeforeShutdown(running, Duration.ofMillis(150), () -> false),
+				"timeout while background cleanup is active cancels shutdown");
+		assertFalse(gate.tryEnterBackground(), "MaintenanceGate stays closed refusing new work while draining/refused");
+
+		gate.leaveBackground();
+		DesktopLauncher.resumeAfterCancelledShutdown(running);
+		assertTrue(gate.tryEnterBackground(), "after cancelling shutdown, resumed app accepts work again");
+		gate.leaveBackground();
+
+		assertTrue(DesktopLauncher.drainBeforeShutdown(running, Duration.ofSeconds(5), () -> false));
+		assertFalse(gate.tryEnterBackground(), "gate closes before DB pool shutdown");
+	}
+
+	private static void awaitLatch(CountDownLatch latch) {
+		try {
+			assertTrue(latch.await(10, TimeUnit.SECONDS));
+		} catch (InterruptedException interrupted) {
+			Thread.currentThread().interrupt();
+			throw new AssertionError(interrupted);
+		}
 	}
 
 	private DesktopServer.Running start(Path home, Map<String, String> overrides) {

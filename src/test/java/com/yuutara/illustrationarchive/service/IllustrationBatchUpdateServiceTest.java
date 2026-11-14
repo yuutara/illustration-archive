@@ -41,7 +41,7 @@ class IllustrationBatchUpdateServiceTest {
 
 	@Test
 	void appliesAuthorThenRemovalsThenAdditionsToDistinctSortedIds() {
-		when(batch.findExistingIds(List.of(1L, 2L))).thenReturn(List.of(1L, 2L));
+		when(batch.lockActiveIds(List.of(1L, 2L))).thenReturn(List.of(1L, 2L));
 		when(tags.findSummariesByIds(List.of(5L))).thenReturn(List.of(new TagSummary(5L, "海")));
 		IllustrationBatchUpdateRequest request = request(List.of(2L, 1L, 2L));
 		request.setAuthorId(null);
@@ -58,7 +58,7 @@ class IllustrationBatchUpdateServiceTest {
 
 	@Test
 	void leavesAuthorsAloneWhenTheFieldIsAbsent() {
-		when(batch.findExistingIds(List.of(1L))).thenReturn(List.of(1L));
+		when(batch.lockActiveIds(List.of(1L))).thenReturn(List.of(1L));
 		IllustrationBatchUpdateRequest request = request(List.of(1L));
 		request.setRemoveTagIds(List.of(6L));
 
@@ -87,12 +87,12 @@ class IllustrationBatchUpdateServiceTest {
 
 	@Test
 	void writesNothingWhenAWorkAuthorOrTagIsMissing() {
-		when(batch.findExistingIds(List.of(1L, 2L))).thenReturn(List.of(1L));
+		when(batch.lockActiveIds(List.of(1L, 2L))).thenReturn(List.of(1L));
 		IllustrationBatchUpdateRequest missingWork = request(List.of(1L, 2L));
 		missingWork.setAuthorId(null);
 		assertThrows(IllustrationNotFoundException.class, () -> service.update(missingWork));
 
-		when(batch.findExistingIds(List.of(1L))).thenReturn(List.of(1L));
+		when(batch.lockActiveIds(List.of(1L))).thenReturn(List.of(1L));
 		when(authors.findById(9L)).thenReturn(Optional.empty());
 		IllustrationBatchUpdateRequest missingAuthor = request(List.of(1L));
 		missingAuthor.setAuthorId(9L);

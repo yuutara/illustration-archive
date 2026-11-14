@@ -69,7 +69,7 @@ public class IllustrationBatchUpdateService {
 	}
 
 	private void requireWorks(List<Long> ids) {
-		Set<Long> existing = new HashSet<>(batchRepository.findExistingIds(ids));
+		Set<Long> existing = new HashSet<>(batchRepository.lockActiveIds(ids));
 		for (long id : ids) {
 			if (!existing.contains(id)) {
 				throw new IllustrationNotFoundException(id);

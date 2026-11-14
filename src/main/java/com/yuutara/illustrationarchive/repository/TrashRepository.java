@@ -30,11 +30,17 @@ public class TrashRepository {
 		if (ids.isEmpty()) {
 			return List.of();
 		}
-		return jdbcTemplate.queryForList(
-				"SELECT id FROM illustration WHERE trashed_at IS NULL AND id IN (" + marks(ids.size()) + ") ORDER BY id FOR UPDATE",
-				Long.class,
+		List<Long> active = new java.util.ArrayList<>();
+		jdbcTemplate.query(
+				"SELECT id, trashed_at FROM illustration WHERE id IN (" + marks(ids.size()) + ") ORDER BY id FOR UPDATE",
+				rs -> {
+					if (rs.getObject("trashed_at") == null) {
+						active.add(rs.getLong("id"));
+					}
+				},
 				ids.toArray()
 		);
+		return active;
 	}
 
 	public int markTrashed(List<Long> ids, Instant trashedAt) {
@@ -57,11 +63,17 @@ public class TrashRepository {
 		if (ids.isEmpty()) {
 			return List.of();
 		}
-		return jdbcTemplate.queryForList(
-				"SELECT id FROM illustration WHERE trashed_at IS NOT NULL AND id IN (" + marks(ids.size()) + ") ORDER BY id FOR UPDATE",
-				Long.class,
+		List<Long> trashed = new java.util.ArrayList<>();
+		jdbcTemplate.query(
+				"SELECT id, trashed_at FROM illustration WHERE id IN (" + marks(ids.size()) + ") ORDER BY id FOR UPDATE",
+				rs -> {
+					if (rs.getObject("trashed_at") != null) {
+						trashed.add(rs.getLong("id"));
+					}
+				},
 				ids.toArray()
 		);
+		return trashed;
 	}
 
 	public int clearTrashed(List<Long> ids) {

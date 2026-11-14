@@ -80,10 +80,45 @@ public class FileStorageService implements FileStorage {
 	public void delete(String storageKey) {
 		Path filePath = resolveStoragePath(storageKey);
 		try {
-			Files.deleteIfExists(filePath);
+			Path safePath = resolveRealPathWithinRootForDelete(filePath);
+			if (safePath != null) {
+				Files.deleteIfExists(safePath);
+			}
 		} catch (IOException exception) {
 			throw new FileStorageException("Failed to delete stored file.", exception);
 		}
+	}
+
+	private Path resolveRealPathWithinRootForDelete(Path filePath) throws IOException {
+		if (Files.notExists(storageRoot, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+			return null;
+		}
+		Path realRoot = storageRoot.toRealPath();
+		Path relative = storageRoot.relativize(filePath);
+		Path current = realRoot;
+		for (int i = 0; i < relative.getNameCount() - 1; i++) {
+			current = current.resolve(relative.getName(i));
+			if (Files.notExists(current, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+				return null;
+			}
+			Path realDir = current.toRealPath();
+			if (!realDir.startsWith(realRoot)) {
+				throw new FileStorageValidationException("Stored file must stay within the configured storage root.");
+			}
+			current = realDir;
+		}
+		Path leaf = current.resolve(relative.getFileName());
+		if (Files.notExists(leaf, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+			return null;
+		}
+		if (Files.isSymbolicLink(leaf) || Files.isDirectory(leaf, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+			throw new FileStorageValidationException("Stored file must stay within the configured storage root.");
+		}
+		Path realLeaf = leaf.toRealPath();
+		if (!realLeaf.startsWith(realRoot)) {
+			throw new FileStorageValidationException("Stored file must stay within the configured storage root.");
+		}
+		return realLeaf;
 	}
 
 	public Resource load(String storageKey) {
@@ -194,7 +229,7 @@ public class FileStorageService implements FileStorage {
 			throw new FileStorageValidationException("Storage key must be a relative path.");
 		}
 		Path resolvedPath = storageRoot.resolve(keyPath).normalize();
-		if (!resolvedPath.startsWith(storageRoot)) {
+		if (!resolvedPath.startsWith(storageRoot) || resolvedPath.equals(storageRoot)) {
 			throw new FileStorageValidationException("Storage key must stay within the configured storage root.");
 		}
 		return resolvedPath;

@@ -37,12 +37,12 @@ class IllustrationUpdateServiceTest {
 		TagRepository tagRepository = mock(TagRepository.class);
 		IllustrationTagRepository illustrationTagRepository = mock(IllustrationTagRepository.class);
 		IllustrationUpdateService service = service(repository, authorRepository, tagRepository, illustrationTagRepository);
-		when(repository.findDetailBaseById(99L)).thenReturn(Optional.empty());
+		when(repository.lockActiveById(99L)).thenReturn(false);
 
 		assertThrows(IllustrationNotFoundException.class,
 				() -> service.updateBasicMetadata(99L, new IllustrationPatchRequest()));
 
-		verify(repository).findDetailBaseById(99L);
+		verify(repository).lockActiveById(99L);
 		verify(repository, never()).updateBasicMetadata(anyLong(), any());
 		verifyNoInteractions(authorRepository, tagRepository, illustrationTagRepository);
 	}
@@ -54,11 +54,11 @@ class IllustrationUpdateServiceTest {
 		TagRepository tagRepository = mock(TagRepository.class);
 		IllustrationTagRepository illustrationTagRepository = mock(IllustrationTagRepository.class);
 		IllustrationUpdateService service = service(repository, authorRepository, tagRepository, illustrationTagRepository);
-		when(repository.findDetailBaseById(10L)).thenReturn(Optional.of(detailBase()));
+		when(repository.lockActiveById(10L)).thenReturn(true);
 
 		service.updateBasicMetadata(10L, new IllustrationPatchRequest());
 
-		verify(repository).findDetailBaseById(10L);
+		verify(repository).lockActiveById(10L);
 		verifyNoInteractions(authorRepository, tagRepository, illustrationTagRepository);
 		verifyNoMoreInteractions(repository);
 	}
@@ -73,7 +73,7 @@ class IllustrationUpdateServiceTest {
 		IllustrationPatchRequest request = new IllustrationPatchRequest();
 		request.setTitle("New title");
 		request.setNote("New note");
-		when(repository.findDetailBaseById(10L)).thenReturn(Optional.of(detailBase()));
+		when(repository.lockActiveById(10L)).thenReturn(true);
 
 		service.updateBasicMetadata(10L, request);
 
@@ -90,7 +90,7 @@ class IllustrationUpdateServiceTest {
 		IllustrationUpdateService service = service(repository, authorRepository, tagRepository, illustrationTagRepository);
 		IllustrationPatchRequest request = new IllustrationPatchRequest();
 		request.setTitle(null);
-		when(repository.findDetailBaseById(10L)).thenReturn(Optional.of(detailBase()));
+		when(repository.lockActiveById(10L)).thenReturn(true);
 
 		service.updateBasicMetadata(10L, request);
 
@@ -108,7 +108,7 @@ class IllustrationUpdateServiceTest {
 		IllustrationUpdateService service = service(repository, authorRepository, tagRepository, illustrationTagRepository);
 		IllustrationPatchRequest request = new IllustrationPatchRequest();
 		request.setAuthorId(1L);
-		when(repository.findDetailBaseById(10L)).thenReturn(Optional.of(detailBase()));
+		when(repository.lockActiveById(10L)).thenReturn(true);
 		when(authorRepository.findById(1L))
 				.thenReturn(Optional.of(new AuthorDetail(1L, "Artist", null, null, null)));
 
@@ -128,7 +128,7 @@ class IllustrationUpdateServiceTest {
 		IllustrationUpdateService service = service(repository, authorRepository, tagRepository, illustrationTagRepository);
 		IllustrationPatchRequest request = new IllustrationPatchRequest();
 		request.setAuthorId(999L);
-		when(repository.findDetailBaseById(10L)).thenReturn(Optional.of(detailBase()));
+		when(repository.lockActiveById(10L)).thenReturn(true);
 		when(authorRepository.findById(999L)).thenReturn(Optional.empty());
 
 		assertThrows(AuthorNotFoundException.class, () -> service.updateBasicMetadata(10L, request));
@@ -147,7 +147,7 @@ class IllustrationUpdateServiceTest {
 		IllustrationUpdateService service = service(repository, authorRepository, tagRepository, illustrationTagRepository);
 		IllustrationPatchRequest request = new IllustrationPatchRequest();
 		request.setAuthorId(null);
-		when(repository.findDetailBaseById(10L)).thenReturn(Optional.of(detailBase()));
+		when(repository.lockActiveById(10L)).thenReturn(true);
 
 		service.updateBasicMetadata(10L, request);
 
@@ -162,12 +162,12 @@ class IllustrationUpdateServiceTest {
 		TagRepository tagRepository = mock(TagRepository.class);
 		IllustrationTagRepository illustrationTagRepository = mock(IllustrationTagRepository.class);
 		IllustrationUpdateService service = service(repository, authorRepository, tagRepository, illustrationTagRepository);
-		when(repository.findDetailBaseById(10L)).thenReturn(Optional.of(detailBase()));
+		when(repository.lockActiveById(10L)).thenReturn(true);
 
 		service.updateBasicMetadata(10L, new IllustrationPatchRequest());
 
 		verifyNoInteractions(authorRepository, tagRepository, illustrationTagRepository);
-		verify(repository).findDetailBaseById(10L);
+		verify(repository).lockActiveById(10L);
 		verifyNoMoreInteractions(repository);
 	}
 
@@ -180,7 +180,7 @@ class IllustrationUpdateServiceTest {
 		IllustrationUpdateService service = service(repository, authorRepository, tagRepository, illustrationTagRepository);
 		IllustrationPatchRequest request = new IllustrationPatchRequest();
 		request.setTagIds(List.of());
-		when(repository.findDetailBaseById(10L)).thenReturn(Optional.of(detailBase()));
+		when(repository.lockActiveById(10L)).thenReturn(true);
 
 		service.updateBasicMetadata(10L, request);
 
@@ -198,7 +198,7 @@ class IllustrationUpdateServiceTest {
 		IllustrationUpdateService service = service(repository, authorRepository, tagRepository, illustrationTagRepository);
 		IllustrationPatchRequest request = new IllustrationPatchRequest();
 		request.setTagIds(List.of(1L, 2L));
-		when(repository.findDetailBaseById(10L)).thenReturn(Optional.of(detailBase()));
+		when(repository.lockActiveById(10L)).thenReturn(true);
 		when(tagRepository.findById(1L)).thenReturn(Optional.of(new TagSummary(1L, "one")));
 		when(tagRepository.findById(2L)).thenReturn(Optional.of(new TagSummary(2L, "two")));
 
@@ -221,7 +221,7 @@ class IllustrationUpdateServiceTest {
 		IllustrationUpdateService service = service(repository, authorRepository, tagRepository, illustrationTagRepository);
 		IllustrationPatchRequest request = new IllustrationPatchRequest();
 		request.setTagIds(List.of(1L, 1L, 2L));
-		when(repository.findDetailBaseById(10L)).thenReturn(Optional.of(detailBase()));
+		when(repository.lockActiveById(10L)).thenReturn(true);
 		when(tagRepository.findById(1L)).thenReturn(Optional.of(new TagSummary(1L, "one")));
 		when(tagRepository.findById(2L)).thenReturn(Optional.of(new TagSummary(2L, "two")));
 
@@ -242,7 +242,7 @@ class IllustrationUpdateServiceTest {
 		IllustrationUpdateService service = service(repository, authorRepository, tagRepository, illustrationTagRepository);
 		IllustrationPatchRequest request = new IllustrationPatchRequest();
 		request.setTagIds(List.of(1L, 999L));
-		when(repository.findDetailBaseById(10L)).thenReturn(Optional.of(detailBase()));
+		when(repository.lockActiveById(10L)).thenReturn(true);
 		when(tagRepository.findById(1L)).thenReturn(Optional.of(new TagSummary(1L, "one")));
 		when(tagRepository.findById(999L)).thenReturn(Optional.empty());
 
@@ -262,7 +262,7 @@ class IllustrationUpdateServiceTest {
 		IllustrationUpdateService service = service(repository, authorRepository, tagRepository, illustrationTagRepository);
 		IllustrationPatchRequest request = new IllustrationPatchRequest();
 		request.setTagIds(null);
-		when(repository.findDetailBaseById(10L)).thenReturn(Optional.of(detailBase()));
+		when(repository.lockActiveById(10L)).thenReturn(true);
 
 		assertThrows(IllegalArgumentException.class, () -> service.updateBasicMetadata(10L, request));
 
@@ -279,7 +279,7 @@ class IllustrationUpdateServiceTest {
 		IllustrationUpdateService service = service(repository, authorRepository, tagRepository, illustrationTagRepository);
 		IllustrationPatchRequest request = new IllustrationPatchRequest();
 		request.setTagIds(Arrays.asList(1L, null));
-		when(repository.findDetailBaseById(10L)).thenReturn(Optional.of(detailBase()));
+		when(repository.lockActiveById(10L)).thenReturn(true);
 
 		assertThrows(IllegalArgumentException.class, () -> service.updateBasicMetadata(10L, request));
 
@@ -293,7 +293,7 @@ class IllustrationUpdateServiceTest {
 		TagRepository tagRepository = mock(TagRepository.class);
 		IllustrationTagRepository illustrationTagRepository = mock(IllustrationTagRepository.class);
 		IllustrationUpdateService service = service(repository, authorRepository, tagRepository, illustrationTagRepository);
-		when(repository.findDetailBaseById(10L)).thenReturn(Optional.of(detailBase()));
+		when(repository.lockActiveById(10L)).thenReturn(true);
 
 		IllustrationPatchRequest zeroRequest = new IllustrationPatchRequest();
 		zeroRequest.setTagIds(List.of(0L));
@@ -316,7 +316,7 @@ class IllustrationUpdateServiceTest {
 		IllustrationPatchRequest request = new IllustrationPatchRequest();
 		request.setTitle("New title");
 		request.setTagIds(List.of(1L, 2L));
-		when(repository.findDetailBaseById(10L)).thenReturn(Optional.of(detailBase()));
+		when(repository.lockActiveById(10L)).thenReturn(true);
 		when(tagRepository.findById(1L)).thenReturn(Optional.of(new TagSummary(1L, "one")));
 		when(tagRepository.findById(2L)).thenReturn(Optional.of(new TagSummary(2L, "two")));
 

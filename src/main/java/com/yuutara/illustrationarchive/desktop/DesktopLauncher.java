@@ -1,5 +1,6 @@
 package com.yuutara.illustrationarchive.desktop;
 
+import com.yuutara.illustrationarchive.service.TrashPurgeScheduler;
 import org.eclipse.swt.SWT;
 import org.eclipse.swt.program.Program;
 import org.eclipse.swt.widgets.DirectoryDialog;
@@ -58,6 +59,7 @@ public final class DesktopLauncher {
 	private volatile DesktopServer.Running running;
 	private volatile int port = PREFERRED_PORT;
 	private volatile boolean stopping;
+	private volatile boolean systemClose;
 	/** Reads, backs up and starts the library off the UI thread; quitting waits for it. */
 	private final LibraryStart starter = new LibraryStart(new StartSteps(), () -> stopping);
 	private DesktopWindow window;
@@ -147,7 +149,10 @@ public final class DesktopLauncher {
 		}
 		DesktopSplash.status("正在准备图库…", SERVER_STAGE_CAP);
 		// Windows asks this before a sign-out or shutdown; a window in the tray would otherwise die mid-run.
-		display.addListener(SWT.Close, event -> stop());
+		display.addListener(SWT.Close, event -> {
+			systemClose = true;
+			stop();
+		});
 		window = DesktopWindow.open(display, home, DesktopSettings.savedProxy(home), this::openInDefaultBrowser,
 				this::closeAction, this::stop).orElse(null);
 		if (window == null) {
@@ -156,12 +161,16 @@ public final class DesktopLauncher {
 		}
 		startInBackground(true);
 
-		while (!stopping) {
-			if (!display.readAndDispatch()) {
-				display.sleep();
+		for (;;) {
+			while (!stopping) {
+				if (!display.readAndDispatch()) {
+					display.sleep();
+				}
+			}
+			if (shutDown()) {
+				return;
 			}
 		}
-		shutDown();
 	}
 
 	/** @param backUpFirst back the library up first if this version will upgrade it */
@@ -618,31 +627,84 @@ public final class DesktopLauncher {
 		}
 	}
 
-	private void shutDown() {
+	private boolean shutDown() {
 		int code = 0;
+		boolean exitCancelled = false;
 		try {
 			// Before anything is released: a backup stops at its next step, but an upgrade under way runs to its end,
 			// and until then the library is in use and the instance lock must keep a second launch out.
 			starter.awaitEnd();
 			maintenance.close();
+			DesktopServer.Running current = running;
+			boolean drained = drainBeforeShutdown(current, LibraryMaintenance.DRAIN_TIMEOUT, () -> false);
+			if (!drained && !systemClose && !display.isDisposed()) {
+				exitCancelled = true;
+				resumeAfterCancelledShutdown(current);
+				stopping = false;
+				quitAfterMaintenance = false;
+				maintenanceWindow().result("仍在完成清理或写入，暂未退出",
+						"图库还有收尾清理或写入没有完成，为避免损坏数据已取消本次退出。请稍等几秒后再试。",
+						List.of(new MaintenanceWindow.Action("确定", () -> maintenanceWindow().close())), 0);
+				return false;
+			}
 			display.dispose();
 			Files.deleteIfExists(entryFile(home));
-			DesktopServer.Running current = running;
 			if (current != null) {
-				current.context().close();
+				running = null;
+				if (!DesktopServer.stop(current)) {
+					code = 1;
+				}
 			}
 		} catch (IOException | RuntimeException exception) {
 			code = 1;
 			exception.printStackTrace();
 		} finally {
-			try {
-				instanceLock.release();
-				instanceLock.channel().close();
-			} catch (IOException ignored) {
-				// The OS releases the lock when the process exits anyway.
+			if (!exitCancelled) {
+				try {
+					instanceLock.release();
+					instanceLock.channel().close();
+				} catch (IOException ignored) {
+					// The OS releases the lock when the process exits anyway.
+				}
 			}
 		}
 		System.exit(code);
+		return true;
+	}
+
+	static boolean drainBeforeShutdown(DesktopServer.Running current, java.time.Duration timeout,
+			java.util.function.BooleanSupplier cancelled) {
+		if (current == null) {
+			return true;
+		}
+		TrashPurgeScheduler scheduler = current.context().getBeanProvider(TrashPurgeScheduler.class).getIfAvailable();
+		if (scheduler != null) {
+			scheduler.requestStop();
+		}
+		MaintenanceGate gate = current.context().getBeanProvider(MaintenanceGate.class).getIfAvailable();
+		if (gate == null) {
+			return true;
+		}
+		try {
+			return gate.close(timeout, cancelled);
+		} catch (InterruptedException interrupted) {
+			Thread.currentThread().interrupt();
+			return false;
+		}
+	}
+
+	static void resumeAfterCancelledShutdown(DesktopServer.Running current) {
+		if (current == null) {
+			return;
+		}
+		MaintenanceGate gate = current.context().getBeanProvider(MaintenanceGate.class).getIfAvailable();
+		if (gate != null) {
+			gate.open();
+		}
+		TrashPurgeScheduler scheduler = current.context().getBeanProvider(TrashPurgeScheduler.class).getIfAvailable();
+		if (scheduler != null) {
+			scheduler.resumeAfterCancelledStop();
+		}
 	}
 
 	private static void showMessage(int icon, String message) {
