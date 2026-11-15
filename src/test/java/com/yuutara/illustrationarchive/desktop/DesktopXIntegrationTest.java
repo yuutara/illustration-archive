@@ -1,16 +1,21 @@
 package com.yuutara.illustrationarchive.desktop;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import com.yuutara.illustrationarchive.dto.XLikeMedia;
 import com.yuutara.illustrationarchive.dto.XLikeStatus;
 import com.yuutara.illustrationarchive.repository.XLikeRepository;
+import com.yuutara.illustrationarchive.service.GeminiClient;
 import com.yuutara.illustrationarchive.service.XPostPersistenceService;
 import com.yuutara.illustrationarchive.storage.FileStorage;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -73,6 +78,7 @@ class DesktopXIntegrationTest {
 	private final List<String> geminiKeys = new CopyOnWriteArrayList<>();
 	private final AtomicInteger tokenAnswers = new AtomicInteger();
 	private volatile int geminiStatus = 200;
+	private volatile String geminiErrorBody;
 	private volatile int tokenStatus = 200;
 	private volatile int likesStatus = 200;
 	private volatile String accessToken = "access-1";
@@ -81,6 +87,7 @@ class DesktopXIntegrationTest {
 	/** Authorization codes whose token response waits for the test to let it go. */
 	private final Map<String, HeldExchange> heldCodes = new ConcurrentHashMap<>();
 	private volatile HeldExchange heldUser;
+	private volatile HeldExchange heldGemini;
 	private HttpServer fakeX;
 	private int callbackPort;
 
@@ -101,8 +108,11 @@ class DesktopXIntegrationTest {
 		fakeX.createContext("/v1beta/models/", exchange -> {
 			geminiKeys.add(exchange.getRequestHeaders().getFirst("x-goog-api-key"));
 			exchange.getRequestBody().readAllBytes();
+			HeldExchange held = heldGemini;
+			if (held != null) held.block();
+			String errorBody = geminiErrorBody;
 			reply(exchange, geminiStatus, geminiStatus == 200 ? geminiAnswer()
-					: "{\"error\":{\"code\":400,\"status\":\"INVALID_ARGUMENT\",\"message\":\"rejected\"}}");
+					: (errorBody != null ? errorBody : "{\"error\":{\"code\":400,\"status\":\"INVALID_ARGUMENT\",\"message\":\"rejected\"}}"));
 		});
 		// A held token response must not stop the fake from answering anything else.
 		fakeX.setExecutor(Thread::startVirtualThread);
@@ -1019,6 +1029,104 @@ class DesktopXIntegrationTest {
 		assertEquals(200, send(restarted, newCookie, "POST", "/api/illustrations/" + id + "/ai-analysis", "").statusCode());
 		assertFalse(json(send(restarted, newCookie, "GET", "/api/desktop/settings", null)).path("geminiVerifiedAt").isNull(),
 				"with the file writable again, the next real success counts");
+	}
+
+	@Test
+	void inFlightGeminiKeyReplacementAndRemovalPreserveRedactionErrorMessagesAndProofOwnership() throws Exception {
+		DesktopServer.Running running = start();
+		String cookie = sessionCookie(running);
+		long id = importImage(running, cookie);
+
+		Logger logger = (Logger) LoggerFactory.getLogger(GeminiClient.class);
+		boolean wasAdditive = logger.isAdditive();
+		var captured = new ListAppender<ILoggingEvent>();
+		captured.start();
+		logger.addAppender(captured);
+		logger.setAdditive(false);
+		try {
+			// 1. In-flight key replacement during a succeeding request must not credit verification to the new key.
+			assertEquals(204, send(running, cookie, "PUT", "/api/desktop/settings/gemini-key", "{\"apiKey\":\"fake-key-1\"}").statusCode());
+			HeldExchange successHold = new HeldExchange();
+			heldGemini = successHold;
+			geminiStatus = 200;
+			var inFlightSuccess = CompletableFuture.supplyAsync(() -> {
+				try {
+					return send(running, cookie, "POST", "/api/illustrations/" + id + "/ai-analysis", "");
+				} catch (Exception e) {
+					throw new IllegalStateException(e);
+				}
+			});
+			successHold.awaitArrival();
+			assertEquals(List.of("fake-key-1"), geminiKeys);
+			assertEquals(204, send(running, cookie, "PUT", "/api/desktop/settings/gemini-key", "{\"apiKey\":\"fake-key-2\"}").statusCode());
+			successHold.release();
+			assertEquals(200, inFlightSuccess.join().statusCode());
+			JsonNode afterSwapSuccess = json(send(running, cookie, "GET", "/api/desktop/settings", null));
+			assertTrue(afterSwapSuccess.path("geminiKeySaved").asBoolean());
+			assertTrue(afterSwapSuccess.path("geminiVerifiedAt").isNull(),
+					"Verification from fake-key-1 must never belong to fake-key-2");
+
+			// 2. In-flight key replacement during an error echoing the sent key must still redact the sent key.
+			captured.list.clear();
+			HeldExchange replaceErrHold = new HeldExchange();
+			heldGemini = replaceErrHold;
+			geminiStatus = 400;
+			geminiErrorBody = "{\"error\":{\"code\":400,\"status\":\"INVALID_ARGUMENT\",\"message\":\"Rejected fake-key-2\"}}";
+			var inFlightSwapErr = CompletableFuture.supplyAsync(() -> {
+				try {
+					return send(running, cookie, "POST", "/api/illustrations/" + id + "/ai-analysis", "");
+				} catch (Exception e) {
+					throw new IllegalStateException(e);
+				}
+			});
+			replaceErrHold.awaitArrival();
+			assertEquals(204, send(running, cookie, "PUT", "/api/desktop/settings/gemini-key", "{\"apiKey\":\"fake-key-3\"}").statusCode());
+			replaceErrHold.release();
+			HttpResponse<String> swapErrResp = inFlightSwapErr.join();
+			assertEquals(502, swapErrResp.statusCode());
+			assertTrue(json(swapErrResp).path("message").asText().contains("到设置检查"));
+			assertFalse(swapErrResp.body().contains("fake-key-2"));
+			assertEquals(1, captured.list.size());
+			String swapErrLog = captured.list.get(0).getFormattedMessage();
+			assertFalse(swapErrLog.contains("fake-key-2"));
+			assertTrue(swapErrLog.contains("Rejected [REDACTED]"));
+			assertTrue(json(send(running, cookie, "GET", "/api/desktop/settings", null)).path("geminiVerifiedAt").isNull());
+
+			// 3. In-flight key removal during a 404 error echoing the sent key must redact the sent key and keep 503 hint.
+			captured.list.clear();
+			HeldExchange removeErrHold = new HeldExchange();
+			heldGemini = removeErrHold;
+			geminiStatus = 404;
+			geminiErrorBody = "{\"error\":{\"code\":404,\"status\":\"NOT_FOUND\",\"message\":\"Missing model for fake-key-3\"}}";
+			var inFlightRemoveErr = CompletableFuture.supplyAsync(() -> {
+				try {
+					return send(running, cookie, "POST", "/api/illustrations/" + id + "/ai-analysis", "");
+				} catch (Exception e) {
+					throw new IllegalStateException(e);
+				}
+			});
+			removeErrHold.awaitArrival();
+			assertEquals(204, send(running, cookie, "DELETE", "/api/desktop/settings/gemini-key", null).statusCode());
+			removeErrHold.release();
+			HttpResponse<String> removeErrResp = inFlightRemoveErr.join();
+			assertEquals(503, removeErrResp.statusCode());
+			assertTrue(json(removeErrResp).path("message").asText().contains("NOT_FOUND"));
+			assertFalse(json(removeErrResp).path("message").asText().contains("未启用"));
+			assertFalse(removeErrResp.body().contains("fake-key-3"));
+			assertEquals(1, captured.list.size());
+			String removeErrLog = captured.list.get(0).getFormattedMessage();
+			assertFalse(removeErrLog.contains("fake-key-3"));
+			assertTrue(removeErrLog.contains("Missing model for [REDACTED]"));
+			JsonNode afterRemove = json(send(running, cookie, "GET", "/api/desktop/settings", null));
+			assertFalse(afterRemove.path("geminiKeySaved").asBoolean());
+			assertTrue(afterRemove.path("geminiVerifiedAt").isNull());
+		} finally {
+			heldGemini = null;
+			geminiErrorBody = null;
+			logger.detachAppender(captured);
+			logger.setAdditive(wasAdditive);
+			captured.stop();
+		}
 	}
 
 	@Test

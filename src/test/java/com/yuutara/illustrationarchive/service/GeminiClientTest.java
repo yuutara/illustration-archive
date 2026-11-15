@@ -1,5 +1,6 @@
 package com.yuutara.illustrationarchive.service;
 
+import com.sun.net.httpserver.HttpServer;
 import com.yuutara.illustrationarchive.dto.AiAnalysisResponse.Media;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.Level;
@@ -8,21 +9,26 @@ import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.web.server.ResponseStatusException;
 import tools.jackson.databind.ObjectMapper;
 
 import java.io.ByteArrayOutputStream;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Flow;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -389,6 +395,83 @@ class GeminiClientTest {
 		assertFalse(logged.contains("\n"));
 		assertNull(capturedLogs.list.get(0).getThrowableProxy(), "Raw Throwable logging would bypass redaction");
 		assertFalse(failure.getReason().contains("Handshake"));
+	}
+
+	@Test
+	void inFlightKeyReplacementAndRemovalStillRedactTheSentKeyInHttpAndNetworkErrors(@TempDir Path tempHome) throws Exception {
+		String oldKey = "fake-inflight-old-key";
+		String newKey = "fake-inflight-new-key";
+		GeminiKeyStore keys = new GeminiKeyStore("", tempHome.resolve("gemini-key.txt").toString());
+		AtomicBoolean sawExpectedHeader = new AtomicBoolean(false);
+		var requestIndex = new java.util.concurrent.atomic.AtomicInteger();
+		HttpServer upstream = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+		try {
+			upstream.createContext("/v1beta/models/", exchange -> {
+				try (exchange) {
+					exchange.getRequestBody().readAllBytes();
+					String sent = exchange.getRequestHeaders().getFirst("x-goog-api-key");
+					sawExpectedHeader.set(oldKey.equals(sent));
+					byte[] responseBody;
+					int code;
+					if (requestIndex.getAndIncrement() == 0) {
+						keys.save(newKey);
+						code = 400;
+						responseBody = googleError(400, "INVALID_ARGUMENT", "Rejected credential " + sent)
+								.getBytes(StandardCharsets.UTF_8);
+					} else {
+						keys.clear();
+						code = 404;
+						responseBody = googleError(404, "NOT_FOUND", "Unavailable for " + sent)
+								.getBytes(StandardCharsets.UTF_8);
+					}
+					exchange.sendResponseHeaders(code, responseBody.length);
+					exchange.getResponseBody().write(responseBody);
+				}
+			});
+			upstream.start();
+			var liveClient = new GeminiClient(mapper, true, keys, MODEL, 10,
+					"http://127.0.0.1:" + upstream.getAddress().getPort());
+
+			// 1. Concurrent replacement during HTTP 400
+			keys.save(oldKey);
+			var replacedFailure = status(502, () -> liveClient.analyze(List.of(IMAGE), media, List.of()));
+			assertTrue(sawExpectedHeader.get());
+			assertTrue(replacedFailure.getReason().contains("到设置检查"));
+			String replacedLog = onlyLog();
+			assertFalse(replacedLog.contains(oldKey));
+			assertTrue(replacedLog.contains("Rejected credential [REDACTED]"));
+
+			// 2. Concurrent removal during HTTP 404
+			capturedLogs.list.clear();
+			sawExpectedHeader.set(false);
+			keys.save(oldKey);
+			var removedFailure = status(503, () -> liveClient.analyze(List.of(IMAGE), media, List.of()));
+			assertTrue(sawExpectedHeader.get());
+			assertTrue(removedFailure.getReason().contains(MODEL) && removedFailure.getReason().contains("NOT_FOUND"));
+			String removedLog = onlyLog();
+			assertFalse(removedLog.contains(oldKey));
+			assertTrue(removedLog.contains("Unavailable for [REDACTED]"));
+		} finally {
+			upstream.stop(0);
+		}
+
+		// 3. Concurrent replacement and removal during network exception
+		for (boolean removeKey : List.of(false, true)) {
+			capturedLogs.list.clear();
+			keys.save(oldKey);
+			when(http.sendAsync(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenAnswer(call -> {
+				HttpRequest req = call.getArgument(0);
+				assertEquals(oldKey, req.headers().firstValue("x-goog-api-key").orElseThrow());
+				if (removeKey) keys.clear(); else keys.save(newKey);
+				return CompletableFuture.failedFuture(new javax.net.ssl.SSLHandshakeException("Handshake failed for " + oldKey));
+			});
+			var netClient = new GeminiClient(http, mapper, true, keys, MODEL, 90);
+			var netFailure = status(502, () -> netClient.analyze(List.of(IMAGE), media, List.of()));
+			assertFalse(netFailure.getReason().contains("Handshake"));
+			String netLog = onlyLog();
+			assertFalse(netLog.contains(oldKey));
+			assertTrue(netLog.contains("rootCauseMessage=Handshake failed for [REDACTED]"));
+		}
 	}
 
 	@Test

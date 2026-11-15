@@ -82,6 +82,10 @@ public class GeminiClient {
 		this(() -> http, mapper, enabled, () -> apiKey, model, timeoutSeconds, DEFAULT_BASE_URL);
 	}
 
+	GeminiClient(HttpClient http, ObjectMapper mapper, boolean enabled, GeminiKeyStore keys, String model, int timeoutSeconds) {
+		this(() -> http, mapper, enabled, keys::apiKey, model, timeoutSeconds, DEFAULT_BASE_URL);
+	}
+
 	private GeminiClient(Supplier<HttpClient> http, ObjectMapper mapper, boolean enabled, Supplier<String> apiKey, String model,
 			int timeoutSeconds, String baseUrl) {
 		this.http = http;
@@ -94,14 +98,20 @@ public class GeminiClient {
 	}
 
 	public void checkAvailable() {
-		if (!enabled || apiKey.get().isBlank() || !SUPPORTED_MODELS.containsKey(model) || timeoutSeconds < 1) {
+		requireApiKey();
+	}
+
+	private String requireApiKey() {
+		String key = apiKey.get();
+		if (!enabled || key == null || key.isBlank() || !SUPPORTED_MODELS.containsKey(model) || timeoutSeconds < 1) {
 			throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
 					"AI 分析未启用或后端配置未完成。");
 		}
+		return key;
 	}
 
 	public AiAnalysisResponse analyze(List<String> images, List<Media> analyzed, List<Media> skipped) {
-		checkAvailable();
+		String sentApiKey = requireApiKey();
 		String thinkingLevel = SUPPORTED_MODELS.get(model);
 		var parts = new ArrayList<Map<String, Object>>();
 		parts.add(Map.of("text", "共" + images.size() + "张图片，按输入顺序识别并翻译可见文字；只依据提供的静态图片。"));
@@ -127,7 +137,7 @@ public class GeminiClient {
 					"这组图片合起来太大，暂时无法一次分析。可改用较小版本重新导入。");
 		}
 		var request = HttpRequest.newBuilder(URI.create(baseUrl + "/v1beta/models/" + model + ":generateContent"))
-				.timeout(Duration.ofSeconds(timeoutSeconds)).header("x-goog-api-key", apiKey.get())
+				.timeout(Duration.ofSeconds(timeoutSeconds)).header("x-goog-api-key", sentApiKey)
 				.header("Content-Type", "application/json").header("Accept", "application/json")
 				.POST(HttpRequest.BodyPublishers.ofByteArray(requestBody)).build();
 		// Keep the complete-body deadline, including all non-streaming response text.
@@ -136,13 +146,13 @@ public class GeminiClient {
 			pending = http.get().sendAsync(request, HttpResponse.BodyHandlers.ofString());
 			var response = pending.get(timeoutSeconds, TimeUnit.SECONDS);
 			if (response.statusCode() != 200) {
-				String googleStatus = logResponseFailure(response.statusCode(), response.body(), images);
+				String googleStatus = logResponseFailure(response.statusCode(), response.body(), images, sentApiKey);
 				throw upstreamFailure(response.statusCode(), model, googleStatus);
 			}
 			if (response.body() == null || response.body().length() > 512 * 1024) throw invalidResult();
 			var envelope = readJson(response.body());
 			if (envelope.hasNonNull("error")) {
-				String googleStatus = logResponseFailure(response.statusCode(), response.body(), images);
+				String googleStatus = logResponseFailure(response.statusCode(), response.body(), images, sentApiKey);
 				throw upstreamFailure(envelope.path("error").path("code").asInt(502), model, googleStatus);
 			}
 			var candidate = envelope.path("candidates").path(0);
@@ -164,27 +174,27 @@ public class GeminiClient {
 			String usedModel = envelope.hasNonNull("modelVersion") ? text(envelope.path("modelVersion"), 200) : model;
 			return validate(result, usedModel, analyzed, skipped);
 		} catch (TimeoutException exception) {
-			logNetworkFailure(exception, images);
+			logNetworkFailure(exception, images, sentApiKey);
 			throw new ResponseStatusException(HttpStatus.GATEWAY_TIMEOUT, "AI 分析超时，请稍后再试。", exception);
 		} catch (InterruptedException exception) {
 			Thread.currentThread().interrupt();
-			logNetworkFailure(exception, images);
+			logNetworkFailure(exception, images, sentApiKey);
 			throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "AI 分析请求已中断。", exception);
 		} catch (ExecutionException exception) {
-			logNetworkFailure(exception, images);
+			logNetworkFailure(exception, images, sentApiKey);
 			if (exception.getCause() instanceof HttpTimeoutException) {
 				throw new ResponseStatusException(HttpStatus.GATEWAY_TIMEOUT, "AI 分析超时，请稍后再试。", exception);
 			}
 			throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Gemini 请求失败，请稍后再试。", exception);
 		} catch (UncheckedIOException exception) {
-			logNetworkFailure(exception, images);
+			logNetworkFailure(exception, images, sentApiKey);
 			throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Gemini 请求失败，请稍后再试。", exception);
 		} finally {
 			if (pending != null && !pending.isDone()) pending.cancel(true);
 		}
 	}
 
-	private String logResponseFailure(int status, String body, List<String> images) {
+	private String logResponseFailure(int status, String body, List<String> images, String sentApiKey) {
 		JsonNode error = null;
 		try {
 			if (body != null && body.length() <= 512 * 1024) {
@@ -197,28 +207,28 @@ public class GeminiClient {
 				&& error.path("code").canConvertToInt() && error.path("status").isString() && error.path("message").isString()) {
 			String rawStatus = error.path("status").asText();
 			log.warn("Gemini upstream failure: httpStatus={} google.error.code={} google.error.status={} google.error.message={}",
-					status, error.path("code").asInt(), safeDiagnostic(rawStatus, images),
-					safeDiagnostic(error.path("message").asText(), images));
+					status, error.path("code").asInt(), safeDiagnostic(rawStatus, images, sentApiKey),
+					safeDiagnostic(error.path("message").asText(), images, sentApiKey));
 			return SAFE_GOOGLE_STATUS.matcher(rawStatus).matches() ? rawStatus : null;
 		} else {
-			log.warn("Gemini upstream failure: httpStatus={} responseSnippet={}", status, safeDiagnostic(body, images));
+			log.warn("Gemini upstream failure: httpStatus={} responseSnippet={}", status, safeDiagnostic(body, images, sentApiKey));
 			return null;
 		}
 	}
 
-	private void logNetworkFailure(Throwable exception, List<String> images) {
+	private void logNetworkFailure(Throwable exception, List<String> images, String sentApiKey) {
 		Throwable root = exception;
 		var seen = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<Throwable, Boolean>());
 		seen.add(root);
 		while (root.getCause() != null && seen.add(root.getCause())) root = root.getCause();
 		// No Throwable argument: automatic stack traces would bypass message redaction.
 		log.warn("Gemini network failure: exceptionClass={} rootCauseClass={} rootCauseMessage={}",
-				exception.getClass().getName(), root.getClass().getName(), safeDiagnostic(root.getMessage(), images));
+				exception.getClass().getName(), root.getClass().getName(), safeDiagnostic(root.getMessage(), images, sentApiKey));
 	}
 
-	private String safeDiagnostic(String value, List<String> images) {
+	private String safeDiagnostic(String value, List<String> images, String sentApiKey) {
 		if (value == null) return "(empty)";
-		String safe = value.replace(apiKey.get(), "[REDACTED]");
+		String safe = sentApiKey == null || sentApiKey.isEmpty() ? value : value.replace(sentApiKey, "[REDACTED]");
 		if (REQUEST_DATA.matcher(safe).find() || safe.contains(PROMPT.substring(0, PROMPT.indexOf('\n')))) {
 			return "[request data omitted]";
 		}
