@@ -102,12 +102,19 @@ public class GeminiClient {
 	}
 
 	private String requireApiKey() {
+		if (!enabled || !SUPPORTED_MODELS.containsKey(model) || timeoutSeconds < 1) {
+			throw unavailable();
+		}
 		String key = apiKey.get();
-		if (!enabled || key == null || key.isBlank() || !SUPPORTED_MODELS.containsKey(model) || timeoutSeconds < 1) {
-			throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-					"AI 分析未启用或后端配置未完成。");
+		if (key == null || key.isBlank()) {
+			throw unavailable();
 		}
 		return key;
+	}
+
+	private static ResponseStatusException unavailable() {
+		return new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+				"AI 分析未启用或后端配置未完成。");
 	}
 
 	public AiAnalysisResponse analyze(List<String> images, List<Media> analyzed, List<Media> skipped) {

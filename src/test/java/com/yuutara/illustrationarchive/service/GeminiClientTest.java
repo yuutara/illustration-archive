@@ -232,6 +232,20 @@ class GeminiClientTest {
 	}
 
 	@Test
+	void disabledClientOrInvalidConfigReturns503WithoutReadingUnreadableCredentialFile(@TempDir Path credentialDirectory) {
+		var keys = new GeminiKeyStore("", credentialDirectory.toString());
+		for (var disabledOrMisconfigured : List.of(
+				new GeminiClient(mapper, false, keys, MODEL, 90, "http://127.0.0.1:1"),
+				new GeminiClient(http, mapper, false, keys, MODEL, 90),
+				new GeminiClient(http, mapper, true, keys, "gemini-3.1-pro-preview", 90),
+				new GeminiClient(http, mapper, true, keys, MODEL, 0))) {
+			status(503, disabledOrMisconfigured::checkAvailable);
+			status(503, () -> disabledOrMisconfigured.analyze(List.of(IMAGE), media, List.of()));
+		}
+		verifyNoInteractions(http);
+	}
+
+	@Test
 	void mapsHttpFailuresAndErrorInside200WithoutLeakingUpstreamBody() {
 		for (int code : List.of(400, 401, 403, 429, 404, 500, 502, 503, 504)) {
 			int expected = code == 429 ? 429 : code == 504 ? 504 : code == 404 || code == 500 || code == 503 ? 503 : 502;
