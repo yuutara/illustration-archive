@@ -247,3 +247,20 @@ html[data-mode="dark"] .masthead.is-scrolled { box-shadow: 0 1px 0 var(--line); 
 .sv-canvas video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 .sv-canvas video[hidden], .sv-canvas img[hidden] { display: none; }
 .piece-open { position: relative; }
+
+/* ---------------- 看图器 · AI 翻译 ---------------- */
+.ai-section h4.ai-page-title { margin: 14px 0 6px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.ai-group + .ai-group { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--gl-sep, var(--line)); }
+.ai-group:first-of-type h4.ai-page-title { margin-top: 6px; }
+.ai-cards { display: grid; gap: 8px; }
+.ai-card { padding: 9px 11px; border: 1px solid var(--gl-sep, var(--line)); border-radius: 8px; background: var(--gl-fill-hover, var(--paper-2)); user-select: text; overflow-wrap: anywhere; white-space: pre-wrap; }
+.ai-section .ai-card-note { margin: 0 0 4px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.ai-section .ai-card-tr { margin: 0; color: var(--ink); font-size: 13px; line-height: 1.55; }
+.ai-section .ai-card-src { margin: 5px 0 0; padding-top: 5px; border-top: 1px solid var(--gl-sep, var(--line)); color: var(--muted); font-size: 12px; line-height: 1.45; }
+.ai-section .ai-desc { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.ai-section .ai-empty { margin: 4px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.ai-section .btn { margin-top: 8px; }
+.sv-info .ai-section .btn { border-color: var(--gl-sep, var(--line)); color: var(--ink); background: var(--gl-fill-hover, var(--card)); }
+.sv-info .ai-section .btn:hover:not(:disabled) { border-color: var(--gl-sep-strong, var(--line)); background: var(--gl-sep-strong, var(--paper-2)); }
+.ai-section .ai-note { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.ai-section .ai-error { margin: 6px 0 0; color: var(--danger); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }

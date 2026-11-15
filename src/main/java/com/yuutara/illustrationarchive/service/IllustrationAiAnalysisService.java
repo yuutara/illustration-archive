@@ -6,6 +6,8 @@ import com.yuutara.illustrationarchive.repository.AssetRepository;
 import com.yuutara.illustrationarchive.repository.AssetRepository.AnalysisSource;
 import com.yuutara.illustrationarchive.repository.IllustrationRepository;
 import com.yuutara.illustrationarchive.storage.FileStorage;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -21,9 +23,11 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.concurrent.TimeUnit;
 
 @Service
 public class IllustrationAiAnalysisService {
+	private static final Logger log = LoggerFactory.getLogger(IllustrationAiAnalysisService.class);
 	// Reject large originals instead of adding a more elaborate decoder/pipeline to this experiment.
 	static final int MAX_SOURCE_BYTES = 20 * 1024 * 1024;
 	static final long MAX_PIXELS = 16_000_000;
@@ -49,6 +53,7 @@ public class IllustrationAiAnalysisService {
 
 	// No database transaction spans file reads or the external HTTP request. No archive writes.
 	public AiAnalysisResponse analyze(long id) {
+		long totalStart = System.nanoTime();
 		if (illustrations.findDetailBaseById(id).isEmpty()) {
 			throw new ResponseStatusException(HttpStatus.NOT_FOUND, "插画不存在。");
 		}
@@ -61,6 +66,7 @@ public class IllustrationAiAnalysisService {
 			throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
 					staticSources.isEmpty() ? "这件作品没有可分析的静态图片。" : "这件作品的静态图片较多，暂时无法一次分析。可继续查看原图。");
 		}
+		long prepareStart = System.nanoTime();
 		var analyzed = new ArrayList<Media>();
 		var skipped = new ArrayList<Media>();
 		var images = new ArrayList<String>();
@@ -74,9 +80,28 @@ public class IllustrationAiAnalysisService {
 				skipped.add(media);
 			}
 		}
-		AiAnalysisResponse result = client.analyze(images, analyzed, skipped);
-		evidence.aiWorked(attempt);
-		return result;
+		long prepareMs = nanosToMillis(prepareStart);
+		long callStart = System.nanoTime();
+		try {
+			AiAnalysisResponse result = client.analyze(images, analyzed, skipped);
+			long httpMs = nanosToMillis(callStart);
+			evidence.aiWorked(attempt);
+			if (result == null) return null;
+			long totalMs = nanosToMillis(totalStart);
+			log.info("AI analysis finished: id={} actualModel={} analyzed={} skipped={} prepareMs={} httpMs={} totalMs={} status=200",
+					id, result.model(), analyzed.size(), skipped.size(), prepareMs, httpMs, totalMs);
+			return result;
+		} catch (ResponseStatusException failure) {
+			long httpMs = nanosToMillis(callStart);
+			long totalMs = nanosToMillis(totalStart);
+			log.info("AI analysis failed: id={} analyzed={} skipped={} prepareMs={} httpMs={} totalMs={} status={}",
+					id, analyzed.size(), skipped.size(), prepareMs, httpMs, totalMs, failure.getStatusCode().value());
+			throw failure;
+		}
+	}
+
+	private static long nanosToMillis(long startNanos) {
+		return Math.max(0L, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos));
 	}
 
 	byte[] prepareImage(AnalysisSource source) {

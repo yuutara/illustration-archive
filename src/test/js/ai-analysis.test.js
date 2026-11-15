@@ -4,11 +4,10 @@ const { browser, settle } = require("./helpers/browser");
 
 const detail = { id: 7, title: "Comic", assets: [{ id: 11, mimeType: "image/jpeg", sortOrder: 0 }], tags: [] };
 const result = {
-    summary: "<script>摘要</script>", pages: [{ index: 1, description: "看不清对白", texts: [
+    pages: [{ index: 1, description: "看不清对白", texts: [
         { source: "<img src=x onerror=evil()>Hello", translation: "<script>你好</script>", note: "右上对话框 <b>注释</b>" }
     ] }],
-    characters: [{ name: "黑发角色", description: "身份不确定" }], relationships: [], suggestedTags: ["<img onerror=evil()>"],
-    model: "free-model", analyzedAssets: [{ assetId: 11, position: 2, mimeType: "image/jpeg" }],
+    model: "gemini-4-hydrogen", analyzedAssets: [{ assetId: 11, position: 2, mimeType: "image/jpeg" }],
     skippedAssets: [{ assetId: 12, position: 1, mimeType: "video/mp4" }]
 };
 async function setup(post, loaded = detail) {
@@ -45,8 +44,7 @@ test("Viewer owns analysis, locks duplicate clicks and safely renders the curren
     assert.ok(children.some(node => node.textContent === `位置 / 类型：${result.pages[0].texts[0].note}`));
     const overview = env.find("image-viewer-ai-overview");
     assert.equal(overview.tagName, "details"); assert.equal(overview.open, false);
-    assert.ok(overview.children.some(node => node.textContent === result.summary));
-    assert.ok(overview.children.some(node => node.textContent === result.suggestedTags[0]));
+    assert.ok(overview.children.some(node => node.textContent === `本次模型：${result.model}`));
     assert.ok(overview.children.some(node => /第 1 张.*video\/mp4/.test(node.textContent)));
     assert.ok([...children, ...overview.children].every(node => node.innerHTML === undefined));
     assert.equal(env.document.getElementById("detail-title").textContent, "Comic");

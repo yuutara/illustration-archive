@@ -179,7 +179,7 @@ public final class DesktopServer {
 		properties.put("gemini.base-url", "https://generativelanguage.googleapis.com");
 		properties.put("gemini.api-key", "");
 		properties.put("gemini.credential-file", root.resolve("config").resolve("gemini-key.txt").toString());
-		properties.put("gemini.model", "gemini-3.1-flash-lite");
+		properties.put("gemini.model", "gemini-4-hydrogen");
 		// A blank X_SYNC_MAX_PAGES= or AI_ANALYSIS_TIMEOUT_SECONDS= in the environment must not stop the
 		// gallery from opening. Values are the usual defaults; the sync budget also caps each click's cost.
 		properties.put("ai.analysis.timeout-seconds", "90");

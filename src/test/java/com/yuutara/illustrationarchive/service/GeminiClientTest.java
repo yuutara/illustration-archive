@@ -29,7 +29,8 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class GeminiClientTest {
-	private static final String MODEL = "gemini-3.1-flash-lite";
+	private static final String MODEL = "gemini-4-hydrogen";
+	private static final String LITE_MODEL = "gemini-3.1-flash-lite";
 	private static final String IMAGE = "data:image/jpeg;base64,AQ==";
 	private final HttpClient http = mock(HttpClient.class);
 	private final ObjectMapper mapper = new ObjectMapper();
@@ -40,8 +41,7 @@ class GeminiClientTest {
 	private Level previousLevel;
 	private boolean previousAdditive;
 	private static final String RESULT = """
-			{"summary":"摘要","pages":[{"index":1,"description":"无法读清对白","texts":[]}],
-			"characters":[{"name":"黑发角色","description":"身份不确定"}],"relationships":[],"suggestedTags":["漫画"]}
+			{"pages":[{"index":1,"description":"无法读清对白","texts":[]}]}
 			""";
 
 	@BeforeEach
@@ -85,8 +85,7 @@ class GeminiClientTest {
 		var skipped = List.of(new Media(12, 2, "video/mp4"));
 		var inputs = List.of(media.get(0), new Media(13, 3, "image/png"));
 		var result = client.analyze(List.of(IMAGE, "data:image/jpeg;base64,Ag=="), inputs, skipped);
-		assertEquals("摘要", result.summary());
-		assertEquals("黑发角色", result.characters().get(0).name());
+		assertEquals(2, result.pages().size());
 		assertEquals(inputs, result.analyzedAssets());
 		assertEquals(skipped, result.skippedAssets());
 		assertEquals(MODEL + "-version", result.model());
@@ -101,12 +100,14 @@ class GeminiClientTest {
 			assertEquals(3, json.size());
 			var generationConfig = json.path("generationConfig");
 			assertEquals(3000, generationConfig.path("maxOutputTokens").asInt());
+			assertEquals("low", generationConfig.path("thinkingConfig").path("thinkingLevel").asText(),
+					"Default Hydrogen sends explicit low thinkingLevel");
 			assertFalse(generationConfig.has("responseFormat"), "Do not send the rejected responseFormat.text.mimeType path");
 			assertEquals("application/json", generationConfig.path("responseMimeType").asText());
 			var schema = generationConfig.path("responseSchema");
 			assertEquals("object", schema.path("type").asText());
-			assertEquals(mapper.valueToTree(List.of("summary", "pages", "characters", "relationships", "suggestedTags")), schema.path("required"));
-			assertEquals(5, schema.path("properties").size());
+			assertEquals(mapper.valueToTree(List.of("pages")), schema.path("required"));
+			assertEquals(1, schema.path("properties").size());
 			assertTrue(schema.findValues("additionalProperties").isEmpty(), "No additionalProperties at any schema depth");
 			var pageSchema = schema.path("properties").path("pages").path("items");
 			assertEquals(mapper.valueToTree(List.of("index", "description", "texts")), pageSchema.path("required"));
@@ -117,7 +118,6 @@ class GeminiClientTest {
 			for (String field : List.of("source", "translation", "note")) {
 				assertEquals("string", textSchema.path("properties").path(field).path("type").asText());
 			}
-			assertEquals(mapper.valueToTree(List.of("name", "description")), schema.path("properties").path("characters").path("items").path("required"));
 			var content = json.path("contents").path(0).path("parts");
 			assertEquals("user", json.path("contents").path(0).path("role").asText());
 			assertTrue(content.path(0).path("text").isString());
@@ -125,11 +125,35 @@ class GeminiClientTest {
 			assertEquals("AQ==", content.path(1).path("inlineData").path("data").asText());
 			assertEquals("Ag==", content.path(2).path("inlineData").path("data").asText());
 			String prompt = json.path("systemInstruction").path("parts").path(0).path("text").asText();
-			for (String instruction : List.of("禁止依据作品常识猜具体姓名", "大致阅读顺序", "对话框、旁白、注释、拟声词",
-					"source 尽量保留图片中的原文", "翻译成简体中文", "[无法辨认]", "禁止凭剧情脑补", "texts 返回空数组",
-					"用户名、水印、作者签名")) assertTrue(prompt.contains(instruction), instruction);
+			for (String instruction : List.of("对话框、旁白、拟声词、招牌和有内容意义的小字", "按画面阅读顺序列出",
+					"source 保留原文", "translation 用自然的简体中文", "note 只写简短位置或类型", "[无法辨认]",
+					"保留仍可辨认的字，不补写", "texts 为空数组", "最多 40 字", "忽略签名、水印和用户名",
+					"index 从 1 连续编号", "每页最多 40 条文字")) assertTrue(prompt.contains(instruction), instruction);
 			return true;
 		}), any(HttpResponse.BodyHandler.class));
+	}
+
+	@Test
+	void explicitFlashLiteConfigurationStaysCompatibleAndOmitsThinkingConfig() {
+		reply(200, envelope(RESULT));
+		var liteClient = new GeminiClient(http, mapper, true, "test-only-key", LITE_MODEL, 90);
+		liteClient.analyze(List.of(IMAGE), media, List.of());
+		verify(http).sendAsync(argThat(request -> {
+			assertEquals("https://generativelanguage.googleapis.com/v1beta/models/" + LITE_MODEL + ":generateContent", request.uri().toString());
+			var json = mapper.readTree(body(request));
+			assertFalse(json.path("generationConfig").has("thinkingConfig"), "Explicit Lite keeps minimal by omitting thinkingConfig");
+			return true;
+		}), any(HttpResponse.BodyHandler.class));
+	}
+
+	@Test
+	void maxTokensAndModelUnavailableErrorsReportSafeDetails() {
+		reply(200, envelope(RESULT).replace("\"STOP\"", "\"MAX_TOKENS\""));
+		assertTrue(status(502, this::analyze).getReason().contains("MAX_TOKENS"));
+		reply(404, googleError(404, "NOT_FOUND", "models/gemini-4-hydrogen is not found"));
+		String msg404 = status(503, this::analyze).getReason();
+		assertTrue(msg404.contains("gemini-4-hydrogen") && msg404.contains("404") && msg404.contains("NOT_FOUND"));
+		assertFalse(msg404.contains("未启用"));
 	}
 
 	@Test
@@ -213,11 +237,11 @@ class GeminiClientTest {
 	}
 
 	@Test
-	void rejectsInvalidJsonMissingFieldsWrongTypesPageCountIndicesAndArrayOverflow() {
+	void rejectsInvalidJsonMissingFieldsWrongTypesPageCountIndicesAndExtraFields() {
 		for (String invalid : List.of("not json", "null", "{}", RESULT + " {}", RESULT.replace("\"index\":1", "\"index\":2"),
-				RESULT.replace("\"index\":1", "\"index\":1.0"), RESULT.replace("\"suggestedTags\":[\"漫画\"]", "\"suggestedTags\":null"),
-				RESULT.replace("\"summary\":\"摘要\"", "\"summary\":22"),
-				RESULT.replace("\"relationships\":[]", "\"relationships\":[" + "\"候选\",".repeat(8) + "\"候选\"]"))) {
+				RESULT.replace("\"index\":1", "\"index\":1.0"), RESULT.replace("\"texts\":[]", "\"texts\":null"),
+				RESULT.replace("\"description\":\"无法读清对白\"", "\"description\":22"),
+				RESULT.replace("}", ",\"summary\":\"摘要\"}"))) {
 			reply(200, envelope(invalid)); status(502, this::analyze);
 		}
 		reply(200, "not json"); status(502, this::analyze);
@@ -246,7 +270,7 @@ class GeminiClientTest {
 						java.util.Map.of("text", RESULT.substring(split))))))));
 		reply(200, response);
 		var result = client.analyze(List.of(IMAGE), media, List.of());
-		assertEquals("摘要", result.summary());
+		assertEquals("无法读清对白", result.pages().get(0).description());
 		assertEquals(MODEL, result.model());
 	}
 
@@ -331,7 +355,7 @@ class GeminiClientTest {
 			});
 			status(502, this::analyze);
 			assertTrue(onlyLog().contains("[request data omitted]"));
-			assertFalse(onlyLog().contains("用中文分析"));
+			assertFalse(onlyLog().contains("按提供的图片顺序"));
 			assertFalse(onlyLog().contains("inlineData"));
 			assertFalse(onlyLog().contains("generationConfig"));
 		}

@@ -28,6 +28,8 @@ final class FakeIntegrations implements AutoCloseable {
 	static final String REJECTED_CLIENT = "fake-rejected-client";
 	static final String GOOD_KEY = "fake-good-key";
 	static final String QUOTA_KEY = "fake-quota-key";
+	static final String TRUNCATE_KEY = "fake-truncate-key";
+	static final String NO_HYDROGEN_KEY = "fake-no-hydrogen-key";
 	static final String ACCOUNT = "fake_collector";
 	private static final String USER_ID = "4242";
 	private static final ObjectMapper JSON = new ObjectMapper();
@@ -88,23 +90,36 @@ final class FakeIntegrations implements AutoCloseable {
 
 	private void analyze(HttpExchange exchange) throws IOException {
 		String key = exchange.getRequestHeaders().getFirst("x-goog-api-key");
+		String path = exchange.getRequestURI().getPath();
+		boolean hydrogen = path.contains("gemini-4-hydrogen");
 		JsonNode request = JSON.readTree(exchange.getRequestBody().readAllBytes());
 		if (QUOTA_KEY.equals(key)) {
 			reply(exchange, 429, "{\"error\":{\"code\":429,\"status\":\"RESOURCE_EXHAUSTED\",\"message\":\"fake quota\"}}");
-		} else if (!GOOD_KEY.equals(key)) {
+		} else if (NO_HYDROGEN_KEY.equals(key) && hydrogen) {
+			reply(exchange, 404, "{\"error\":{\"code\":404,\"status\":\"NOT_FOUND\",\"message\":\"models/gemini-4-hydrogen is not found\"}}");
+		} else if (TRUNCATE_KEY.equals(key)) {
+			reply(exchange, 200, "{\"candidates\":[{\"finishReason\":\"MAX_TOKENS\",\"content\":{\"parts\":[{\"text\":\"{\"}]}}]}");
+		} else if (!GOOD_KEY.equals(key) && !NO_HYDROGEN_KEY.equals(key)) {
 			reply(exchange, 400, "{\"error\":{\"code\":400,\"status\":\"INVALID_ARGUMENT\",\"message\":\"fake rejection\"}}");
 		} else {
-			reply(exchange, 200, answer((int) request.path("contents").get(0).path("parts").valueStream()
-					.filter(part -> part.has("inlineData")).count()));
+			int images = (int) request.path("contents").get(0).path("parts").valueStream()
+					.filter(part -> part.has("inlineData")).count();
+			reply(exchange, 200, answer(images, hydrogen ? "gemini-4-hydrogen" : "gemini-3.1-flash-lite"));
 		}
 	}
 
-	private static String answer(int images) {
-		var pages = IntStream.rangeClosed(1, images).mapToObj(index -> Map.of("index", index, "description", "模拟分析：第 " + index + " 张",
-				"texts", List.of(Map.of("source", "こんにちは", "translation", "你好", "note", "模拟文字")))).toList();
-		String analysis = JSON.writeValueAsString(Map.of("summary", "这是模拟服务返回的分析，没有调用真实 Gemini。", "pages", pages,
-				"characters", List.of(), "relationships", List.of(), "suggestedTags", List.of("模拟")));
-		return JSON.writeValueAsString(Map.of("candidates", List.of(Map.of("finishReason", "STOP",
+	private static String answer(int images, String model) {
+		var pages = IntStream.rangeClosed(1, images).mapToObj(index -> {
+			if (index == 2) {
+				return Map.of("index", index, "description", "晴空下的无人花海插画", "texts", List.of());
+			}
+			return Map.of("index", index, "description", "人物面对面交谈并写有对话框",
+					"texts", List.of(
+							Map.of("source", "こんにちは\n元気？", "translation", "你好\n最近怎么样？", "note", "右上对白"),
+							Map.of("source", "[无法辨认]", "translation", "[无法辨认]", "note", "背景小字")));
+		}).toList();
+		String analysis = JSON.writeValueAsString(Map.of("pages", pages));
+		return JSON.writeValueAsString(Map.of("modelVersion", model + "-mock", "candidates", List.of(Map.of("finishReason", "STOP",
 				"content", Map.of("parts", List.of(Map.of("text", analysis)))))));
 	}
 

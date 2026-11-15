@@ -58,13 +58,28 @@ class IllustrationAiAnalysisServiceTest {
 				assertEquals(count, images.size());
 				assertEquals(IntStream.rangeClosed(1, count).boxed().toList(), media.stream().map(Media::position).toList());
 				for (String image : images) assertTrue(image.startsWith("data:image/jpeg;base64,/9j/"));
-				return new AiAnalysisResponse("摘要", List.of(), List.of(), List.of(), List.of(), "free", media, List.of());
+				return new AiAnalysisResponse(List.of(), "free", media, List.of());
 			}).when(client).analyze(anyList(), anyList(), anyList());
-			assertEquals(count, service.analyze(7).analyzedAssets().size());
+			var response = service.analyze(7);
+			assertEquals(count, response.analyzedAssets().size());
 		}
 		verify(storage, never()).store(anyString(), any());
 		verify(storage, never()).delete(anyString());
 		verify(assets, never()).insert(anyLong(), anyString(), anyString(), anyString(), anyLong(), anyInt());
+	}
+
+	@Test
+	void returnsClientResponseAndMeasuresLocalPreparationAndHttpCall() throws Exception {
+		existing();
+		var png = source(1, "image/png");
+		when(assets.findAnalysisSources(7)).thenReturn(List.of(png));
+		var expected = new AiAnalysisResponse(
+				List.of(new AiAnalysisResponse.Page(1, "一位站在阳光下的少女", List.of())),
+				"gemini-4-hydrogen-v1", List.of(new Media(1, 1, "image/png")), List.of());
+		when(client.analyze(anyList(), anyList(), anyList())).thenReturn(expected);
+		var response = service.analyze(7);
+		assertSame(expected, response);
+		verify(client).analyze(anyList(), eq(List.of(new Media(1, 1, "image/png"))), eq(List.of()));
 	}
 
 	@Test

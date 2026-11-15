@@ -193,18 +193,6 @@
 .import-problems { max-height: 9.6em; overflow-y: auto; margin: 12px 0 0; padding: 8px 12px 8px 28px; border-radius: 6px; background: var(--paper-2); color: var(--ink-2); font: 12px/1.6 Consolas, monospace; overflow-wrap: anywhere; }
 .import-problems[hidden], #import-confirm [hidden] { display: none; }
 
-/* ---------------- 看图器 · AI 分析 ---------------- */
-
-.ai-section h4 { margin: 12px 0 4px; color: var(--muted); font-size: 12px; font-weight: 400; }
-.ai-section .btn { margin-top: 6px; }
-.ai-note { margin: 6px 0 0; color: var(--faint); font-size: 12px; line-height: 1.5; }
-.ai-error { margin: 0; color: var(--danger); font-size: 13px; }
-.ai-text { margin: 0 0 6px; color: var(--ink-2); font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
-.ai-texts { margin: 4px 0 0; font-size: 13px; line-height: 1.5; }
-.ai-texts dt { margin-top: 8px; color: var(--muted); }
-.ai-texts dd { margin: 0; color: var(--ink); }
-.ai-tag { padding: 2px 8px; border-radius: 8px; color: var(--ink-2); background: var(--paper-2); font-size: 12px; }
-
 .x-restore-trash { height: 24px; padding: 0 8px; border-radius: 6px; font-size: 12px; vertical-align: baseline; }
 
 /* ---------------- 回收站 ---------------- */

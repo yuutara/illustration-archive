@@ -111,12 +111,8 @@
         overview.className = "image-viewer-ai-overview";
         overview.open = overviewOpen;
         const trigger = document.createElement("summary");
-        trigger.textContent = "全篇摘要、角色与标签";
+        trigger.textContent = "模型与未分析媒体";
         overview.appendChild(trigger);
-        section(overview, "全篇摘要", [result.summary]);
-        section(overview, "角色候选", result.characters.map(character => `${character.name || "身份未确认的角色"}：${character.description}`));
-        section(overview, "关系候选", result.relationships);
-        section(overview, "Tag 建议", result.suggestedTags);
         if (result.skippedAssets.length) section(overview, "已跳过的媒体", result.skippedAssets.map(media =>
             `作品第 ${media.position} 张（${media.mimeType}）未分析。`));
         paragraph(overview, `本次模型：${result.model}`, "image-viewer-ai-notice");
@@ -135,10 +131,9 @@
     }
 
     function validMedia(result, assets) {
-        if (!result || typeof result !== "object" || typeof result.summary !== "string" || typeof result.model !== "string"
+        if (!result || typeof result !== "object" || typeof result.model !== "string"
             || !Array.isArray(result.pages) || !Array.isArray(result.analyzedAssets)
-            || !Array.isArray(result.skippedAssets) || !Array.isArray(result.characters)
-            || !Array.isArray(result.relationships) || !Array.isArray(result.suggestedTags)
+            || !Array.isArray(result.skippedAssets)
             || result.pages.length !== result.analyzedAssets.length) return false;
         const media = [...result.analyzedAssets, ...result.skippedAssets];
         if (media.length !== assets.length || new Set(media.map(item => String(item.assetId))).size !== assets.length) return false;
@@ -146,10 +141,7 @@
             && item.position === index + 1 && item.mimeType === asset.mimeType))) return false;
         return result.pages.every((page, index) => page.index === index + 1 && typeof page.description === "string"
             && Array.isArray(page.texts) && page.texts.every(text => typeof text.source === "string"
-                && typeof text.translation === "string" && (text.note == null || typeof text.note === "string")))
-            && result.characters.every(item => item && typeof item.description === "string")
-            && result.relationships.every(item => typeof item === "string")
-            && result.suggestedTags.every(item => typeof item === "string");
+                && typeof text.translation === "string" && (text.note == null || typeof text.note === "string")));
     }
 
     function takeHandoff(token, id, assets) {

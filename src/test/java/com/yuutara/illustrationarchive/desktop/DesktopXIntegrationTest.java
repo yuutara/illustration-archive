@@ -1271,8 +1271,8 @@ class DesktopXIntegrationTest {
 	}
 
 	private static String geminiAnswer() {
-		String analysis = JSON.writeValueAsString(Map.of("summary", "摘要", "characters", List.of(), "relationships", List.of(),
-				"suggestedTags", List.of(), "pages", List.of(Map.of("index", 1, "description", "画面", "texts", List.of()))));
+		String analysis = JSON.writeValueAsString(Map.of("pages",
+				List.of(Map.of("index", 1, "description", "画面", "texts", List.of()))));
 		return JSON.writeValueAsString(Map.of("candidates", List.of(Map.of("finishReason", "STOP",
 				"content", Map.of("parts", List.of(Map.of("text", analysis)))))));
 	}
